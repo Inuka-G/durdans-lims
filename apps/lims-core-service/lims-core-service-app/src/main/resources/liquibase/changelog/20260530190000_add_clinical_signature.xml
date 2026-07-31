@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+
+    <!-- WHY (Phase 7): record an electronic-signature manifestation (who/when/
+         meaning) at clinical authorization — the Part 11-style signing record. -->
+    <changeSet id="20260530190000-1-add-clinical-signature" author="lims">
+        <addColumn tableName="test_results">
+            <column name="clinical_signature" type="varchar(255)"/>
+        </addColumn>
+    </changeSet>
+
+</databaseChangeLog>

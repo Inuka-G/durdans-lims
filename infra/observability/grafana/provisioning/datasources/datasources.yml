@@ -1,0 +1,19 @@
+# Grafana datasources provisioned as code (G6/G7): Prometheus for metrics, Tempo for
+# traces. With both present, Grafana's Explore can pivot from a metric/log to its trace.
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+
+  - name: Tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    jsonData:
+      tracesToMetrics:
+        datasourceUid: prometheus
+      serviceMap:
+        datasourceUid: prometheus

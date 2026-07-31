@@ -1,0 +1,75 @@
+name: Security
+
+# Repo-wide checks — deliberately NOT path-filtered. A secret or a bad commit
+# can arrive through any directory, so these run on every push and PR.
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  secret-scan:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # The gitleaks CLI (MIT, free) rather than gitleaks-action@v2, which needs a
+      # paid GITLEAKS_LICENSE for org-owned repos. `detect` exits non-zero on a
+      # finding, so CI fails on a leaked secret.
+      - name: gitleaks
+        run: |
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:latest \
+            detect --source=/repo --redact --no-banner
+
+  no-autorun-tasks:
+    name: No auto-executing editor tasks
+    runs-on: ubuntu-latest
+    # A committed .vscode/tasks.json with "runOn": "folderOpen" executes on any
+    # contributor's machine the moment they open the repo, with no prompt if
+    # settings.json also sets task.allowAutomaticTasks. That is how the May 2026
+    # incident happened (see docs/SECURITY-INCIDENT-2026-07.md). Never again.
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject folderOpen tasks and autorun consent bypass
+        run: |
+          if git ls-files | grep -qE '(^|/)\.vscode/'; then
+            echo "::error::.vscode/ must not be committed — it can carry auto-executing tasks."
+            git ls-files | grep -E '(^|/)\.vscode/'
+            exit 1
+          fi
+          # Scan config files only. SECURITY.md, docs/SECURITY-INCIDENT-2026-07.md
+          # and this workflow all name these keys on purpose; matching prose would
+          # make the check fail on its own documentation.
+          HITS=$(git ls-files '*.json' '*.jsonc' '*.code-workspace' \
+                 | xargs -r grep -lE 'folderOpen|allowAutomaticTasks' || true)
+          if [ -n "$HITS" ]; then
+            echo "::error::Auto-running editor task or consent bypass found in: $HITS"
+            exit 1
+          fi
+          echo "clean"
+
+  commit-hygiene:
+    name: Commit hygiene
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Reject tool attribution in commit messages
+        run: |
+          RANGE="origin/${{ github.base_ref }}..HEAD"
+          if git log "$RANGE" --format='%an%n%ae%n%cn%n%ce%n%B' \
+             | grep -iE 'co-authored-by:[[:space:]]*(claude|cursor|copilot)|noreply@anthropic\.com|cursoragent@cursor\.com|generated with \[?claude|made-with:[[:space:]]*cursor'; then
+            echo "::error::Commit metadata contains AI tool attribution. Amend it out before merging."
+            exit 1
+          fi
+          echo "clean"

@@ -1,0 +1,173 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+
+    <!--
+      H3 — Tamper-evident audit log (ISO 15189 / CAP / 21 CFR Part 11).
+
+      Each audit row is SEALED on INSERT by a BEFORE-INSERT trigger that:
+        * assigns a monotonic ordinal `seq` from a sequence (the random-UUID PK and
+          the non-unique LocalDateTime `timestamp` give no deterministic chain order),
+        * reads the immediately-prior row's `row_hash` as `prev_hash`,
+        * computes `row_hash = sha256(seq | prev_hash | <row content> )`.
+      That makes the table a hash chain: any retro-active edit, deletion or
+      re-ordering breaks the chain and is detected by AuditChainVerifier.
+
+      Computing the hash in the DB (not Java) is deliberate:
+        * it cannot be forged from the application layer (even a raw SQL INSERT is
+          chained correctly), and
+        * `pg_advisory_xact_lock` inside the trigger serialises concurrent inserts so
+          the prev_hash read + row_hash write can never fork the chain.
+      The app connects as the `postgres` SUPERUSER, so a REVOKE alone is bypassed —
+      the real immutability guarantee is the BEFORE UPDATE/DELETE/TRUNCATE trigger,
+      which fires even for the owner/superuser. REVOKE is kept as defence-in-depth
+      for a future least-privilege app role.
+
+      Rows written before this changeset keep a NULL row_hash ("pre-chain"); the
+      verifier walks from the first sealed row forward. The hash recipe is mirrored
+      byte-for-byte in com.uom.lims.audit.AuditChainVerifier — change both together.
+    -->
+
+    <changeSet id="20260619120000-1-audit-seq" author="kalana">
+        <createSequence sequenceName="audit_log_seq" startValue="1" incrementBy="1"/>
+        <rollback>
+            <dropSequence sequenceName="audit_log_seq"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="20260619120000-2-audit-chain-columns" author="kalana">
+        <addColumn tableName="audit_log">
+            <column name="seq" type="BIGINT"/>
+            <column name="prev_hash" type="VARCHAR(64)"/>
+            <column name="row_hash" type="VARCHAR(64)"/>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="audit_log" columnName="seq"/>
+            <dropColumn tableName="audit_log" columnName="prev_hash"/>
+            <dropColumn tableName="audit_log" columnName="row_hash"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="20260619120000-3-audit-indexes" author="kalana">
+        <createIndex tableName="audit_log" indexName="ux_audit_log_seq" unique="true">
+            <column name="seq"/>
+        </createIndex>
+        <createIndex tableName="audit_log" indexName="ix_audit_log_entity">
+            <column name="entity_type"/>
+            <column name="entity_id"/>
+        </createIndex>
+        <createIndex tableName="audit_log" indexName="ix_audit_log_branch_ts">
+            <column name="branch_code"/>
+            <column name="timestamp"/>
+        </createIndex>
+        <createIndex tableName="audit_log" indexName="ix_audit_log_patient">
+            <column name="patient_code"/>
+        </createIndex>
+        <rollback>
+            <dropIndex tableName="audit_log" indexName="ux_audit_log_seq"/>
+            <dropIndex tableName="audit_log" indexName="ix_audit_log_entity"/>
+            <dropIndex tableName="audit_log" indexName="ix_audit_log_branch_ts"/>
+            <dropIndex tableName="audit_log" indexName="ix_audit_log_patient"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="20260619120000-4-pgcrypto" author="kalana">
+        <sql>CREATE EXTENSION IF NOT EXISTS pgcrypto;</sql>
+        <rollback/>
+    </changeSet>
+
+    <changeSet id="20260619120000-5-audit-seal-trigger" author="kalana" runOnChange="true">
+        <sql splitStatements="false"><![CDATA[
+CREATE OR REPLACE FUNCTION audit_log_seal() RETURNS trigger AS $$
+DECLARE
+    v_prev   text;
+    v_input  text;
+    c_genesis constant text := repeat('0', 64);
+BEGIN
+    -- Serialise audit appends so the prev_hash read + row_hash write are atomic
+    -- across concurrent transactions (re-entrant within one txn). Released at commit.
+    PERFORM pg_advisory_xact_lock(4915623420);
+
+    NEW.seq := nextval('audit_log_seq');
+
+    SELECT row_hash INTO v_prev
+    FROM audit_log
+    WHERE row_hash IS NOT NULL
+    ORDER BY seq DESC
+    LIMIT 1;
+
+    IF v_prev IS NULL THEN
+        v_prev := c_genesis;
+    END IF;
+    NEW.prev_hash := v_prev;
+
+    v_input := COALESCE(NEW.seq::text, '') || '|' || v_prev || '|'
+        || COALESCE(NEW.action, '') || '|'
+        || COALESCE(NEW.entity_type, '') || '|'
+        || COALESCE(NEW.entity_id::text, '') || '|'
+        || COALESCE(NEW.patient_code, '') || '|'
+        || COALESCE(NEW.performed_by, '') || '|'
+        || COALESCE(NEW.branch_code, '') || '|'
+        || COALESCE(NEW.ip_address, '') || '|'
+        || to_char(NEW.timestamp, 'YYYY-MM-DD"T"HH24:MI:SS.US') || '|'
+        || COALESCE(NEW.details::text, '');
+
+    NEW.row_hash := encode(digest(v_input, 'sha256'), 'hex');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+        ]]></sql>
+
+        <sql splitStatements="false"><![CDATA[
+DROP TRIGGER IF EXISTS trg_audit_log_seal ON audit_log;
+CREATE TRIGGER trg_audit_log_seal
+    BEFORE INSERT ON audit_log
+    FOR EACH ROW EXECUTE FUNCTION audit_log_seal();
+        ]]></sql>
+
+        <rollback>
+            <sql>DROP TRIGGER IF EXISTS trg_audit_log_seal ON audit_log;</sql>
+            <sql>DROP FUNCTION IF EXISTS audit_log_seal();</sql>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="20260619120000-6-audit-append-only-trigger" author="kalana" runOnChange="true">
+        <sql splitStatements="false"><![CDATA[
+CREATE OR REPLACE FUNCTION audit_log_block_mutation() RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION 'audit_log is append-only and tamper-evident; % is not permitted', TG_OP
+        USING ERRCODE = 'check_violation';
+END;
+$$ LANGUAGE plpgsql;
+        ]]></sql>
+
+        <sql splitStatements="false"><![CDATA[
+DROP TRIGGER IF EXISTS trg_audit_log_no_update_delete ON audit_log;
+CREATE TRIGGER trg_audit_log_no_update_delete
+    BEFORE UPDATE OR DELETE ON audit_log
+    FOR EACH ROW EXECUTE FUNCTION audit_log_block_mutation();
+        ]]></sql>
+
+        <sql splitStatements="false"><![CDATA[
+DROP TRIGGER IF EXISTS trg_audit_log_no_truncate ON audit_log;
+CREATE TRIGGER trg_audit_log_no_truncate
+    BEFORE TRUNCATE ON audit_log
+    FOR EACH STATEMENT EXECUTE FUNCTION audit_log_block_mutation();
+        ]]></sql>
+
+        <rollback>
+            <sql>DROP TRIGGER IF EXISTS trg_audit_log_no_update_delete ON audit_log;</sql>
+            <sql>DROP TRIGGER IF EXISTS trg_audit_log_no_truncate ON audit_log;</sql>
+            <sql>DROP FUNCTION IF EXISTS audit_log_block_mutation();</sql>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="20260619120000-7-audit-revoke-mutation" author="kalana">
+        <sql>REVOKE UPDATE, DELETE, TRUNCATE ON audit_log FROM PUBLIC;</sql>
+        <rollback/>
+    </changeSet>
+
+</databaseChangeLog>

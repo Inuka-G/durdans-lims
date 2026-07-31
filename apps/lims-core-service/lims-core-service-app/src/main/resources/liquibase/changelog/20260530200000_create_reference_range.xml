@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+
+    <!-- WHY (Phase 2 depth): reference intervals are not universal — they vary by
+         sex and age. This table holds sex/age-banded ranges (with critical limits)
+         per parameter, the structure ISO 15189 expects. The single ref_low/high on
+         test_parameters remains the fallback when no banded range matches. -->
+    <changeSet id="20260530200000-1-create-reference-range" author="lims">
+        <createTable tableName="reference_range">
+            <column name="id" type="uuid">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="parameter_id" type="uuid">
+                <constraints nullable="false"/>
+            </column>
+            <column name="sex" type="varchar(8)" defaultValue="ANY">
+                <constraints nullable="false"/>
+            </column>
+            <column name="age_low_years" type="integer"/>
+            <column name="age_high_years" type="integer"/>
+            <column name="ref_low" type="numeric(10,2)"/>
+            <column name="ref_high" type="numeric(10,2)"/>
+            <column name="critical_low" type="numeric(10,2)"/>
+            <column name="critical_high" type="numeric(10,2)"/>
+        </createTable>
+        <createIndex tableName="reference_range" indexName="idx_reference_range_parameter">
+            <column name="parameter_id"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="20260530200000-2-seed-sex-specific-hb" author="lims">
+        <comment>Sex-specific adult Hemoglobin ranges (the single seed range collapsed these).</comment>
+        <sql dbms="postgresql"><![CDATA[
+INSERT INTO reference_range (id, parameter_id, sex, age_low_years, age_high_years, ref_low, ref_high, critical_low, critical_high)
+VALUES
+  ('41111111-1111-4111-8111-111111110001', '21111111-1111-4111-8111-111111111003', 'M', 18, NULL, 13.0, 17.0, 7.0, 20.0),
+  ('41111111-1111-4111-8111-111111110002', '21111111-1111-4111-8111-111111111003', 'F', 18, NULL, 12.0, 15.5, 7.0, 20.0)
+ON CONFLICT (id) DO NOTHING;
+        ]]></sql>
+    </changeSet>
+
+</databaseChangeLog>

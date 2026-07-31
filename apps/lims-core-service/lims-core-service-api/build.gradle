@@ -1,0 +1,32 @@
+plugins {
+    id 'java-library'
+    id 'maven-publish'
+}
+
+
+dependencyManagement {
+    imports {
+        mavenBom "org.springframework.boot:spring-boot-dependencies:3.5.10"
+    }
+}
+
+dependencies {
+    // web
+    api 'org.springframework.boot:spring-boot-starter-web'
+
+    // Basic validation and JSON annotations
+    api 'org.springframework.boot:spring-boot-starter-validation'
+    api 'com.fasterxml.jackson.core:jackson-annotations'
+
+    // Lombok
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
+
+    // Swagger Annotations
+    api 'io.swagger.core.v3:swagger-annotations:2.2.20'
+
+    // Spring Data Commons for Pageable and PageableDefault
+    api 'org.springframework.data:spring-data-commons'
+}
+
+// Ensure it's a plain library, not a bootable app

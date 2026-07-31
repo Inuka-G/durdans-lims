@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  G4 — structured logging.
+
+  * docker / prod profiles  → one-line JSON per event (LogstashEncoder) with the MDC
+    correlationId and a service field, for aggregation.
+  * any other profile (dev / host-run / test) → human-readable console with the
+    correlationId in the line.
+
+  Per-package levels keep framework noise down so the JSON stream stays readable. PII is
+  masked at the SOURCE via com.uom.lims.util.PiiMasker (the real control); raw PII must
+  never be passed to a logger.
+-->
+<configuration>
+
+    <!-- ==== JSON for containerized / production ==== -->
+    <springProfile name="docker | prod">
+        <appender name="JSON" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+                <includeMdcKeyName>correlationId</includeMdcKeyName>
+                <customFields>{"service":"lims-core-service"}</customFields>
+            </encoder>
+        </appender>
+        <root level="${LOG_LEVEL_ROOT:-INFO}">
+            <appender-ref ref="JSON"/>
+        </root>
+    </springProfile>
+
+    <!-- ==== Human-readable for everything else ==== -->
+    <springProfile name="!docker &amp; !prod">
+        <appender name="PRETTY" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder>
+                <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%X{correlationId:-}] %logger{36} - %msg%n</pattern>
+            </encoder>
+        </appender>
+        <root level="${LOG_LEVEL_ROOT:-INFO}">
+            <appender-ref ref="PRETTY"/>
+        </root>
+    </springProfile>
+
+    <!-- ==== Per-package levels (apply in all profiles) ==== -->
+    <logger name="com.uom.lims" level="${LOG_LEVEL_APP:-INFO}"/>
+    <logger name="org.hibernate.SQL" level="WARN"/>
+    <logger name="org.springframework.web" level="INFO"/>
+    <logger name="org.springframework.security" level="INFO"/>
+    <logger name="org.apache.kafka" level="WARN"/>
+    <logger name="liquibase" level="INFO"/>
+    <logger name="software.amazon.awssdk" level="WARN"/>
+
+</configuration>

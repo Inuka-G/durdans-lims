@@ -1,0 +1,20 @@
+# Local development overrides — COPY to application-local.yml (git-ignored) and
+# fill in real local values. Run with: --spring.profiles.active=local
+#
+# Never commit application-local.yml. The base application.yml ships only safe,
+# non-secret defaults; real credentials live here or in environment variables.
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5433/durdans_lims_db
+    username: postgres
+    password: CHANGE_ME            # your rotated local DB password
+
+  mail:
+    username: your-mailbox@gmail.com
+    password: CHANGE_ME            # a Gmail App Password (rotate if ever leaked)
+
+  cloud:
+    aws:
+      credentials:
+        access-key: test           # LocalStack default
+        secret-key: test

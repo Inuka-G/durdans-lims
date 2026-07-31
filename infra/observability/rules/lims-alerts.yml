@@ -1,0 +1,101 @@
+# Durdans LIMS — Prometheus alert rules (G2).
+# Loaded via prometheus.yml `rule_files: /etc/prometheus/rules/*.yml`.
+# Every expr is scoped to job="lims-core-service" so Keycloak metrics never satisfy an
+# app rule. Thresholds are conservative clinical defaults — tune per environment.
+groups:
+  # ---- Patient-safety: page immediately ----
+  - name: lims-clinical-safety
+    rules:
+      - alert: CriticalValueUnacknowledged
+        expr: lims_critical_overdue{job="lims-core-service"} > 0
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          summary: "Critical (panic) lab value past its acknowledgment SLA"
+          description: "{{ $value }} critical-value callback(s) have not been acknowledged with a read-back within the SLA. A panic result may be sitting unseen."
+
+      - alert: OutboxDeadLetter
+        expr: lims_outbox_dead_letter{job="lims-core-service"} > 0
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          summary: "Outbox event dead-lettered (a domain event was dropped)"
+          description: "{{ $value }} outbox event(s) exhausted their retries. An authorized-report / instrument-result event was not delivered."
+
+  # ---- Delivery / reliability: warn ----
+  - name: lims-delivery
+    rules:
+      - alert: ReportDispatchFailures
+        expr: lims_dispatch_failed{job="lims-core-service"} > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Report dispatch items stuck in FAILED"
+          description: "{{ $value }} authorized report(s) failed to dispatch over the last 10m."
+
+      - alert: OutboxBacklogGrowing
+        expr: lims_outbox_backlog{job="lims-core-service"} > 100
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Outbox backlog is large"
+          description: "{{ $value }} unpublished outbox events — the relay may be unable to reach Kafka."
+
+  # ---- API health (default Micrometer HTTP metrics) ----
+  - name: lims-http
+    rules:
+      - alert: HighServerErrorRate
+        expr: |
+          sum(rate(http_server_requests_seconds_count{job="lims-core-service",status=~"5.."}[5m]))
+          /
+          sum(rate(http_server_requests_seconds_count{job="lims-core-service"}[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "5xx error rate > 5%"
+          description: "{{ $value | humanizePercentage }} of requests are 5xx over the last 5m."
+
+      - alert: HighP99Latency
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(http_server_requests_seconds_bucket{job="lims-core-service"}[5m])) by (le)) > 1.5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "p99 latency > 1.5s"
+          description: "API p99 latency is {{ $value }}s over the last 5m."
+
+  # ---- JVM / DB pool (default Micrometer metrics) ----
+  - name: lims-runtime
+    rules:
+      - alert: JvmHeapPressure
+        expr: |
+          sum(jvm_memory_used_bytes{job="lims-core-service",area="heap"})
+          /
+          sum(jvm_memory_max_bytes{job="lims-core-service",area="heap"}) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "JVM heap > 90%"
+          description: "Heap usage has exceeded 90% for 5m — risk of GC thrash / OOM."
+
+      - alert: DbConnectionPoolExhausted
+        expr: hikaricp_connections_pending{job="lims-core-service"} > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "DB connection pool has threads waiting"
+          description: "{{ $value }} thread(s) are waiting for a HikariCP connection — the pool is saturated."
+
+# NOTE: Kafka consumer-lag (kafka_consumer_fetch_manager_records_lag_max) is not alerted
+# here because the lab-report consumer is feature-flagged off by default
+# (app.kafka.lab-report-listener-enabled=false), so the series only exists once it is
+# enabled. Add a KafkaConsumerLag rule when the consumer is turned on.

@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verification Failed - Durdans LIMS</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: "#137fec",
+                        "background-light": "#f6f7f8",
+                        "background-dark": "#101922",
+                    },
+                    fontFamily: {
+                        display: ["Inter", "sans-serif"],
+                    },
+                },
+            },
+        }
+    </script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+    </style>
+</head>
+
+<body class="bg-background-light min-h-screen flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-xl max-w-md w-full overflow-hidden">
+        <div class="bg-background-dark p-8 text-center">
+            <div class="flex items-center justify-center gap-2 mb-2">
+                <div class="w-10 h-10 bg-primary rounded flex items-center justify-center">
+                    <span class="material-icons text-white">local_hospital</span>
+                </div>
+                <span class="text-2xl font-bold tracking-tight text-white">DURDANS <span
+                        class="text-primary">ERP</span></span>
+            </div>
+        </div>
+
+        <div class="p-8 text-center">
+            <div class="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                <span class="material-icons text-red-500 text-4xl">error_outline</span>
+            </div>
+
+            <h1 class="text-2xl font-bold text-gray-900 mb-2">Verification Failed</h1>
+            <p class="text-gray-600 mb-8">We couldn't verify your email address. The link may be invalid or has expired.
+            </p>
+
+            <div class="space-y-3">
+                <a href="#"
+                    class="block w-full bg-primary hover:bg-blue-600 text-white font-semibold py-3 px-6 rounded-lg transition-colors duration-200">
+                    Resend Verification Email
+                </a>
+                <a href="/contact"
+                    class="block w-full bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 font-semibold py-3 px-6 rounded-lg transition-colors duration-200">
+                    Contact Support
+                </a>
+            </div>
+
+            <div class="mt-8 pt-6 border-t border-gray-100">
+                <p class="text-xs text-gray-400">
+                    &copy;
+                    <script>document.write(new Date().getFullYear())</script> Durdans Hospital. All Rights Reserved.
+                </p>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>

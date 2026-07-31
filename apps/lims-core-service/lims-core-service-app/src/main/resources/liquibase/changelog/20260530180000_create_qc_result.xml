@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+
+    <!-- WHY (Phase 4): persist internal QC runs so QC status is real (evaluated by
+         the Westgard engine) rather than a static JSON file, and so Levey-Jennings
+         charts have data. -->
+    <changeSet id="20260530180000-1-create-qc-result" author="lims">
+        <createTable tableName="qc_result">
+            <column name="id" type="uuid">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="instrument" type="varchar(64)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="analyte" type="varchar(64)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="control_level" type="varchar(16)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="control_lot" type="varchar(64)"/>
+            <column name="measured_value" type="numeric(14,4)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="mean" type="numeric(14,4)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="sd" type="numeric(14,4)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="z_score" type="numeric(8,3)"/>
+            <column name="status" type="varchar(8)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="violations" type="varchar(128)"/>
+            <column name="performed_by" type="varchar(255)"/>
+            <column name="performed_at" type="timestamp with time zone" defaultValueComputed="CURRENT_TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+            <column name="branch_code" type="varchar(50)"/>
+        </createTable>
+        <createIndex tableName="qc_result" indexName="idx_qc_result_series">
+            <column name="instrument"/>
+            <column name="analyte"/>
+            <column name="control_level"/>
+            <column name="performed_at"/>
+        </createIndex>
+    </changeSet>
+
+</databaseChangeLog>

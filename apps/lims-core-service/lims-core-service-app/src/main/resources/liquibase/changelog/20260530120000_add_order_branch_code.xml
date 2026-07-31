@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+
+    <!--
+      WHY: Orders previously carried no branch, so order/bill reads could not be
+      isolated per branch (cross-tenant IDOR). Denormalise the owning branch onto
+      the order so tenant-scoped queries are indexable and a branch user can never
+      read another branch's orders/bills.
+    -->
+    <changeSet id="20260530120000-1-add-order-branch-code" author="lims">
+        <comment>Add branch_code to orders for tenant isolation.</comment>
+        <addColumn tableName="orders">
+            <column name="branch_code" type="varchar(50)"/>
+        </addColumn>
+    </changeSet>
+
+    <changeSet id="20260530120000-2-backfill-order-branch-code" author="lims">
+        <comment>Backfill order branch_code from the patient (orders.patient_id holds patient_code).</comment>
+        <sql dbms="postgresql"><![CDATA[
+UPDATE orders o
+SET branch_code = p.branch_code
+FROM patient p
+WHERE o.patient_id = p.patient_code
+  AND o.branch_code IS NULL;
+        ]]></sql>
+    </changeSet>
+
+    <changeSet id="20260530120000-3-index-order-branch-code" author="lims">
+        <comment>Index for branch-scoped order listing.</comment>
+        <createIndex tableName="orders" indexName="idx_orders_branch_code">
+            <column name="branch_code"/>
+        </createIndex>
+    </changeSet>
+
+</databaseChangeLog>

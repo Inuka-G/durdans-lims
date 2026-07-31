@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+
+    <!-- WHY: a discount that reduces a bill must record why and by whom (the DTO
+         already mandates a reason, but it was previously discarded). -->
+    <changeSet id="20260530150000-1-add-bill-discount-audit" author="lims">
+        <addColumn tableName="bills">
+            <column name="discount_reason" type="varchar(500)"/>
+            <column name="discount_by" type="varchar(255)"/>
+            <column name="discount_at" type="timestamp with time zone"/>
+        </addColumn>
+    </changeSet>
+
+</databaseChangeLog>

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+
+    <!-- WHY: terminal state for the outbox. After the max retry count a row is
+         stamped failed_at and excluded from the relay hot path (no longer retried
+         forever / no unbounded growth at the front of the queue). -->
+    <changeSet id="20260530210000-1-add-outbox-failed-at" author="lims">
+        <addColumn tableName="outbox_event">
+            <column name="failed_at" type="timestamp with time zone"/>
+        </addColumn>
+    </changeSet>
+
+</databaseChangeLog>

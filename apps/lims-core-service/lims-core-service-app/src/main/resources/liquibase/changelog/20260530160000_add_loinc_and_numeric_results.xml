@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+
+    <!--
+      WHY (Phase 2): interoperability + queryable results.
+      - LOINC codes let the LIS map orderables/resultables to a universal
+        terminology for HL7/FHIR exchange and instrument result mapping.
+      - UCUM gives machine-readable units for safe conversion.
+      - result_numeric + result_data_type let numeric results be indexed,
+        range-queried, trended and delta-checked without parsing free text.
+    -->
+    <changeSet id="20260530160000-1-add-coding-and-numeric-columns" author="lims">
+        <addColumn tableName="test_catalog">
+            <column name="loinc_code" type="varchar(20)"/>
+        </addColumn>
+        <addColumn tableName="test_parameters">
+            <column name="loinc_code" type="varchar(20)"/>
+            <column name="ucum_unit" type="varchar(32)"/>
+        </addColumn>
+        <addColumn tableName="test_results">
+            <column name="result_numeric" type="numeric(14,4)"/>
+            <column name="result_data_type" type="varchar(16)"/>
+        </addColumn>
+        <createIndex tableName="test_results" indexName="idx_test_results_parameter_numeric">
+            <column name="parameter_id"/>
+            <column name="result_numeric"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="20260530160000-2-seed-loinc-catalog" author="lims">
+        <comment>LOINC codes for orderable panels/tests.</comment>
+        <sql dbms="postgresql"><![CDATA[
+UPDATE test_catalog SET loinc_code = '58410-2' WHERE test_code = 'FBC';
+UPDATE test_catalog SET loinc_code = '3094-0'  WHERE test_code = 'UREA';
+UPDATE test_catalog SET loinc_code = '2160-0'  WHERE test_code = 'CREA';
+UPDATE test_catalog SET loinc_code = '24326-1' WHERE test_code = 'ELECT';
+UPDATE test_catalog SET loinc_code = '2345-7'  WHERE test_code = 'GLU';
+UPDATE test_catalog SET loinc_code = '24331-1' WHERE test_code = 'LIPID';
+UPDATE test_catalog SET loinc_code = '24325-3' WHERE test_code = 'LFT';
+UPDATE test_catalog SET loinc_code = '3084-1'  WHERE test_code = 'UA';
+        ]]></sql>
+    </changeSet>
+
+    <changeSet id="20260530160000-3-seed-loinc-parameters" author="lims">
+        <comment>LOINC + UCUM for resultable parameters (by parameter id).</comment>
+        <sql dbms="postgresql"><![CDATA[
+UPDATE test_parameters SET loinc_code='6690-2',  ucum_unit='10*9/L'   WHERE id='21111111-1111-4111-8111-111111111001'; -- WBC
+UPDATE test_parameters SET loinc_code='789-8',   ucum_unit='10*12/L'  WHERE id='21111111-1111-4111-8111-111111111002'; -- RBC
+UPDATE test_parameters SET loinc_code='718-7',   ucum_unit='g/dL'     WHERE id='21111111-1111-4111-8111-111111111003'; -- Hemoglobin
+UPDATE test_parameters SET loinc_code='4544-3',  ucum_unit='%'        WHERE id='21111111-1111-4111-8111-111111111004'; -- Hematocrit
+UPDATE test_parameters SET loinc_code='787-2',   ucum_unit='fL'       WHERE id='21111111-1111-4111-8111-111111111005'; -- MCV
+UPDATE test_parameters SET loinc_code='785-6',   ucum_unit='pg'       WHERE id='21111111-1111-4111-8111-111111111006'; -- MCH
+UPDATE test_parameters SET loinc_code='786-4',   ucum_unit='g/dL'     WHERE id='21111111-1111-4111-8111-111111111007'; -- MCHC
+UPDATE test_parameters SET loinc_code='777-3',   ucum_unit='10*9/L'   WHERE id='21111111-1111-4111-8111-111111111008'; -- Platelets
+UPDATE test_parameters SET loinc_code='770-8',   ucum_unit='%'        WHERE id='21111111-1111-4111-8111-111111111009'; -- Neutrophils
+UPDATE test_parameters SET loinc_code='736-9',   ucum_unit='%'        WHERE id='21111111-1111-4111-8111-111111111010'; -- Lymphocytes
+UPDATE test_parameters SET loinc_code='2345-7',  ucum_unit='mg/dL'    WHERE id='21111111-1111-4111-8111-111111111013'; -- Glucose
+UPDATE test_parameters SET loinc_code='4548-4',  ucum_unit='%'        WHERE id='21111111-1111-4111-8111-111111111014'; -- HbA1c
+UPDATE test_parameters SET loinc_code='2093-3',  ucum_unit='mg/dL'    WHERE id='21111111-1111-4111-8111-111111111015'; -- Total Cholesterol
+UPDATE test_parameters SET loinc_code='2571-8',  ucum_unit='mg/dL'    WHERE id='21111111-1111-4111-8111-111111111016'; -- Triglycerides
+UPDATE test_parameters SET loinc_code='2085-9',  ucum_unit='mg/dL'    WHERE id='21111111-1111-4111-8111-111111111017'; -- HDL
+UPDATE test_parameters SET loinc_code='2089-1',  ucum_unit='mg/dL'    WHERE id='21111111-1111-4111-8111-111111111018'; -- LDL
+UPDATE test_parameters SET loinc_code='3094-0',  ucum_unit='mg/dL'    WHERE id='21111111-1111-4111-8111-111111111020'; -- Urea
+UPDATE test_parameters SET loinc_code='2160-0',  ucum_unit='mg/dL'    WHERE id='21111111-1111-4111-8111-111111111021'; -- Creatinine
+UPDATE test_parameters SET loinc_code='3084-1',  ucum_unit='mg/dL'    WHERE id='21111111-1111-4111-8111-111111111022'; -- Uric Acid
+UPDATE test_parameters SET loinc_code='2951-2',  ucum_unit='mmol/L'   WHERE id='21111111-1111-4111-8111-111111111023'; -- Sodium
+UPDATE test_parameters SET loinc_code='2823-3',  ucum_unit='mmol/L'   WHERE id='21111111-1111-4111-8111-111111111024'; -- Potassium
+UPDATE test_parameters SET loinc_code='2075-0',  ucum_unit='mmol/L'   WHERE id='21111111-1111-4111-8111-111111111025'; -- Chloride
+UPDATE test_parameters SET loinc_code='1975-2',  ucum_unit='mg/dL'    WHERE id='21111111-1111-4111-8111-111111111026'; -- Total Bilirubin
+UPDATE test_parameters SET loinc_code='1742-6',  ucum_unit='U/L'      WHERE id='21111111-1111-4111-8111-111111111028'; -- ALT
+UPDATE test_parameters SET loinc_code='1920-8',  ucum_unit='U/L'      WHERE id='21111111-1111-4111-8111-111111111029'; -- AST
+UPDATE test_parameters SET loinc_code='1751-7',  ucum_unit='g/dL'     WHERE id='21111111-1111-4111-8111-111111111031'; -- Albumin
+        ]]></sql>
+    </changeSet>
+
+</databaseChangeLog>

@@ -1,0 +1,74 @@
+plugins {
+    id 'org.springframework.boot'
+}
+
+springBoot {
+    mainClass = 'com.uom.lims.LimsApplication'
+}
+
+dependencies {
+    // 1. Reference the API module
+    implementation project(':lims-core-service-api')
+
+    // 2. Web & Security
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+    implementation 'org.springframework.boot:spring-boot-starter-oauth2-resource-server'
+
+    // 3. Persistence (PostgreSQL)
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    runtimeOnly 'org.postgresql:postgresql'
+
+    // 4. Productivity
+    developmentOnly 'org.springframework.boot:spring-boot-devtools'
+
+    // 5. Liquibase
+    implementation 'org.liquibase:liquibase-core'
+
+
+    implementation 'software.amazon.awssdk:s3'
+    implementation 'software.amazon.awssdk:auth'
+    implementation platform("software.amazon.awssdk:bom:2.25.20")
+    implementation 'org.springframework.boot:spring-boot-starter-cache'
+    implementation 'com.github.ben-manes.caffeine:caffeine'
+    implementation 'org.springframework.boot:spring-boot-starter-mail'
+    implementation 'org.springframework.kafka:spring-kafka'
+
+    // Observability: health/readiness probes + Prometheus metrics
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    implementation 'io.micrometer:micrometer-registry-prometheus'
+
+    // Resilience4j (F2): retry + circuit-breaker on outbound S3/SMTP/HTTP, with
+    // breaker state exported to Micrometer/Prometheus. Versions are pinned because the
+    // Spring dependency-management BOM does not manage Resilience4j.
+    implementation 'io.github.resilience4j:resilience4j-spring-boot3:2.2.0'
+    implementation 'io.github.resilience4j:resilience4j-micrometer:2.2.0'
+
+    // G4: structured JSON logging (one event per line, MDC correlationId) for
+    // aggregation in the containerized/prod profiles. Pinned — not in the Spring BOM.
+    implementation 'net.logstash.logback:logstash-logback-encoder:7.4'
+
+    // G6: distributed tracing — Micrometer Tracing → OpenTelemetry → OTLP (Tempo).
+    // Versions are managed by the Spring Boot BOM, so they are intentionally omitted.
+    implementation 'io.micrometer:micrometer-tracing-bridge-otel'
+    implementation 'io.opentelemetry:opentelemetry-exporter-otlp'
+
+    // Admin: Keycloak user/role management (server-to-server via service account)
+    implementation 'org.keycloak:keycloak-admin-client:24.0.5'
+
+
+    // Test dependencies
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.security:spring-security-test'
+
+    // Integration testing against a real Postgres (the keystone the audit flagged
+    // as missing). Versions are managed by the Spring Boot Testcontainers BOM.
+    testImplementation 'org.springframework.boot:spring-boot-testcontainers'
+    testImplementation 'org.testcontainers:junit-jupiter'
+    testImplementation 'org.testcontainers:postgresql'
+}
+
+bootJar {
+    enabled = true
+    archiveFileName = "lims-core-service.jar"
+}

@@ -1,0 +1,24 @@
+# Patterns here are deliberately UNANCHORED (no leading slash, no embedded slash)
+# so they apply at every depth of the monorepo.
+#
+# gradlew must stay LF and executable. A CRLF gradlew fails on the CI runner with
+# a bare "Permission denied" that looks nothing like a line-ending problem.
+
+* text=auto eol=lf
+
+gradlew   text eol=lf
+*.sh      text eol=lf
+*.bat     text eol=crlf
+*.cmd     text eol=crlf
+
+*.jar     binary
+*.war     binary
+*.woff    binary
+*.woff2   binary
+*.eot     binary
+*.ttf     binary
+*.png     binary
+*.jpg     binary
+*.gif     binary
+*.ico     binary
+*.pdf     binary

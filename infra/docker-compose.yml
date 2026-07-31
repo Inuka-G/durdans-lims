@@ -1,0 +1,310 @@
+# =====================================================================
+# Durdans LIMS — full local/demo stack. One command brings up EVERY service in a
+# container: app + frontend + Keycloak + 2x Postgres + Kafka + LocalStack +
+# Prometheus + Grafana.
+#
+#   cp .env.example .env      # then edit secrets
+#   docker compose up -d --build
+#
+# Published host ports:  frontend 3000 · API 11000 · Keycloak 8081 ·
+#                        Prometheus 9090 · Grafana 3001.
+# The app's management port (11001) is intentionally NOT published — Prometheus
+# scrapes it over the private network only.
+# =====================================================================
+
+name: durdans-lims
+
+networks:
+  lims-net:
+    driver: bridge
+
+services:
+
+  # ---- Keycloak identity DB ----
+  postgres:
+    image: postgres:15
+    container_name: lims-keycloak-db
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-keycloak}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks: [lims-net]
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
+
+  # ---- LIMS application DB ----
+  lims-postgres:
+    image: postgres:15
+    container_name: lims-app-db
+    environment:
+      POSTGRES_DB: durdans_lims_db
+      POSTGRES_USER: ${LIMS_DB_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${LIMS_DB_PASSWORD:-postgres}
+    volumes:
+      - lims_postgres_data:/var/lib/postgresql/data
+    networks: [lims-net]
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${LIMS_DB_USERNAME:-postgres} -d durdans_lims_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
+
+  # ---- Keycloak ----
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0
+    container_name: lims-keycloak
+    command: start-dev --spi-theme-static-max-age=-1 --spi-theme-cache-themes=false --spi-theme-cache-templates=false --import-realm
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-keycloak}
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_HEALTH_ENABLED: "true"
+      KC_METRICS_ENABLED: "true"
+    networks: [lims-net]
+    ports:
+      - "8081:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./keycloak-themes:/opt/keycloak/themes
+      - ./keycloak-imports:/opt/keycloak/data/import
+    # NOTE: the keycloak 24 image is ubi-micro (no shell/curl) so a container
+    # HEALTHCHECK is impractical; dependents use condition: service_started and the
+    # resource server fetches JWKS lazily on first request.
+    restart: always
+
+  # ---- Kafka (KRaft, single node — no Zookeeper) ----
+  # Official Apache image — bitnami/kafka:3.7 was removed from Docker Hub in 2025.
+  kafka:
+    image: apache/kafka:3.8.1
+    container_name: lims-kafka
+    networks: [lims-net]
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      KAFKA_LISTENERS: "PLAINTEXT://:9092,CONTROLLER://:9093"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    restart: always
+
+  # ---- LocalStack (S3 emulation for patient documents) ----
+  localstack:
+    image: localstack/localstack:3
+    container_name: lims-localstack
+    networks: [lims-net]
+    ports:
+      - "4566:4566"
+    environment:
+      SERVICES: s3
+      DEFAULT_REGION: us-east-1
+    volumes:
+      - localstack_data:/var/lib/localstack
+      # Auto-create the patient-documents bucket once LocalStack is ready.
+      - ./localstack/init:/etc/localstack/init/ready.d
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:4566/_localstack/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: always
+
+  # ---- LIMS core service (Spring Boot) ----
+  app:
+    build:
+      context: ../apps/lims-core-service
+      dockerfile: Dockerfile
+    image: durdans-lims/core-service:local
+    container_name: lims-core-service
+    networks: [lims-net]
+    ports:
+      - "11000:11000"   # API only — 11001 (management) stays on the private network
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      DB_USERNAME: ${LIMS_DB_USERNAME:-postgres}
+      DB_PASSWORD: ${LIMS_DB_PASSWORD:-postgres}
+      KEYCLOAK_REALM: lims-realm
+      KEYCLOAK_INTERNAL_URL: http://keycloak:8080
+      KEYCLOAK_PUBLIC_URL: http://localhost:8081
+      # S3 -> LocalStack (test/test are LocalStack defaults, not real secrets)
+      AWS_ACCESS_KEY: test
+      AWS_SECRET_KEY: test
+      # Mail is disabled unless supplied (see .env.example)
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      # G6: export traces to Tempo over OTLP/HTTP on the private network.
+      OTLP_ENDPOINT: http://tempo:4318/v1/traces
+      TRACING_SAMPLE_RATE: ${TRACING_SAMPLE_RATE:-1.0}
+    depends_on:
+      lims-postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+      tempo:
+        condition: service_started
+    restart: always
+
+  # ---- Frontend (Next.js, standalone) ----
+  frontend:
+    build:
+      context: ../apps/frontend
+      dockerfile: Dockerfile
+      args:
+        # Browser-facing URLs (published host ports), inlined at build time.
+        NEXT_PUBLIC_API_URL: http://localhost:11000
+        NEXT_PUBLIC_KEYCLOAK_URL: http://localhost:8081
+        NEXT_PUBLIC_KEYCLOAK_REALM: lims-realm
+        NEXT_PUBLIC_KEYCLOAK_CLIENT_ID: lims-frontend
+    image: durdans-lims/frontend:local
+    container_name: lims-frontend
+    networks: [lims-net]
+    ports:
+      - "3000:3000"
+    depends_on:
+      app:
+        condition: service_started
+    restart: always
+
+  # ---- Nightly logical backup of BOTH Postgres DBs (H5 / DR) ----
+  # Runs pg-backup.sh on a schedule against the app DB and the Keycloak DB, writing
+  # compressed dumps to the named `backups` volume. Set S3_BUCKET to also push them
+  # off-host. The local stack has no WAL archiving, so this is its only backup line.
+  db-backup:
+    image: postgres:15
+    container_name: lims-db-backup
+    networks: [lims-net]
+    environment:
+      PGHOST_APP: lims-postgres
+      PGPORT_APP: "5432"
+      DB_APP: durdans_lims_db
+      PGHOST_KC: postgres
+      PGPORT_KC: "5432"
+      DB_KC: keycloak
+      PGUSER: ${LIMS_DB_USERNAME:-postgres}
+      PGPASSWORD: ${LIMS_DB_PASSWORD:-postgres}
+      KC_USER: keycloak
+      KC_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-keycloak}
+      BACKUP_DIR: /backups
+      RETENTION_DAYS: "14"
+      BACKUP_INTERVAL_SECONDS: "86400"
+      S3_BUCKET: ${BACKUP_S3_BUCKET:-}
+    volumes:
+      - ./scripts:/scripts:ro
+      - backups:/backups
+    entrypoint:
+      - /bin/bash
+      - -c
+      - 'while true; do bash /scripts/pg-backup.sh --run || echo "backup failed"; sleep "${BACKUP_INTERVAL_SECONDS:-86400}"; done'
+    depends_on:
+      lims-postgres:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: always
+
+  # ---- Prometheus (scrapes the app's internal management port) ----
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: lims-prometheus
+    networks: [lims-net]
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/rules:/etc/prometheus/rules:ro
+      - prometheus_data:/prometheus
+    depends_on:
+      app:
+        condition: service_started
+      alertmanager:
+        condition: service_started
+    restart: always
+
+  # ---- Alertmanager (routes firing alerts; G2) ----
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: lims-alertmanager
+    networks: [lims-net]
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./observability/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    restart: always
+
+  # ---- Tempo (trace backend, OTLP receiver; G6) ----
+  tempo:
+    image: grafana/tempo:2.5.0
+    container_name: lims-tempo
+    command: ["-config.file=/etc/tempo.yaml"]
+    networks: [lims-net]
+    ports:
+      - "3200:3200"   # Tempo query API (Grafana datasource)
+    volumes:
+      - ./observability/tempo.yaml:/etc/tempo.yaml:ro
+      - tempo_data:/var/tempo
+    restart: always
+
+  # ---- Grafana ----
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: lims-grafana
+    networks: [lims-net]
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      prometheus:
+        condition: service_started
+      tempo:
+        condition: service_started
+    restart: always
+
+volumes:
+  postgres_data:
+  lims_postgres_data:
+  kafka_data:
+  localstack_data:
+  prometheus_data:
+  grafana_data:
+  backups:
+  alertmanager_data:
+  tempo_data:

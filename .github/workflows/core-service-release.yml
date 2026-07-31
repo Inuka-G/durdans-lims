@@ -1,0 +1,92 @@
+name: Core Service Release
+
+# Build the image, scan it, push to ECR, and roll it out to the host via SSM.
+# All AWS steps are gated on the AWS_DEPLOY_ROLE_ARN repo variable, so before the
+# cloud is wired this workflow still builds + scans the image (useful CI signal).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/lims-core-service/**"
+      - ".github/workflows/core-service-release.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # OIDC -> AWS
+  security-events: write # Trivy SARIF upload
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPO: durdans-lims/core-service
+
+defaults:
+  run:
+    working-directory: apps/lims-core-service
+
+jobs:
+  build-scan-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: Test + build jar
+        run: ./gradlew clean build --no-daemon
+
+      - name: Build image
+        run: docker build -t lims-core-service:${{ github.sha }} .
+
+      - name: Trivy scan (fail on HIGH/CRITICAL)
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: lims-core-service:${{ github.sha }}
+          format: sarif
+          output: trivy-backend.sarif
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+
+      - name: Upload Trivy SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: apps/lims-core-service/trivy-backend.sarif
+
+      - name: Configure AWS credentials (OIDC)
+        if: ${{ vars.AWS_DEPLOY_ROLE_ARN != '' }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        if: ${{ vars.AWS_DEPLOY_ROLE_ARN != '' }}
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Tag + push to ECR
+        if: ${{ vars.AWS_DEPLOY_ROLE_ARN != '' }}
+        run: |
+          REG=${{ steps.ecr.outputs.registry }}
+          docker tag lims-core-service:${{ github.sha }} $REG/$ECR_REPO:${{ github.sha }}
+          docker tag lims-core-service:${{ github.sha }} $REG/$ECR_REPO:latest
+          docker push $REG/$ECR_REPO:${{ github.sha }}
+          docker push $REG/$ECR_REPO:latest
+
+      - name: Deploy to host (SSM — pull + restart)
+        if: ${{ vars.AWS_DEPLOY_ROLE_ARN != '' }}
+        run: |
+          aws ssm send-command \
+            --region $AWS_REGION \
+            --document-name "AWS-RunShellScript" \
+            --targets "Key=tag:Name,Values=durdans-lims-demo-host" \
+            --comment "deploy backend ${{ github.sha }}" \
+            --parameters 'commands=["cd /opt/lims","docker compose pull app","docker compose up -d app"]'

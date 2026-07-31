@@ -1,0 +1,44 @@
+# Root .gitignore — GLOBAL rules only.
+#
+# Per-app ignore files stay nested (apps/frontend/.gitignore, etc). Do not merge
+# them up here: patterns containing a slash are anchored to the directory holding
+# the .gitignore, so moving them silently changes what they match.
+
+# --- IDE / editor ---
+.idea/
+*.iml
+.vscode/          # never commit editor config; it can carry auto-running tasks
+!.vscode/extensions.json.example
+
+# --- OS noise ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- agent / tool scratch ---
+.claude/
+.cursor/
+.codex-logs/
+
+# --- local env files; the tracked examples stay ---
+.env
+.env.*
+!.env.example
+!**/.env.example
+
+# --- no root-level npm manifest in a pnpm monorepo ---
+/package-lock.json
+/yarn.lock
+
+# --- k6 output (load-testing has no ignore file of its own) ---
+load-testing/results/
+
+# --- build output, as a safety net; each app also ignores its own ---
+**/build/
+**/dist/
+**/.next/
+**/.gradle/
+**/node_modules/
+**/.terraform/
+*.tfstate
+*.tfstate.*

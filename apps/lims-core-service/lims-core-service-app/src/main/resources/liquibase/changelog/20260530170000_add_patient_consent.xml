@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+
+    <!-- WHY (Phase 7 / Sri Lanka PDPA): record patient consent for processing of
+         their (special-category) health data, and mark records anonymised after a
+         right-to-erasure request. -->
+    <changeSet id="20260530170000-1-add-patient-consent" author="lims">
+        <addColumn tableName="patient">
+            <column name="consent_given" type="boolean" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+            <column name="consent_at" type="timestamp with time zone"/>
+            <column name="consent_version" type="varchar(32)"/>
+            <column name="anonymized" type="boolean" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+    </changeSet>
+
+</databaseChangeLog>

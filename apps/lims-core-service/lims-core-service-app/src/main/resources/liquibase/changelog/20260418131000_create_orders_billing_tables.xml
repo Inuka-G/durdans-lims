@@ -1,0 +1,280 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+
+    <!-- WHY: Centralized catalog to ensure test pricing and metadata are consistent across all orders -->
+    <changeSet id="20260418131000-1" author="system">
+        <createTable tableName="test_catalog">
+            <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="test_code" type="varchar(50)">
+                <constraints nullable="false" unique="true"/>
+            </column>
+            <column name="test_name" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="category" type="varchar(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="price" type="numeric(10,2)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="sample_type" type="varchar(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="tube_type" type="varchar(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="is_active" type="boolean" defaultValueBoolean="true">
+                <constraints nullable="false"/>
+            </column>
+            <column name="turn_around_time_hours" type="integer"/>
+            
+            <column name="created_at" type="timestamp with time zone" defaultValueComputed="CURRENT_TIMESTAMP"><constraints nullable="false"/></column>
+            <column name="updated_at" type="timestamp with time zone" defaultValueComputed="CURRENT_TIMESTAMP"><constraints nullable="false"/></column>
+            <column name="created_by" type="varchar(255)"/>
+            <column name="updated_by" type="varchar(255)"/>
+            <column name="is_deleted" type="boolean" defaultValueBoolean="false"><constraints nullable="false"/></column>
+            <column name="version" type="bigint" defaultValueNumeric="0"><constraints nullable="false"/></column>
+        </createTable>
+
+        <createIndex tableName="test_catalog" indexName="idx_test_catalog_category">
+            <column name="category"/>
+        </createIndex>
+    </changeSet>
+
+    <!-- WHY: Generate unique sequential numbers for orders, replacing DB identity columns for business references -->
+    <changeSet id="20260418131000-2" author="system">
+        <createSequence sequenceName="seq_order_no" startValue="10000" incrementBy="1"/>
+    </changeSet>
+    
+    <!-- WHY: Generate unique sequential numbers for bills to comply with tax/invoicing regulations -->
+    <changeSet id="20260418131000-3" author="system">
+        <createSequence sequenceName="seq_bill_no" startValue="10000" incrementBy="1"/>
+    </changeSet>
+    
+    <!-- WHY: Generate unique sequential numbers for sample barcodes used in phlebotomy label printing -->
+    <changeSet id="20260418131000-4" author="system">
+        <createSequence sequenceName="seq_barcode" startValue="100000" incrementBy="1"/>
+    </changeSet>
+
+    <!-- WHY: Store core order details separate from items for single source of truth of patient's session -->
+    <changeSet id="20260418131000-5" author="system">
+        <createTable tableName="orders">
+            <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="order_no" type="varchar(50)">
+                <constraints nullable="false" unique="true"/>
+            </column>
+            <column name="patient_id" type="varchar(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="status" type="varchar(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="priority" type="varchar(20)" defaultValue="NORMAL">
+                <constraints nullable="false"/>
+            </column>
+            <column name="referring_doctor" type="varchar(255)"/>
+            <column name="referring_department" type="varchar(255)"/>
+            <column name="remarks" type="text"/>
+            
+            <column name="created_at" type="timestamp with time zone" defaultValueComputed="CURRENT_TIMESTAMP"><constraints nullable="false"/></column>
+            <column name="updated_at" type="timestamp with time zone" defaultValueComputed="CURRENT_TIMESTAMP"><constraints nullable="false"/></column>
+            <column name="created_by" type="varchar(255)"/>
+            <column name="updated_by" type="varchar(255)"/>
+            <column name="is_deleted" type="boolean" defaultValueBoolean="false"><constraints nullable="false"/></column>
+            <column name="version" type="bigint" defaultValueNumeric="0"><constraints nullable="false"/></column>
+        </createTable>
+        
+        <createIndex tableName="orders" indexName="idx_orders_patient_id">
+            <column name="patient_id"/>
+        </createIndex>
+        <createIndex tableName="orders" indexName="idx_orders_status">
+            <column name="status"/>
+        </createIndex>
+        <createIndex tableName="orders" indexName="idx_orders_created_at">
+            <column name="created_at"/>
+        </createIndex>
+    </changeSet>
+
+    <!-- WHY: Relate multiples tests to a single order without duplicating order metadata -->
+    <changeSet id="20260418131000-6" author="system">
+        <createTable tableName="order_items">
+            <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="order_id" type="uuid">
+                <constraints nullable="false" foreignKeyName="fk_order_items_order" references="orders(id)"/>
+            </column>
+            <column name="test_id" type="uuid">
+                <constraints nullable="false" foreignKeyName="fk_order_items_test" references="test_catalog(id)"/>
+            </column>
+            <column name="price" type="numeric(10,2)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="status" type="varchar(50)" defaultValue="PENDING_COLLECTION">
+                <constraints nullable="false"/>
+            </column>
+            
+            <column name="created_at" type="timestamp with time zone" defaultValueComputed="CURRENT_TIMESTAMP"><constraints nullable="false"/></column>
+            <column name="updated_at" type="timestamp with time zone" defaultValueComputed="CURRENT_TIMESTAMP"><constraints nullable="false"/></column>
+            <column name="created_by" type="varchar(255)"/>
+            <column name="updated_by" type="varchar(255)"/>
+            <column name="is_deleted" type="boolean" defaultValueBoolean="false"><constraints nullable="false"/></column>
+            <column name="version" type="bigint" defaultValueNumeric="0"><constraints nullable="false"/></column>
+        </createTable>
+        
+        <createIndex tableName="order_items" indexName="idx_order_items_order_id">
+            <column name="order_id"/>
+        </createIndex>
+    </changeSet>
+
+    <!-- WHY: Separate financial tracking from clinical ordering to allow partial payments and invoicing -->
+    <changeSet id="20260418131000-7" author="system">
+        <createTable tableName="bills">
+            <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="bill_no" type="varchar(50)">
+                <constraints nullable="false" unique="true"/>
+            </column>
+            <column name="order_id" type="uuid">
+                <constraints nullable="false" foreignKeyName="fk_bills_order" references="orders(id)"/>
+            </column>
+            <column name="payment_status" type="varchar(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="subtotal" type="numeric(12,2)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="service_charge" type="numeric(12,2)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="discount" type="numeric(12,2)" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="total_amount" type="numeric(12,2)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="paid_amount" type="numeric(12,2)"><constraints nullable="false"/></column>
+            <column name="print_count" type="integer" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="last_printed_at" type="timestamp with time zone"/>
+            <column name="last_printed_by" type="varchar(255)"/>
+            
+            <column name="created_at" type="timestamp with time zone" defaultValueComputed="CURRENT_TIMESTAMP"><constraints nullable="false"/></column>
+            <column name="updated_at" type="timestamp with time zone" defaultValueComputed="CURRENT_TIMESTAMP"><constraints nullable="false"/></column>
+            <column name="created_by" type="varchar(255)"/>
+            <column name="updated_by" type="varchar(255)"/>
+            <column name="is_deleted" type="boolean" defaultValueBoolean="false"><constraints nullable="false"/></column>
+            <column name="version" type="bigint" defaultValueNumeric="0"><constraints nullable="false"/></column>
+        </createTable>
+
+        <createIndex tableName="bills" indexName="idx_bills_order_id">
+            <column name="order_id"/>
+        </createIndex>
+        <createIndex tableName="bills" indexName="idx_bills_payment_status">
+            <column name="payment_status"/>
+        </createIndex>
+    </changeSet>
+
+    <!-- WHY: Track individual payment transactions enabling auditing of installments or multiple payment methods -->
+    <changeSet id="20260418131000-8" author="system">
+        <createTable tableName="payments">
+            <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="bill_id" type="uuid">
+                <constraints nullable="false" foreignKeyName="fk_payments_bill" references="bills(id)"/>
+            </column>
+            <column name="amount" type="numeric(12,2)"><constraints nullable="false"/></column>
+            <column name="payment_method" type="varchar(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="bank_reference_no" type="varchar(100)"/>
+            <column name="bank_name" type="varchar(100)"/>
+            <column name="insurance_claim_no" type="varchar(100)"/>
+            <column name="payment_date" type="timestamp with time zone">
+                <constraints nullable="false"/>
+            </column>
+            <column name="is_reversed" type="boolean" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+            <column name="reversed_at" type="timestamp with time zone"/>
+            <column name="reversed_by" type="varchar(255)"/>
+            <column name="reversal_reason" type="text"/>
+            
+            <column name="created_at" type="timestamp with time zone" defaultValueComputed="CURRENT_TIMESTAMP"><constraints nullable="false"/></column>
+            <column name="updated_at" type="timestamp with time zone" defaultValueComputed="CURRENT_TIMESTAMP"><constraints nullable="false"/></column>
+            <column name="created_by" type="varchar(255)"/>
+            <column name="updated_by" type="varchar(255)"/>
+            <column name="is_deleted" type="boolean" defaultValueBoolean="false"><constraints nullable="false"/></column>
+            <column name="version" type="bigint" defaultValueNumeric="0"><constraints nullable="false"/></column>
+        </createTable>
+
+        <createIndex tableName="payments" indexName="idx_payments_bill_id">
+            <column name="bill_id"/>
+        </createIndex>
+    </changeSet>
+
+    <!-- WHY: Track physical specimen collection and routing independently from the billing workflow -->
+    <changeSet id="20260418131000-9" author="system">
+        <createTable tableName="samples">
+            <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="order_item_id" type="uuid">
+                <constraints nullable="false" foreignKeyName="fk_samples_order_item" references="order_items(id)"/>
+            </column>
+            <column name="barcode" type="varchar(50)">
+                <constraints nullable="false" unique="true"/>
+            </column>
+            <column name="tube_type" type="varchar(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="status" type="varchar(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="priority" type="varchar(20)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="parent_sample_id" type="uuid">
+                <constraints foreignKeyName="fk_samples_parent_sample" references="samples(id)"/>
+            </column>
+            <column name="recollection_count" type="integer" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+            
+            <column name="collected_at" type="timestamp with time zone"/>
+            <column name="collected_by" type="varchar(255)"/>
+            <column name="rejected_at" type="timestamp with time zone"/>
+            <column name="rejected_by" type="varchar(255)"/>
+            <column name="rejection_reason" type="varchar(100)"/>
+            
+            <column name="created_at" type="timestamp with time zone" defaultValueComputed="CURRENT_TIMESTAMP"><constraints nullable="false"/></column>
+            <column name="updated_at" type="timestamp with time zone" defaultValueComputed="CURRENT_TIMESTAMP"><constraints nullable="false"/></column>
+            <column name="created_by" type="varchar(255)"/>
+            <column name="updated_by" type="varchar(255)"/>
+            <column name="is_deleted" type="boolean" defaultValueBoolean="false"><constraints nullable="false"/></column>
+            <column name="version" type="bigint" defaultValueNumeric="0"><constraints nullable="false"/></column>
+        </createTable>
+
+        <createIndex tableName="samples" indexName="idx_samples_order_item_id">
+            <column name="order_item_id"/>
+        </createIndex>
+        <createIndex tableName="samples" indexName="idx_samples_barcode">
+            <column name="barcode"/>
+        </createIndex>
+        <createIndex tableName="samples" indexName="idx_samples_status">
+            <column name="status"/>
+        </createIndex>
+    </changeSet>
+
+</databaseChangeLog>

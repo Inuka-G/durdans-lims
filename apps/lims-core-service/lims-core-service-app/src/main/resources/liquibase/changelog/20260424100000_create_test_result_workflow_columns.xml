@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
+
+    <changeSet id="20260424100000-add-test-result-workflow-columns" author="S.K.L. Undulanga">
+        <addColumn tableName="test_results">
+            <column name="status" type="varchar(50)"/>
+            <column name="return_reason" type="text"/>
+            <column name="clinical_note" type="text"/>
+            <column name="technically_verified_by" type="varchar(255)"/>
+            <column name="technically_verified_at" type="timestamp"/>
+            <column name="clinically_authorized_by" type="varchar(255)"/>
+            <column name="clinically_authorized_at" type="timestamp"/>
+            <column name="returned_by" type="varchar(255)"/>
+            <column name="returned_at" type="timestamp"/>
+        </addColumn>
+
+        <createIndex
+                indexName="idx_test_results_status"
+                tableName="test_results">
+            <column name="status"/>
+        </createIndex>
+    </changeSet>
+
+</databaseChangeLog>

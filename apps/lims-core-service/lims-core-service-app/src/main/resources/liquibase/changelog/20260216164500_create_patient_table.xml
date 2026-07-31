@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.7.xsd">
+
+    <changeSet id="1771240733-create-patient-table-clean" author="Kalana Sandakelum">
+
+        <createSequence
+                sequenceName="patient_code_seq"
+                startValue="1"
+                incrementBy="1"/>
+
+        <createTable tableName="patient">
+
+            <column name="id" type="UUID">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+
+            <column name="patient_code" type="VARCHAR(50)">
+                <constraints nullable="false" unique="true"/>
+            </column>
+
+            <column name="full_name" type="VARCHAR(255)">
+                <constraints nullable="false"/>
+            </column>
+
+            <column name="dob" type="DATE">
+                <constraints nullable="false"/>
+            </column>
+
+            <column name="gender" type="VARCHAR(20)">
+                <constraints nullable="false"/>
+            </column>
+
+            <column name="title" type="VARCHAR(20)"/>
+
+            <column name="marital_status" type="VARCHAR(20)"/>
+
+            <column name="nationality" type="VARCHAR(100)"/>
+
+            <column name="blood_group" type="VARCHAR(20)"/>
+
+            <column name="identity_type" type="VARCHAR(20)">
+                <constraints nullable="false"/>
+            </column>
+
+            <column name="identity_number" type="VARCHAR(100)">
+                <constraints nullable="false"/>
+            </column>
+
+            <column name="phone" type="VARCHAR(20)">
+                <constraints nullable="false" unique="true"/>
+            </column>
+
+            <column name="phone_verified" type="BOOLEAN" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+
+            <column name="phone_otp_hash" type="VARCHAR(255)"/>
+            <column name="phone_otp_expiry" type="TIMESTAMP"/>
+            <column name="phone_otp_attempts" type="INT" defaultValueNumeric="0"/>
+            <column name="last_otp_sent_at" type="TIMESTAMP"/>
+            <column name="phone_resend_count" type="INT" defaultValueNumeric="0"/>
+            <column name="phone_resend_date" type="DATE"/>
+
+            <column name="email" type="VARCHAR(150)"/>
+
+            <column name="email_verified" type="BOOLEAN" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+
+            <column name="email_verification_expiry" type="TIMESTAMP"/>
+            <column name="email_verification_token_hash" type="VARCHAR(255)"/>
+
+            <column name="last_verification_sent_at" type="TIMESTAMP"/>
+            <column name="verification_resend_count" type="INT" defaultValueNumeric="0"/>
+            <column name="verification_resend_date" type="DATE"/>
+
+            <column name="home_number" type="VARCHAR(20)"/>
+
+            <column name="address" type="VARCHAR(500)">
+                <constraints nullable="false"/>
+            </column>
+
+            <column name="contact_person_name" type="VARCHAR(255)"/>
+
+            <column name="contact_person_phone" type="VARCHAR(20)"/>
+
+            <column name="profile_photo_path" type="VARCHAR(500)"/>
+
+            <column name="branch_code" type="VARCHAR(100)"/>
+
+            <column name="created_at" type="TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+
+            <column name="created_by" type="VARCHAR(255)">
+                <constraints nullable="false"/>
+            </column>
+
+            <column name="updated_at" type="TIMESTAMP"/>
+
+            <column name="updated_by" type="VARCHAR(255)"/>
+
+            <column name="version" type="BIGINT" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+
+        </createTable>
+
+        <addUniqueConstraint
+                tableName="patient"
+                columnNames="identity_type, identity_number"
+                constraintName="uk_patient_identity"/>
+
+    </changeSet>
+
+</databaseChangeLog>

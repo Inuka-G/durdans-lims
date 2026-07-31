@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
+    <include file="liquibase/changelog/20260216164500_create_patient_table.xml"/>
+    <include file="liquibase/changelog/20260217091400_create_patient_document_table.xml"/>
+    <include file="liquibase/changelog/20260218171500_create_audit_log_table.xml"/>
+    <include file="liquibase/changelog/20260221183000_create_metadata_tables.xml"/>
+    <include file="liquibase/changelog/20260416120000_create_report_dispatch_tables.xml"/>
+    <include file="liquibase/changelog/20260418120000_add_base_entity_shared_columns.xml"/>
+    <include file="liquibase/changelog/20260418131000_create_orders_billing_tables.xml"/>
+    <include file="liquibase/changelog/20260424_add_rejection_notes.xml"/>
+    <include file="liquibase/changelog/20260424-03-fix-report-dispatch-item.xml"/>
+    <include file="liquibase/changelog/20260424_create_test_parameters.xml"/>
+    <include file="liquibase/changelog/20260424_create_test_results.xml"/>
+    <include file="liquibase/changelog/20260424100000_create_test_result_workflow_columns.xml"/>
+    <include file="liquibase/changelog/20260425000000_add_dispatch_base_columns.xml"/>
+    <include file="liquibase/changelog/20260503121000_add_payment_notes.xml"/>
+    <include file="liquibase/changelog/20260504190000_seed_basic_lab_catalog.xml"/>
+    <include file="liquibase/changelog/20260505100000_add_dispatch_tracking_columns.xml"/>
+    <include file="liquibase/changelog/20260505200000_label_print_and_supplies.xml"/>
+    <include file="liquibase/changelog/20260530120000_add_order_branch_code.xml"/>
+    <include file="liquibase/changelog/20260530130000_add_parameter_critical_limits.xml"/>
+    <include file="liquibase/changelog/20260530140000_create_outbox.xml"/>
+    <include file="liquibase/changelog/20260530150000_add_bill_discount_audit.xml"/>
+    <include file="liquibase/changelog/20260530160000_add_loinc_and_numeric_results.xml"/>
+    <include file="liquibase/changelog/20260530170000_add_patient_consent.xml"/>
+    <include file="liquibase/changelog/20260530180000_create_qc_result.xml"/>
+    <include file="liquibase/changelog/20260530190000_add_clinical_signature.xml"/>
+    <include file="liquibase/changelog/20260530200000_create_reference_range.xml"/>
+    <include file="liquibase/changelog/20260530210000_add_outbox_failed_at.xml"/>
+    <include file="liquibase/changelog/20260619120000_tamper_evident_audit_log.xml"/>
+    <include file="liquibase/changelog/20260619121000_create_test_result_amendment.xml"/>
+    <include file="liquibase/changelog/20260619121500_add_test_result_version_columns.xml"/>
+    <include file="liquibase/changelog/20260619122000_create_critical_value_notification.xml"/>
+    <include file="liquibase/changelog/20260619123000_add_outbox_trace_context.xml"/>
+</databaseChangeLog>

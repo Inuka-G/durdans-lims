@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+
+    <!--
+      G6 — persist the W3C traceparent of the request that wrote the outbox row, so the
+      relay (which runs on a scheduler thread long after the request span ended) can
+      re-attach it to the Kafka message and the consumer continues the SAME trace.
+    -->
+    <changeSet id="20260619123000-1-add-outbox-traceparent" author="kalana">
+        <addColumn tableName="outbox_event">
+            <column name="traceparent" type="varchar(64)"/>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="outbox_event" columnName="traceparent"/>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

@@ -1,0 +1,39 @@
+plugins {
+    id 'application'
+}
+
+group = 'com.uom.lims'
+version = '0.1.0'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+application {
+    mainClass = 'com.uom.lims.simulator.SimulatorMain'
+}
+
+// No external dependencies: the simulator uses only the JDK so it runs offline.
+
+// Convenience tasks so you don't have to remember the arg syntax.
+tasks.register('runHost', JavaExec) {
+    group = 'simulator'
+    description = 'Start the LIS host receiver on port 12000'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.uom.lims.simulator.SimulatorMain'
+    args = ['host', '--port', '12000']
+}
+
+tasks.register('runAnalyzer', JavaExec) {
+    group = 'simulator'
+    description = 'Upload one batch of FBC results to a host on port 12000'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.uom.lims.simulator.SimulatorMain'
+    args = ['analyzer', '--port', '12000', '--profile', 'hematology', '--count', '5']
+}

@@ -1,0 +1,1281 @@
+import axiosInstance from './axios';
+import {
+    enrichLabTestWithWorkflowData,
+    getOrderableLabTests,
+    limsLabWorkflowData,
+} from '@/data/lims-lab-workflow';
+
+export interface Patient {
+    id?: string;
+    patientId?: string;
+    patientCode?: string; // Backend identifier
+    title?: string;
+    firstName: string;
+    lastName: string;
+    fullName?: string; // Combined name
+    dob?: string;
+    gender?: string;
+    identityType?: string;
+    identityNumber?: string;
+    phoneNumber?: string;
+    phone?: string;
+    alternatePhone?: string;
+    email?: string;
+    emailVerified?: boolean;
+    phoneVerified?: boolean;
+    profilePhotoUrl?: string;
+    address?: string;
+    bloodGroup?: string;
+    maritalStatus?: string;
+    nationality?: string;
+    contactPersonName?: string;
+    contactPersonPhone?: string;
+    emergencyContactName?: string;
+    emergencyContactRelation?: string;
+    emergencyContactPhone?: string;
+    createdAt?: string | number;
+    updatedAt?: string | number;
+    branchCode?: string;
+    [key: string]: unknown;
+}
+
+export interface DashboardStatistics {
+    patientsRegisteredToday: number;
+    newPatientsThisWeek: number;
+    pendingVerifications: number;
+    todayTrend: string;
+}
+
+const blankToUndefined = (value?: string) => {
+    return value && value.trim() ? value : undefined;
+};
+
+const normalizeLabTest = (test: any) => {
+    const enriched = enrichLabTestWithWorkflowData(test);
+    return {
+        ...enriched,
+        price: Number(enriched?.price ?? 0),
+    };
+};
+
+const getDefaultSupplies = () =>
+    limsLabWorkflowData.supplies.map((item: any, index: number) => ({
+        id: item.key,
+        itemNo: item.itemNo ?? `SUP-${String(index + 1).padStart(4, '0')}`,
+        itemNumber: item.itemNo ?? `SUP-${String(index + 1).padStart(4, '0')}`,
+        name: item.label,
+        category: item.category,
+        tubeColor: item.tubeColor,
+        currentStock: Number(item.currentStock ?? item.reorderStock ?? item.minStock ?? 0),
+        minStock: Number(item.minStock ?? 0),
+        maxStock: Number(item.maxStock ?? (Number(item.reorderStock ?? item.minStock ?? 0) * 2)),
+        unit: item.unit ?? 'units',
+        lastRestocked: item.lastRestocked ?? new Date().toISOString().slice(0, 10),
+        expiryDate: '-',
+    }));
+
+export const getPatients = async (params?: Record<string, unknown>) => {
+    // Backend search expects keyword, fullName, phone, identityNumber, email, etc.
+    const response = await axiosInstance.get('/api/v1/patients', { params });
+    // Spring Boot PageResponse structure contains 'content' array
+    return response.data;
+};
+
+export const createPatient = async (data: Partial<Patient>) => {
+    // Map frontend specific fields to backend PatientCreateRequest DTO
+    const payload = {
+        title: data.title || 'MR',
+        fullName: `${data.firstName} ${data.lastName}`.trim(),
+        dob: data.dob,
+        gender: (data.gender || 'MALE').toUpperCase(),
+        maritalStatus: blankToUndefined(data.maritalStatus),
+        nationality: blankToUndefined(data.nationality),
+        bloodGroup: data.bloodGroup ? data.bloodGroup.toUpperCase() : undefined,
+        identityType: (data.identityType || 'NIC').toUpperCase(),
+        identityNumber: data.identityNumber || 'PENDING',
+        phone: (data.phoneNumber || data.phone || '').replace(/\s+/g, ''),
+        email: data.email || undefined,
+        homeNumber: data.alternatePhone ? data.alternatePhone.replace(/\s+/g, '') : undefined,
+        address: data.address || 'N/A',
+        branchCode: data.branchCode,
+        contactPersonName: data.contactPersonName,
+        contactPersonPhone: data.contactPersonPhone ? data.contactPersonPhone.replace(/\s+/g, '') : undefined
+    };
+
+    const response = await axiosInstance.post('/api/v1/patients', payload);
+    return response.data;
+};
+
+export const getPatientById = async (id: string) => {
+    // The backend uses patientCode (our 'id')
+    const response = await axiosInstance.get(`/api/v1/patients/${id}`);
+
+    // Reverse map the backend PatientResponse to our frontend Patient interface
+    const p = response.data;
+    const nameParts = p.fullName ? p.fullName.split(' ') : [];
+    const firstName = nameParts[0] || '';
+    const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
+
+    return {
+        ...p,
+        id: p.patientCode, // Make sure frontend 'id' matches backend 'patientCode'
+        firstName,
+        lastName,
+        phoneNumber: p.phone,
+        alternatePhone: p.homeNumber
+    } as Patient;
+};
+
+export const updatePatient = async (id: string, data: Partial<Patient>) => {
+    // Map frontend specific fields to backend PatientUpdateRequest DTO
+    const payload = {
+        title: data.title,
+        fullName: `${data.firstName} ${data.lastName}`.trim(),
+        dob: data.dob,
+        gender: data.gender ? data.gender.toUpperCase() : undefined,
+        maritalStatus: blankToUndefined(data.maritalStatus),
+        nationality: blankToUndefined(data.nationality),
+        bloodGroup: data.bloodGroup ? data.bloodGroup.toUpperCase() : undefined,
+        identityType: data.identityType ? data.identityType.toUpperCase() : undefined,
+        identityNumber: data.identityNumber,
+        phone: (data.phoneNumber || data.phone || '').replace(/\s+/g, ''),
+        email: data.email || undefined,
+        homeNumber: data.alternatePhone ? data.alternatePhone.replace(/\s+/g, '') : undefined,
+        address: data.address,
+        branchCode: data.branchCode,
+        contactPersonName: data.contactPersonName,
+        contactPersonPhone: data.contactPersonPhone ? data.contactPersonPhone.replace(/\s+/g, '') : undefined
+    };
+
+    const response = await axiosInstance.put(`/api/v1/patients/${id}`, payload);
+
+    // Reverse map just like getPatientById
+    const p = response.data;
+    const nameParts = p.fullName ? p.fullName.split(' ') : [];
+
+    return {
+        ...p,
+        id: p.patientCode,
+        firstName: nameParts[0] || '',
+        lastName: nameParts.length > 1 ? nameParts.slice(1).join(' ') : '',
+        phoneNumber: p.phone,
+        alternatePhone: p.homeNumber
+    } as Patient;
+};
+
+// Document API Endpoints
+export interface PatientDocument {
+    documentId: string;
+    documentType: string;
+    originalFileName: string;
+    description?: string | null;
+    contentType: string;
+    fileSize: number;
+    uploadedAt: string;
+    uploadedBy?: string | null;
+    uploadedBranch?: string | null;
+}
+
+export interface PatientDocumentPage {
+    content: PatientDocument[];
+    page: number;
+    size: number;
+    totalElements: number;
+    totalPages: number;
+    last: boolean;
+}
+
+export const uploadPatientDocument = async (patientCode: string, documentType: string, file: File, description?: string) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('documentType', documentType);
+    if (description) {
+        formData.append('description', description);
+    }
+
+    const response = await axiosInstance.post(`/api/v1/patients/${patientCode}/documents`, formData, {
+        headers: {
+            'Content-Type': 'multipart/form-data'
+        }
+    });
+    return response.data;
+};
+
+export const getPatientDocuments = async (patientCode: string, params?: Record<string, unknown>) => {
+    const response = await axiosInstance.get(`/api/v1/patients/${patientCode}/documents`, { params });
+    return response.data as PatientDocumentPage;
+};
+
+export const downloadPatientDocument = async (patientCode: string, documentId: string) => {
+    const response = await axiosInstance.get(`/api/v1/patients/${patientCode}/documents/${documentId}/download`);
+    return response.data; // This returns the presigned URL string
+};
+
+export const deletePatientDocument = async (patientCode: string, documentId: string) => {
+    await axiosInstance.delete(`/api/v1/patients/${patientCode}/documents/${documentId}`);
+};
+
+export const getDashboardStatistics = async (branchCode?: string) => {
+    const params = branchCode ? { branchCode } : {};
+    const response = await axiosInstance.get('/api/v1/patients/statistics', { params });
+    return response.data as DashboardStatistics;
+};
+
+export const resendEmailVerification = async (patientCode: string) => {
+    const response = await axiosInstance.post(`/api/v1/patients/${patientCode}/resend-verification`);
+    return response.data;
+};
+
+export const sendPhoneOtp = async (patientCode: string) => {
+    const response = await axiosInstance.post(`/api/v1/patients/${patientCode}/send-phone-otp`);
+    return response.data;
+};
+
+export const verifyPhoneOtp = async (patientCode: string, otp: string) => {
+    const response = await axiosInstance.post(`/api/v1/patients/${patientCode}/verify-phone-otp`, null, {
+        params: { otp }
+    });
+    return response.data;
+};
+
+export const uploadProfilePhoto = async (patientCode: string, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await axiosInstance.post(`/api/v1/patients/${patientCode}/profile-photo`, formData, {
+        headers: {
+            'Content-Type': 'multipart/form-data'
+        }
+    });
+    return response.data as string;
+};
+
+export const getProfilePhoto = async (patientCode: string) => {
+    const response = await axiosInstance.get(`/api/v1/patients/${patientCode}/profile-photo`);
+    return response.data as { url: string };
+};
+
+export interface NavItem {
+    displayText: string;
+    linkUrl: string;
+}
+
+export interface AppMetadata {
+    currentBranchName: string;
+    currentBranchCode: string;
+    navItems: NavItem[];
+}
+
+export const getMetadata = async () => {
+    const response = await axiosInstance.get('/api/v1/metadata');
+    return response.data as AppMetadata;
+};
+
+// --- Audit Logs ---
+
+export interface AuditLog {
+    id: string;
+    action: string;
+    entityType: string;
+    entityId?: string;
+    patientCode?: string;
+    performedBy: string;
+    branchCode: string;
+    ipAddress?: string;
+    timestamp: string;
+    details?: string;
+}
+
+export interface AuditLogPage {
+    content: AuditLog[];
+    page: number;
+    size: number;
+    totalElements: number;
+    totalPages: number;
+    last: boolean;
+}
+
+export const getAuditLogs = async (params?: Record<string, unknown>) => {
+    const response = await axiosInstance.get('/api/v1/audit-logs', { params });
+    return response.data as AuditLogPage;
+};
+
+// --- Report dispatch ---
+
+export type ApiDeliveryMethod = 'EMAIL' | 'SMS' | 'WHATSAPP' | 'POST' | 'PRINT' | 'PORTAL';
+export type ApiDispatchItemStatus = 'PENDING' | 'PARTIAL' | 'DELIVERED' | 'FAILED';
+export type ApiDeliveryAttemptStatus = 'PENDING' | 'SENT' | 'DELIVERED' | 'FAILED';
+
+export interface DispatchDashboardItem {
+    id: string;
+    reportId: string;
+    patientName: string;
+    patientId: string;
+    testName: string;
+    authorizedDate: string;
+    authorizedTime: string;
+    deliveryMethods: ApiDeliveryMethod[];
+    status: ApiDispatchItemStatus;
+}
+
+export interface DeliveryAttempt {
+    id: string;
+    method: ApiDeliveryMethod;
+    status: ApiDeliveryAttemptStatus;
+    failureReason?: string | null;
+    retryCount: number;
+    dispatchedAt?: string | null;
+    deliveredAt?: string | null;
+    recipientContact?: string | null;
+    trackingNumber?: string | null;
+    trackingUrl?: string | null;
+}
+
+export interface DispatchReportResult {
+    parameter?: string | null;
+    result?: string | null;
+    unit?: string | null;
+    flag?: string | null;
+    referenceRange?: string | null;
+    abnormal?: boolean | null;
+}
+
+export interface DispatchItemDetail {
+    id: string;
+    reportReference: string;
+    branchCode: string;
+    patientCode?: string | null;
+    patientDisplayName: string;
+    patientAge?: number | null;
+    patientGender?: string | null;
+    patientDob?: string | null;
+    referringDoctor?: string | null;
+    ward?: string | null;
+    testPanelLabel: string;
+    sampleId?: string | null;
+    sampleCollectedAt?: string | null;
+    reportGeneratedAt?: string | null;
+    authorizedBy?: string | null;
+    clinicalNote?: string | null;
+    results?: DispatchReportResult[] | null;
+    artifactUri?: string | null;
+    authorizedAt: string;
+    overallStatus: ApiDispatchItemStatus;
+    preferredDeliveryMethods: ApiDeliveryMethod[];
+    attempts: DeliveryAttempt[];
+}
+
+export interface DeliveryRecordRow {
+    reportId: string;
+    patientName: string;
+    testName: string;
+    methods: ApiDeliveryMethod[];
+    status: ApiDispatchItemStatus;
+    dispatchedTime: string;
+    deliveredTime: string | null;
+    trackingNumber?: string | null;
+    trackingUrl?: string | null;
+}
+
+export interface FailedDeliveryRow {
+    attemptId: string;
+    reportId: string;
+    patientName: string;
+    testName: string;
+    method: ApiDeliveryMethod;
+    failureReason: string;
+    failedDateTime: string;
+    retryCount: number;
+}
+
+export interface PageResponseDispatch<T> {
+    content: T[];
+    page: number;
+    size: number;
+    totalElements: number;
+    totalPages: number;
+    last: boolean;
+}
+
+export const registerAuthorizedReport = async (body: {
+    reportReference: string;
+    branchCode: string;
+    patientCode?: string;
+    patientDisplayName: string;
+    testPanelLabel: string;
+    artifactUri?: string;
+    authorizedAt?: string;
+    preferredDeliveryMethods?: ApiDeliveryMethod[];
+}) => {
+    const response = await axiosInstance.post('/api/v1/dispatch/reports/register', body);
+    return response.data as DispatchItemDetail;
+};
+
+export const listDispatchReports = async (params?: Record<string, unknown>) => {
+    const response = await axiosInstance.get('/api/v1/dispatch/reports', { params });
+    return response.data as PageResponseDispatch<DispatchDashboardItem>;
+};
+
+export const getDispatchReport = async (reportReference: string, branchCode?: string) => {
+    const enc = encodeURIComponent(reportReference);
+    const response = await axiosInstance.get(`/api/v1/dispatch/reports/${enc}`, {
+        params: branchCode ? { branchCode } : undefined
+    });
+    return response.data as DispatchItemDetail;
+};
+
+export const listDeliveryRecords = async (params?: Record<string, unknown>) => {
+    const response = await axiosInstance.get('/api/v1/dispatch/delivery-records', { params });
+    return response.data as PageResponseDispatch<DeliveryRecordRow>;
+};
+
+export const listFailedDeliveries = async (params?: { branchCode?: string; limit?: number }) => {
+    const response = await axiosInstance.get('/api/v1/dispatch/failed-deliveries', { params });
+    return response.data as FailedDeliveryRow[];
+};
+
+export const dispatchReport = async (
+    reportReference: string,
+    body: {
+        methods: ApiDeliveryMethod[];
+        overrideEmail?: string;
+        overridePhone?: string;
+        overrideWhatsappPhone?: string;
+        postalAddress?: string;
+        postalService?: string;
+        trackingNumber?: string;
+    },
+    branchCode?: string
+) => {
+    const enc = encodeURIComponent(reportReference);
+    const response = await axiosInstance.post(`/api/v1/dispatch/reports/${enc}/dispatch`, body, {
+        params: branchCode ? { branchCode } : undefined
+    });
+    return response.data as DispatchItemDetail;
+};
+
+export const retryDispatchAttempt = async (attemptId: string) => {
+    const response = await axiosInstance.post(`/api/v1/dispatch/attempts/${attemptId}/retry`);
+    return response.data as DispatchItemDetail;
+};
+
+export const markDispatchAttemptDelivered = async (attemptId: string) => {
+    const response = await axiosInstance.post(`/api/v1/dispatch/attempts/${attemptId}/mark-delivered`);
+    return response.data as DispatchItemDetail;
+};
+
+/** Records revenue report page view or export; performedBy is set server-side from the auth context. */
+export const logRevenueReportAccess = async (payload: { event: 'VIEW' | 'EXPORT'; detail?: string }) => {
+    await axiosInstance.post('/api/v1/audit-logs/revenue-report-access', payload);
+};
+
+// --- Verification & Clinical Authorization ---
+
+export interface TestResultParameter {
+    parameterCode: string;
+    parameterName: string;
+    resultValue?: number | null;
+    resultText?: string | null;
+    unit?: string | null;
+    referenceRangeLow?: number | null;
+    referenceRangeHigh?: number | null;
+    flag?: string | null;
+}
+
+export interface PreviousVisitSummary {
+    resultId: string;
+    sampleId: string;
+    status?: string | null;
+    priorityLevel?: string | null;
+    visitedAt?: string | null;
+    parameterCount?: number | null;
+    abnormalCount?: number | null;
+    criticalCount?: number | null;
+}
+
+export interface TestResultSummary {
+    resultId: string;
+    status?: string | null;
+    patientName?: string | null;
+    testType?: string | null;
+    mltName?: string | null;
+    qcStatus?: string | null;
+    flag?: string | null;
+    /** Specimen urgency from accessioning: STAT, URGENT, NORMAL */
+    priorityLevel?: string | null;
+    /** Any parameter on this specimen has a critical panic flag */
+    hasCriticalFinding?: boolean | null;
+    createdAt?: string | null;
+    updatedAt?: string | null;
+    technicianName?: string | null;
+    pathologistName?: string | null;
+    returnReason?: string | null;
+}
+
+export interface TestResultDetail {
+    resultId: string;
+    status?: string | null;
+    patientCode?: string | null;
+    patientName?: string | null;
+    patientAge?: number | null;
+    patientGender?: string | null;
+    testType?: string | null;
+    priority?: string | null;
+    createdAt?: string | null;
+    updatedAt?: string | null;
+    mltName?: string | null;
+    supervisorName?: string | null;
+    technicianName?: string | null;
+    pathologistName?: string | null;
+    authorizedAt?: string | null;
+    parameters: TestResultParameter[];
+    previousVisits?: PreviousVisitSummary[] | null;
+    clinicalNote?: string | null;
+    mltNotes?: string | null;
+    supervisorNote?: string | null;
+}
+
+export interface TestResultPage {
+    content: TestResultSummary[];
+    page: number;
+    size: number;
+    totalElements: number;
+    totalPages: number;
+    last: boolean;
+}
+
+export interface VerificationPayload {
+    resultId?: string;
+    status?: string;
+    mltNotes?: string;
+    supervisorNote?: string;
+}
+
+export interface BulkVerificationPayload {
+    resultIds: string[];
+    status?: string;
+    mltNotes?: string;
+}
+
+export interface BulkVerificationBatch {
+    batchId: string;
+    batchName: string;
+    batchCode: string;
+    department: string;
+    totalResults: number;
+    safeForApproval: number;
+    exceptions: number;
+    updatedAt?: string | null;
+    resultIds: string[];
+    reviewResultIds: string[];
+}
+
+export interface VerificationHistoryItem {
+    resultId: string;
+    actionType?: string | null;
+    testName?: string | null;
+    specimenPriority?: string | null;
+    actionSummary?: string | null;
+    performedBy?: string | null;
+    actionAt?: string | null;
+    notes?: string | null;
+    updatedAt?: string | null;
+}
+
+export interface VerificationHistoryPage {
+    content: VerificationHistoryItem[];
+    page: number;
+    size: number;
+    totalElements: number;
+    totalPages: number;
+    last: boolean;
+}
+
+export interface HistoryQueryParams {
+    actionType?: string;
+    search?: string;
+}
+
+export interface ClinicalAuthorizationPayload {
+    resultId?: string;
+    status?: string;
+    clinicalNote?: string;
+    signatureConfirmed?: boolean;
+}
+
+export interface ReturnToMltPayload {
+    resultId?: string;
+    status?: string;
+    returnReason: string;
+}
+
+export const getPendingVerificationResults = async (page = 0, size = 10) => {
+    const response = await axiosInstance.get('/api/v1/verification/pending-results', {
+        params: { page, size }
+    });
+    return response.data as TestResultPage;
+};
+
+export const getVerificationResultDetails = async (resultId: string) => {
+    const response = await axiosInstance.get(`/api/v1/verification/${resultId}`);
+    return response.data as TestResultDetail;
+};
+
+export const approveTechnically = async (resultId: string, payload: VerificationPayload = {}) => {
+    const response = await axiosInstance.post(`/api/v1/verification/${resultId}/verify`, payload);
+    return response.data as TestResultDetail;
+};
+
+export const rejectTechnically = async (resultId: string, payload: VerificationPayload = {}) => {
+    const response = await axiosInstance.post(`/api/v1/verification/${resultId}/reject`, payload);
+    return response.data as TestResultDetail;
+};
+
+export const bulkApproveTechnically = async (payload: BulkVerificationPayload) => {
+    const response = await axiosInstance.post('/api/v1/verification/bulk-verify', payload);
+    return response.data as Record<string, string>;
+};
+
+export const getBulkVerificationWorklist = async () => {
+    const response = await axiosInstance.get('/api/v1/verification/bulk/worklist');
+    return response.data as BulkVerificationBatch[];
+};
+
+export const getVerificationHistory = async (
+    page = 0,
+    size = 10,
+    filters: HistoryQueryParams = {}
+) => {
+    const response = await axiosInstance.get('/api/v1/verification/history', {
+        params: {
+            page,
+            size,
+            actionType: filters.actionType,
+            search: filters.search
+        }
+    });
+    return response.data as VerificationHistoryPage;
+};
+
+export const getPendingClinicalResults = async (page = 0, size = 10) => {
+    const response = await axiosInstance.get('/api/v1/clinical/pending', {
+        params: { page, size }
+    });
+    return response.data as TestResultPage;
+};
+
+export const getClinicalResultDetails = async (resultId: string) => {
+    const response = await axiosInstance.get(`/api/v1/clinical/${resultId}`);
+    return response.data as TestResultDetail;
+};
+
+export const getClinicalHistory = async (
+    page = 0,
+    size = 10,
+    filters: HistoryQueryParams = {}
+) => {
+    const response = await axiosInstance.get('/api/v1/clinical/history', {
+        params: {
+            page,
+            size,
+            actionType: filters.actionType,
+            search: filters.search
+        }
+    });
+    return response.data as VerificationHistoryPage;
+};
+
+export const authorizeClinical = async (
+    resultId: string,
+    payload: ClinicalAuthorizationPayload = {}
+) => {
+    const response = await axiosInstance.post(`/api/v1/clinical/${resultId}/authorize`, payload);
+    return response.data as TestResultDetail;
+};
+
+export const returnForRecheck = async (resultId: string, payload: ReturnToMltPayload) => {
+    const response = await axiosInstance.post(`/api/v1/clinical/${resultId}/return`, payload);
+    return response.data as TestResultDetail;
+};
+
+// --- MLT & Reception ---
+
+export type RejectionReason =
+    | 'HEMOLYZED'
+    | 'INSUFFICIENT_VOLUME'
+    | 'WRONG_CONTAINER'
+    | 'CLOTTED'
+    | 'CONTAMINATED'
+    | 'UNLABELED'
+    | 'OTHER';
+
+export interface MltWorklistItem {
+    sampleId: string;
+    barcode: string;
+    orderId: string;
+    patientId: string;
+    testName: string;
+    priority: 'STAT' | 'URGENT' | 'NORMAL';
+    status: string;
+    collectedAt?: string | null;
+}
+
+export interface SampleRejectRequest {
+    rejectionReason: RejectionReason;
+    rejectionNotes?: string;
+}
+
+export interface PreviousLabValue {
+    result: string;
+    flag: string | null;
+    collectedAt: string | null;
+    sampleBarcode: string;
+}
+
+export interface ResultParameter {
+    parameterId: string;
+    parameterName: string;
+    result: string | null;
+    unit: string | null;
+    refLow: number | null;
+    refHigh: number | null;
+    flag: string | null;
+    previousValue?: PreviousLabValue | null;
+}
+
+export interface SampleResults {
+    sampleId: string;
+    barcode: string;
+    orderId: string;
+    orderNo?: string | null;
+    orderItemId?: string | null;
+    patientId: string;
+    patientName: string;
+    testName: string;
+    status: string;
+    tubeType?: string | null;
+    priority?: string | null;
+    collectedAt?: string | null;
+    collectedBy?: string | null;
+    mltNotes: string | null;
+    results: ResultParameter[];
+}
+
+export interface MltResultActivityItem {
+    id: string;
+    action: string;
+    performedBy: string;
+    timestamp: string;
+    details: string | null;
+}
+
+export interface SubmitResultsRequest {
+    sampleId: string;
+    results: Array<{
+        parameterId: string;
+        result: string;
+        flag?: string;
+    }>;
+    mltNotes?: string;
+}
+
+export interface VerificationPendingItem {
+    sampleId: string;
+    barcode: string;
+    patientId: string;
+    patientName: string;
+    testName: string;
+    priority: 'STAT' | 'URGENT' | 'NORMAL';
+    status: string;
+    flag: string | null;
+    mltName: string | null;
+    submittedAt: string | number | null;
+}
+
+export interface MltAllWorklistItem {
+    sampleId: string;
+    barcode: string;
+    orderId: string;
+    patientId: string;
+    patientName: string;
+    testName: string;
+    department: string;
+    priority: 'STAT' | 'URGENT' | 'NORMAL';
+    status: string;
+    collectedAt: string | null;
+}
+
+/** Search/reprint row: `id` is the specimen UUID; `sampleId` is the human-readable barcode. */
+export interface SampleReprintItem {
+    id: string;
+    sampleId: string;
+    orderId: string | null;
+    priority: 'STAT' | 'URGENT' | 'NORMAL';
+    testType: string | null;
+    testCodes: string[] | null;
+    tubeTypes: string[] | null;
+    waitTimeMinutes: number;
+    status: string;
+    patient: {
+        pid: string | null;
+    } | null;
+    collectedAt: string | null;
+    collectedBy: string | null;
+    rejectionReason?: string | null;
+}
+
+export interface QcRunItem {
+    id: string;
+    instrument: string;
+    testGroup: string;
+    level: string;
+    result: string;
+    expected: string;
+    sd: string;
+    status: 'PASS' | 'WARN' | 'FAIL';
+    performedBy: string;
+    timestamp: string;
+}
+
+export interface QcDashboardData {
+    totalRuns: number;
+    passed: number;
+    warnings: number;
+    failures: number;
+    runs: QcRunItem[];
+}
+
+export interface InstrumentStatusItem {
+    id: string;
+    name: string;
+    type: string;
+    model: string;
+    serial: string;
+    status: 'online' | 'offline' | 'busy';
+    lastSync: string;
+    testsToday: number;
+    location: string;
+    qcStatus: 'PASS' | 'WARN' | 'FAIL';
+}
+
+export const getReceptionSamples = async () => {
+    const response = await axiosInstance.get('/api/v1/reception/samples');
+    return response.data as MltWorklistItem[];
+};
+
+export const searchSamplesForReprint = async (query: string) => {
+    const response = await axiosInstance.get('/api/v1/reception/samples/search', {
+        params: { query },
+    });
+    return response.data as SampleReprintItem[];
+};
+
+export const acceptSample = async (id: string) => {
+    await axiosInstance.post(`/api/v1/reception/samples/${id}/accept`);
+};
+
+export const rejectSample = async (id: string, payload: SampleRejectRequest) => {
+    await axiosInstance.post(`/api/v1/reception/samples/${id}/reject`, payload);
+};
+
+export const getMltWorklist = async () => {
+    const response = await axiosInstance.get('/api/v1/mlt/worklist');
+    return response.data as MltWorklistItem[];
+};
+
+export const getMltAllWorklist = async () => {
+    const response = await axiosInstance.get('/api/v1/mlt/all-worklist');
+    return response.data as MltAllWorklistItem[];
+};
+
+export const getQcDashboard = async () => {
+    const response = await axiosInstance.get('/api/v1/mlt/qc-dashboard');
+    return response.data as QcDashboardData;
+};
+
+export const getInstruments = async () => {
+    const response = await axiosInstance.get('/api/v1/mlt/instruments');
+    return response.data as InstrumentStatusItem[];
+};
+
+export const syncInstrument = async (id: string) => {
+    const response = await axiosInstance.post(`/api/v1/mlt/instruments/${id}/sync`);
+    return response.data as InstrumentStatusItem;
+};
+
+export const getSampleResults = async (id: string) => {
+    const response = await axiosInstance.get(`/api/v1/mlt/samples/${id}/results`);
+    return response.data as SampleResults;
+};
+
+export const getMltSampleResultActivity = async (id: string) => {
+    const response = await axiosInstance.get(`/api/v1/mlt/samples/${id}/result-activity`);
+    return response.data as MltResultActivityItem[];
+};
+
+export const saveDraftResults = async (id: string, payload: SubmitResultsRequest) => {
+    await axiosInstance.post(`/api/v1/mlt/samples/${id}/results/draft`, payload);
+};
+
+export const submitResults = async (id: string, payload: SubmitResultsRequest) => {
+    await axiosInstance.post(`/api/v1/mlt/samples/${id}/results`, payload);
+};
+
+export const getVerificationPendingSamples = async () => {
+    const response = await axiosInstance.get('/api/v1/verification/pending');
+    return response.data as VerificationPendingItem[];
+};
+
+// ============ LAB TESTS ============
+export const getLabTests = async () => {
+    try {
+        const response = await axiosInstance.get('/api/v1/tests');
+        const tests = response.data.data;
+        if (Array.isArray(tests) && tests.length > 0) {
+            return tests.map(normalizeLabTest);
+        }
+    } catch (error) {
+        console.warn('Falling back to local lab catalog because /api/v1/tests failed.', error);
+    }
+
+    return getOrderableLabTests().map(normalizeLabTest);
+};
+
+// ============ ORDERS ============
+export const createOrder = async (data: {
+    patientId: string;
+    testIds: string[];
+    priority: 'STAT' | 'URGENT' | 'NORMAL';
+    testPriorities?: Record<string, 'STAT' | 'URGENT' | 'NORMAL'>;
+    referringDoctor?: string;
+    referringDepartment?: string;
+    remarks?: string;
+}) => {
+    const response = await axiosInstance.post('/api/v1/orders', data);
+    return response.data.data;
+};
+
+export const getOrders = async (page = 0, size = 10, params: Record<string, unknown> = {}) => {
+    const response = await axiosInstance.get('/api/v1/orders', {
+        params: { page, size, ...params },
+    });
+    return response.data.data;
+};
+
+export const getPatientOrders = async (patientCode: string, page = 0, size = 20) => {
+    return getOrders(page, size, {
+        patientId: patientCode,
+        sort: 'createdAt,desc',
+    });
+};
+
+export const getPatientReports = async (patientCode: string, page = 0, size = 20) => {
+    const response = await listDispatchReports({
+        keyword: patientCode,
+        page,
+        size,
+        sort: 'authorizedAt,desc',
+    });
+    const content = response.content.filter((report) => report.patientId === patientCode);
+
+    return {
+        ...response,
+        content,
+        totalElements: content.length,
+        totalPages: content.length > 0 ? 1 : 0,
+        last: true,
+    };
+};
+
+export const getOrderById = async (id: string) => {
+    const response = await axiosInstance.get(`/api/v1/orders/${id}`);
+    return response.data.data;
+};
+
+export const getOrderTracking = async (id: string) => {
+    const response = await axiosInstance.get(`/api/v1/orders/${id}/tracking`);
+    return response.data.data;
+};
+
+export const cancelOrder = async (id: string) => {
+    const response = await axiosInstance.patch(`/api/v1/orders/${id}/cancel`);
+    return response.data.data;
+};
+
+// ============ BILLING ============
+export const getBillByOrderId = async (orderId: string) => {
+    const response = await axiosInstance.get(`/api/v1/billing/orders/${orderId}/bill`);
+    return response.data.data;
+};
+
+export const getBillById = async (billId: string) => {
+    const response = await axiosInstance.get(`/api/v1/billing/bills/${billId}`);
+    return response.data.data;
+};
+
+export const applyDiscount = async (billId: string, data: {
+    discountAmount: number;
+    reason: string;
+}) => {
+    const response = await axiosInstance.patch(`/api/v1/billing/bills/${billId}/discount`, data);
+    return response.data.data;
+};
+
+export const processPayment = async (billId: string, data: {
+    billId: string;
+    amount: number;
+    paymentMethod: 'CASH' | 'CREDIT_CARD' | 'DEBIT_CARD' | 'BANK_TRANSFER' | 'INSURANCE';
+    bankReferenceNo?: string;
+    bankName?: string;
+    insuranceClaimNo?: string;
+    notes?: string;
+}) => {
+    const response = await axiosInstance.post(`/api/v1/billing/bills/${billId}/payments`, data);
+    return response.data.data;
+};
+
+export const printBill = async (billId: string) => {
+    const response = await axiosInstance.post(`/api/v1/billing/bills/${billId}/print`);
+    return response.data.data;
+};
+
+export const getOrdersBillingStats = async (period?: string) => {
+    const response = await axiosInstance.get('/api/v1/orders-billing/statistics');
+    return response.data.data;
+};
+
+// ============ PHLEBOTOMY ============
+export const getPhlebotomyStats = async () => {
+    const response = await axiosInstance.get('/api/v1/phlebotomy/statistics');
+    return response.data.data;
+};
+
+export const getPhlebotomyWorklist = async (page = 0, size = 10) => {
+    const response = await axiosInstance.get(`/api/v1/phlebotomy/worklist?page=${page}&size=${size}`);
+    return response.data.data;
+};
+
+export const collectSample = async (sampleId: string, data: { notes?: string }) => {
+    const response = await axiosInstance.post(`/api/v1/phlebotomy/samples/${sampleId}/collect`, data);
+    return response.data.data;
+};
+
+export const rejectPhlebotomySample = async (sampleId: string, data: {
+    rejectionReason: string;
+    rejectionNotes?: string;
+}) => {
+    const response = await axiosInstance.post(`/api/v1/phlebotomy/samples/${sampleId}/reject`, data);
+    return response.data.data;
+};
+
+export const getCollectionHistory = async (page = 0, size = 10) => {
+    const response = await axiosInstance.get(`/api/v1/phlebotomy/collection-history?page=${page}&size=${size}`);
+    return response.data.data;
+};
+
+export interface SpecimenSampleDetail {
+    id: string;
+    sampleId: string;
+    orderId: string | null;
+    priority: string;
+    testType: string | null;
+    testCodes: string[] | null;
+    tubeTypes: string[] | null;
+    waitTimeMinutes: number;
+    status: string;
+    patient: {
+        name?: string | null;
+        pid?: string | null;
+        age?: number | null;
+        gender?: string | null;
+        wardRoom?: string | null;
+    } | null;
+    collectedAt?: string | null;
+    collectedBy?: string | null;
+    rejectionReason?: string | null;
+    rejectionNotes?: string | null;
+    printCount: number;
+}
+
+export const getPhlebotomySampleDetail = async (sampleUuid: string): Promise<SpecimenSampleDetail> => {
+    const response = await axiosInstance.get(`/api/v1/phlebotomy/samples/${sampleUuid}`);
+    return response.data.data as SpecimenSampleDetail;
+};
+
+/** Same specimen detail endpoint; allowed for lab reception roles after verification workflows. */
+export const getReceptionSampleDetail = getPhlebotomySampleDetail;
+
+export const printSampleLabel = async (sampleId: string) => {
+    const response = await axiosInstance.post(`/api/v1/phlebotomy/samples/${sampleId}/print-label`);
+    return response.data.data;
+};
+
+export const getSupplies = async () => {
+    const defaultSupplies = getDefaultSupplies();
+    try {
+        const response = await axiosInstance.get('/api/v1/supplies');
+        const data = response.data?.data ?? [];
+        const list = Array.isArray(data) ? data : [];
+        if (typeof window !== 'undefined') {
+            localStorage.setItem(
+                'lims_supplies_cache',
+                JSON.stringify(list.length > 0 ? list : defaultSupplies)
+            );
+        }
+        return list.length > 0 ? list : defaultSupplies;
+    } catch (err: any) {
+        if (typeof window !== 'undefined') {
+            const cached = localStorage.getItem('lims_supplies_cache');
+            return cached ? JSON.parse(cached) : defaultSupplies;
+        }
+        if (err?.response?.status) throw err;
+        return defaultSupplies;
+    }
+};
+
+export const createSupply = async (data: Record<string, unknown>) => {
+    try {
+        const response = await axiosInstance.post('/api/v1/supplies', data);
+        return response.data.data;
+    } catch (err: any) {
+        if (typeof window !== 'undefined') {
+            const cached = localStorage.getItem('lims_supplies_cache');
+            const list = cached ? JSON.parse(cached) : [];
+            const newItem = {
+                id: crypto.randomUUID(),
+                ...data,
+                lastRestocked: new Date().toISOString().slice(0, 10),
+            };
+            const next = [...(Array.isArray(list) ? list : []), newItem];
+            localStorage.setItem('lims_supplies_cache', JSON.stringify(next));
+            return newItem;
+        }
+        throw err;
+    }
+};
+
+export const updateSupply = async (id: string, data: Record<string, unknown>) => {
+    try {
+        const response = await axiosInstance.patch(`/api/v1/supplies/${id}`, data);
+        return response.data.data;
+    } catch (err: any) {
+        if (typeof window !== 'undefined') {
+            const cached = localStorage.getItem('lims_supplies_cache');
+            const list = cached ? JSON.parse(cached) : [];
+            const next = (Array.isArray(list) ? list : []).map((item: any) =>
+                String(item?.id) === id ? { ...item, ...data } : item
+            );
+            localStorage.setItem('lims_supplies_cache', JSON.stringify(next));
+            return next.find((item: any) => String(item?.id) === id);
+        }
+        throw err;
+    }
+};
+
+export const deleteSupply = async (id: string) => {
+    try {
+        const response = await axiosInstance.delete(`/api/v1/supplies/${id}`);
+        return response.data.data;
+    } catch (err: any) {
+        if (typeof window !== 'undefined') {
+            const cached = localStorage.getItem('lims_supplies_cache');
+            const list = cached ? JSON.parse(cached) : [];
+            const next = (Array.isArray(list) ? list : []).filter((item: any) => String(item?.id) !== id);
+            localStorage.setItem('lims_supplies_cache', JSON.stringify(next));
+            return { id };
+        }
+        throw err;
+    }
+};
+
+export const getBills = async (page = 0, size = 100) => {
+    const response = await axiosInstance.get(`/api/v1/billing/bills?page=${page}&size=${size}`);
+    return response.data.data;
+};
+
+// Fetches payment history by extracting payments[] from all bills.
+// The backend has no standalone /payments endpoint — payments live inside each bill.
+export const getPaymentHistory = async (_page = 0, _size = 100) => {
+    const candidateEndpoints = [
+        `/api/v1/billing/bills?page=0&size=200`,
+        `/api/v1/bills?page=0&size=200`,
+    ];
+
+    let bills: any[] = [];
+    let lastError: any = null;
+
+    for (const endpoint of candidateEndpoints) {
+        try {
+            const response = await axiosInstance.get(endpoint);
+            bills = response.data?.data?.content ?? response.data?.data ?? [];
+            break;
+        } catch (err: any) {
+            lastError = err;
+        }
+    }
+
+    if (!Array.isArray(bills) || bills.length === 0) {
+        const status = lastError?.response?.status;
+        if (status === 404) return [];
+        if (lastError && status && status !== 404) throw lastError;
+        if (lastError && !status) throw lastError;
+    }
+
+    // Flatten payments[] out of each bill, enriching each payment with patient info
+    const payments: any[] = [];
+    for (const bill of bills) {
+        const billPayments: any[] = bill.payments ?? [];
+        for (const p of billPayments) {
+            payments.push({
+                id: p.id ?? p.paymentId,
+                transactionId: p.transactionId ?? p.id,
+                billId: bill.billId ?? bill.id,
+                orderId: bill.orderId,
+                patientName: bill.patientName,
+                patientId: bill.patientId,
+                amount: p.amount,
+                method: p.paymentMethod ?? p.method,
+                status: p.status ?? 'SUCCESS',
+                receivedBy: p.receivedBy ?? 'Staff',
+                dateTime: p.paymentDate ?? p.createdAt ?? p.date,
+                receiptNo: p.receiptNumber ?? p.transactionId ?? p.id,
+            });
+        }
+    }
+    return payments;
+};
+
+// ===== Admin: Keycloak-backed user management =====
+// (Backend endpoints exist only when app.keycloak-admin.enabled=true.)
+export interface AdminUser {
+    id: string;
+    username: string;
+    email: string;
+    firstName: string;
+    lastName: string;
+    enabled: boolean;
+    branchCode: string;
+}
+
+export interface CreateAdminUserRequest {
+    username: string;
+    email: string;
+    firstName: string;
+    lastName: string;
+    role?: string;
+    branchCode?: string;
+    temporaryPassword?: string;
+}
+
+export async function getAdminUsers(): Promise<AdminUser[]> {
+    const response = await axiosInstance.get('/api/v1/admin/users');
+    return (response.data?.data ?? []) as AdminUser[];
+}
+
+export async function createAdminUser(req: CreateAdminUserRequest): Promise<AdminUser> {
+    const response = await axiosInstance.post('/api/v1/admin/users', req);
+    return (response.data?.data ?? response.data) as AdminUser;
+}
+
+export async function setAdminUserEnabled(id: string, value: boolean): Promise<void> {
+    await axiosInstance.patch(`/api/v1/admin/users/${id}/enabled`, null, { params: { value } });
+}

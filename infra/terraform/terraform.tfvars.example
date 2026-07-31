@@ -1,0 +1,22 @@
+# Copy to terraform.tfvars and adjust. All have sensible defaults; override as needed.
+
+aws_region  = "us-east-1"
+environment = "demo"
+
+# Compute / DB sizing (defaults already fit the ~$34/mo budget)
+ec2_instance_type  = "t3.small"
+rds_instance_class = "db.t4g.micro"
+
+# Leave empty to use SSM Session Manager (recommended). Or lock SSH to your IP:
+# ssh_ingress_cidr = "203.0.113.4/32"
+
+# Image tags CI pushes to ECR (default "latest")
+app_image_tag      = "latest"
+frontend_image_tag = "latest"
+
+# Optional custom domain for TLS via Caddy. Empty = serve over the EIP on HTTP.
+domain_name = ""
+
+# Cost guardrail — set your email to receive budget alerts at 80% / 100%.
+budget_monthly_usd = 40
+alert_email        = ""

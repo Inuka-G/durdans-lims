@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+
+    <!--
+      H2 — carry the current version number and a "corrected" marker on the live
+      test_results row so reports/UI can render a "Corrected (v2)" badge and the
+      amendment history is one join away. version_no starts at 1 (original result);
+      each amendment increments it.
+    -->
+    <changeSet id="20260619121500-1-add-test-result-version-columns" author="kalana">
+        <addColumn tableName="test_results">
+            <column name="version_no" type="int" defaultValueNumeric="1">
+                <constraints nullable="false"/>
+            </column>
+            <column name="is_amended" type="boolean" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="test_results" columnName="version_no"/>
+            <dropColumn tableName="test_results" columnName="is_amended"/>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

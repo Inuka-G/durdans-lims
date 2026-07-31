@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+
+    <!--
+      H1 — Critical-value (panic) callback workflow (CAP GEN.41350 / JCI IPSG.2).
+
+      When a result crosses a panic limit (CRITICAL_LOW/CRITICAL_HIGH), a callback is
+      opened to notify the responsible clinician. The clinician must acknowledge with a
+      READ-BACK (the value repeated back + to whom it was communicated). If not
+      acknowledged within the per-priority SLA, the callback escalates through bounded
+      tiers and, if still unacknowledged, is CLOSED as a dead-letter for ops review.
+      Each escalation attempt is recorded for the medico-legal trail.
+    -->
+
+    <changeSet id="20260619122000-1-create-critical-value-notification" author="kalana">
+        <createTable tableName="critical_value_notification">
+            <column name="id" type="uuid">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="result_id" type="uuid">
+                <constraints nullable="false"/>
+            </column>
+            <column name="sample_id" type="uuid"/>
+            <column name="parameter_id" type="uuid"/>
+            <column name="parameter_name" type="varchar(100)"/>
+            <column name="patient_code" type="varchar(50)"/>
+            <column name="branch_code" type="varchar(50)"/>
+            <column name="flag" type="varchar(30)"/>
+            <column name="result_value" type="varchar(100)"/>
+            <column name="priority" type="varchar(16)"/>
+
+            <column name="recipient_name" type="varchar(255)"/>
+            <column name="recipient_contact" type="varchar(255)"/>
+            <column name="channel" type="varchar(16)"/>
+
+            <column name="status" type="varchar(20)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="escalation_level" type="int" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+
+            <column name="raised_at" type="timestamp">
+                <constraints nullable="false"/>
+            </column>
+            <column name="notified_at" type="timestamp"/>
+            <column name="acknowledged_by" type="varchar(255)"/>
+            <column name="acknowledged_at" type="timestamp"/>
+            <column name="read_back_text" type="varchar(500)"/>
+            <column name="communicated_to" type="varchar(255)"/>
+            <column name="read_back_verified" type="boolean"/>
+            <column name="next_escalation_due_at" type="timestamp"/>
+            <column name="closed_at" type="timestamp"/>
+
+            <column name="created_at" type="timestamp"/>
+            <column name="created_by" type="varchar(100)"/>
+            <column name="updated_at" type="timestamp"/>
+            <column name="updated_by" type="varchar(100)"/>
+            <column name="is_deleted" type="boolean" defaultValueBoolean="false"/>
+            <column name="version" type="bigint"/>
+        </createTable>
+
+        <addForeignKeyConstraint
+                baseTableName="critical_value_notification"
+                baseColumnNames="result_id"
+                referencedTableName="test_results"
+                referencedColumnNames="id"
+                constraintName="fk_critical_notification_result"/>
+
+        <createIndex tableName="critical_value_notification" indexName="ix_critical_notification_result">
+            <column name="result_id"/>
+        </createIndex>
+        <createIndex tableName="critical_value_notification" indexName="ix_critical_notification_status">
+            <column name="status"/>
+        </createIndex>
+        <createIndex tableName="critical_value_notification" indexName="ix_critical_notification_due">
+            <column name="next_escalation_due_at"/>
+        </createIndex>
+        <createIndex tableName="critical_value_notification" indexName="ix_critical_notification_branch">
+            <column name="branch_code"/>
+        </createIndex>
+
+        <rollback>
+            <dropTable tableName="critical_value_notification"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="20260619122000-2-create-critical-value-escalation-attempt" author="kalana">
+        <createTable tableName="critical_value_escalation_attempt">
+            <column name="id" type="uuid">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="notification_id" type="uuid">
+                <constraints nullable="false"/>
+            </column>
+            <column name="level" type="int">
+                <constraints nullable="false"/>
+            </column>
+            <column name="channel" type="varchar(16)"/>
+            <column name="recipient_contact" type="varchar(255)"/>
+            <column name="status" type="varchar(16)"/>
+            <column name="sent_at" type="timestamp"/>
+            <column name="failure_reason" type="varchar(500)"/>
+
+            <column name="created_at" type="timestamp"/>
+            <column name="created_by" type="varchar(100)"/>
+            <column name="updated_at" type="timestamp"/>
+            <column name="updated_by" type="varchar(100)"/>
+            <column name="is_deleted" type="boolean" defaultValueBoolean="false"/>
+            <column name="version" type="bigint"/>
+        </createTable>
+
+        <addForeignKeyConstraint
+                baseTableName="critical_value_escalation_attempt"
+                baseColumnNames="notification_id"
+                referencedTableName="critical_value_notification"
+                referencedColumnNames="id"
+                constraintName="fk_escalation_attempt_notification"/>
+
+        <createIndex tableName="critical_value_escalation_attempt" indexName="ix_escalation_attempt_notification">
+            <column name="notification_id"/>
+        </createIndex>
+
+        <rollback>
+            <dropTable tableName="critical_value_escalation_attempt"/>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

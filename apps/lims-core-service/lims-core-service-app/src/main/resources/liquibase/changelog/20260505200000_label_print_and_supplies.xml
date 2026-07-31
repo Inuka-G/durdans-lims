@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+
+    <changeSet id="20260505200000-1-add-sample-label-print-count" author="lims">
+        <comment>WHO: Tracks specimen label print/reprint counts for chain-of-custody auditing.</comment>
+        <addColumn tableName="samples">
+            <column name="label_print_count" type="integer" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+    </changeSet>
+
+    <changeSet id="20260505200000-2-create-supplies-table" author="lims">
+        <comment>Consumables inventory for phlebotomy / reception reorder workflows.</comment>
+        <createTable tableName="supplies">
+            <column name="id" type="uuid">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="item_no" type="varchar(50)">
+                <constraints nullable="false" unique="true"/>
+            </column>
+            <column name="name" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="category" type="varchar(100)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="tube_color" type="varchar(32)"/>
+            <column name="current_stock" type="integer">
+                <constraints nullable="false"/>
+            </column>
+            <column name="min_stock" type="integer">
+                <constraints nullable="false"/>
+            </column>
+            <column name="max_stock" type="integer">
+                <constraints nullable="false"/>
+            </column>
+            <column name="unit" type="varchar(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="last_restocked" type="date"/>
+            <column name="created_at" type="timestamp with time zone" defaultValueComputed="CURRENT_TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="timestamp with time zone" defaultValueComputed="CURRENT_TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_by" type="varchar(255)"/>
+            <column name="updated_by" type="varchar(255)"/>
+            <column name="is_deleted" type="boolean" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+            <column name="version" type="bigint" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <createIndex tableName="supplies" indexName="idx_supplies_category">
+            <column name="category"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="20260505200000-3-seed-supplies" author="lims">
+        <comment>Seed baseline inventory aligned with lims-lab-workflow.js demo catalog.</comment>
+        <sql dbms="postgresql"><![CDATA[
+INSERT INTO supplies (id, item_no, name, category, tube_color, current_stock, min_stock, max_stock, unit, last_restocked,
+                      created_at, updated_at, created_by, updated_by, is_deleted, version)
+VALUES
+    ('33333333-3333-4333-8333-333333330001', 'SUP-0001', 'EDTA purple tubes', 'Collection tubes', '#a855f7', 300, 150, 600, 'tubes', DATE '2026-05-05',
+     CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'system', 'system', false, 0),
+    ('33333333-3333-4333-8333-333333330002', 'SUP-0002', 'SST gold tubes', 'Collection tubes', '#facc15', 300, 150, 600, 'tubes', DATE '2026-05-05',
+     CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'system', 'system', false, 0),
+    ('33333333-3333-4333-8333-333333330003', 'SUP-0003', 'Sodium citrate blue tubes', 'Collection tubes', '#60a5fa', 120, 50, 240, 'tubes', DATE '2026-05-05',
+     CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'system', 'system', false, 0),
+    ('33333333-3333-4333-8333-333333330004', 'SUP-0004', 'Lithium heparin green tubes', 'Collection tubes', '#22c55e', 120, 50, 240, 'tubes', DATE '2026-05-05',
+     CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'system', 'system', false, 0),
+    ('33333333-3333-4333-8333-333333330005', 'SUP-0005', 'Sterile urine containers', 'Containers', '#fde047', 250, 100, 500, 'containers', DATE '2026-05-05',
+     CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'system', 'system', false, 0),
+    ('33333333-3333-4333-8333-333333330006', 'SUP-0006', '21G needles', 'Phlebotomy', '#64748b', 250, 100, 500, 'needles', DATE '2026-05-05',
+     CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'system', 'system', false, 0),
+    ('33333333-3333-4333-8333-333333330007', 'SUP-0007', 'Thermal barcode labels', 'Labelling', '#0ea5e9', 2500, 1000, 5000, 'labels', DATE '2026-05-05',
+     CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'system', 'system', false, 0),
+    ('33333333-3333-4333-8333-333333330008', 'SUP-0008', 'Nitrile gloves', 'PPE', '#334155', 1200, 500, 2400, 'pairs', DATE '2026-05-05',
+     CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'system', 'system', false, 0)
+ON CONFLICT (item_no) DO UPDATE SET
+    name = EXCLUDED.name,
+    category = EXCLUDED.category,
+    tube_color = EXCLUDED.tube_color,
+    current_stock = EXCLUDED.current_stock,
+    min_stock = EXCLUDED.min_stock,
+    max_stock = EXCLUDED.max_stock,
+    unit = EXCLUDED.unit,
+    last_restocked = EXCLUDED.last_restocked,
+    updated_at = CURRENT_TIMESTAMP,
+    updated_by = 'system',
+    is_deleted = false;
+        ]]></sql>
+    </changeSet>
+</databaseChangeLog>

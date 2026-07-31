@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.7.xsd">
+
+    <changeSet id="20260416120000-report-dispatch-item" author="lims">
+        <createTable tableName="report_dispatch_item">
+            <column name="id" type="UUID">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="report_reference" type="VARCHAR(100)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="branch_code" type="VARCHAR(100)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="patient_code" type="VARCHAR(50)"/>
+            <column name="patient_display_name" type="VARCHAR(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="test_panel_label" type="VARCHAR(500)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="artifact_uri" type="VARCHAR(2048)"/>
+            <column name="authorized_at" type="TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+            <column name="overall_status" type="VARCHAR(30)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="preferred_methods" type="TEXT"/>
+            <column name="created_at" type="TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_by" type="VARCHAR(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="TIMESTAMP"/>
+            <column name="updated_by" type="VARCHAR(255)"/>
+        </createTable>
+
+        <addUniqueConstraint tableName="report_dispatch_item"
+                             columnNames="report_reference, branch_code"
+                             constraintName="uk_report_dispatch_ref_branch"/>
+        <createIndex indexName="idx_report_dispatch_branch_status" tableName="report_dispatch_item">
+            <column name="branch_code"/>
+            <column name="overall_status"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="20260416120001-report-delivery-attempt" author="lims">
+        <createTable tableName="report_delivery_attempt">
+            <column name="id" type="UUID">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="dispatch_item_id" type="UUID">
+                <constraints nullable="false"/>
+            </column>
+            <column name="method" type="VARCHAR(20)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="status" type="VARCHAR(20)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="failure_reason" type="VARCHAR(1000)"/>
+            <column name="retry_count" type="INT" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="dispatched_at" type="TIMESTAMP"/>
+            <column name="delivered_at" type="TIMESTAMP"/>
+            <column name="created_at" type="TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_by" type="VARCHAR(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="TIMESTAMP"/>
+            <column name="updated_by" type="VARCHAR(255)"/>
+        </createTable>
+
+        <addForeignKeyConstraint baseTableName="report_delivery_attempt"
+                                 baseColumnNames="dispatch_item_id"
+                                 constraintName="fk_attempt_dispatch_item"
+                                 referencedTableName="report_dispatch_item"
+                                 referencedColumnNames="id"/>
+
+        <createIndex indexName="idx_delivery_attempt_item" tableName="report_delivery_attempt">
+            <column name="dispatch_item_id"/>
+        </createIndex>
+        <createIndex indexName="idx_delivery_attempt_status" tableName="report_delivery_attempt">
+            <column name="status"/>
+        </createIndex>
+    </changeSet>
+
+</databaseChangeLog>

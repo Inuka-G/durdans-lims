@@ -1,0 +1,19 @@
+# Safety net only. Every image build sets its context to the app directory
+# (see .github/workflows/*.yml and infra/docker-compose.yml), and each app keeps
+# its own .dockerignore. This file exists so that an accidental root-context
+# build does not ship the entire monorepo into an image layer.
+
+.git
+.github
+docs
+load-testing
+
+**/node_modules
+**/.next
+**/build
+**/dist
+**/.gradle
+**/.terraform
+**/*.tfstate*
+**/.env
+**/.env.*

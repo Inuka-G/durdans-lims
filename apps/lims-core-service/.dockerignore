@@ -1,0 +1,8 @@
+.gradle/
+build/
+**/build/
+.git/
+.idea/
+postman/
+.postman/
+*.md

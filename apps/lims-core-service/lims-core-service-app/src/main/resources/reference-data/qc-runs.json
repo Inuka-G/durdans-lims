@@ -1,0 +1,74 @@
+[
+  {
+    "id": "qc-001",
+    "instrument": "Sysmex XN-1000",
+    "testGroup": "Full Blood Count",
+    "level": "Normal",
+    "result": "5.2",
+    "expected": "5.0 ± 0.3",
+    "sd": "0.7 SD",
+    "status": "PASS",
+    "performedBy": "MLT Aritha",
+    "minutesAgo": 90
+  },
+  {
+    "id": "qc-002",
+    "instrument": "Sysmex XN-1000",
+    "testGroup": "Full Blood Count",
+    "level": "Low",
+    "result": "2.1",
+    "expected": "2.0 ± 0.2",
+    "sd": "0.5 SD",
+    "status": "PASS",
+    "performedBy": "MLT Aritha",
+    "minutesAgo": 88
+  },
+  {
+    "id": "qc-003",
+    "instrument": "Cobas c501",
+    "testGroup": "Lipid Panel",
+    "level": "Normal",
+    "result": "198",
+    "expected": "200 ± 8",
+    "sd": "-0.25 SD",
+    "status": "PASS",
+    "performedBy": "MLT Silva",
+    "minutesAgo": 75
+  },
+  {
+    "id": "qc-004",
+    "instrument": "Cobas c501",
+    "testGroup": "HbA1c",
+    "level": "High",
+    "result": "9.8",
+    "expected": "8.5 ± 0.4",
+    "sd": "3.25 SD",
+    "status": "FAIL",
+    "performedBy": "MLT Silva",
+    "minutesAgo": 72
+  },
+  {
+    "id": "qc-005",
+    "instrument": "Cobas e411",
+    "testGroup": "Thyroid Panel",
+    "level": "Normal",
+    "result": "4.1",
+    "expected": "4.0 ± 0.5",
+    "sd": "0.2 SD",
+    "status": "PASS",
+    "performedBy": "MLT Perera",
+    "minutesAgo": 60
+  },
+  {
+    "id": "qc-006",
+    "instrument": "Cobas e411",
+    "testGroup": "Cortisol",
+    "level": "Low",
+    "result": "3.8",
+    "expected": "5.0 ± 0.8",
+    "sd": "-1.5 SD",
+    "status": "WARN",
+    "performedBy": "MLT Perera",
+    "minutesAgo": 55
+  }
+]

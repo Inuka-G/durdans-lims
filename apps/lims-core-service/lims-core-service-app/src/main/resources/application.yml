@@ -1,0 +1,243 @@
+server:
+  port: 11000
+  error:
+    # Never leak internals to clients. The GlobalExceptionHandler shapes the body;
+    # these guarantee no stack trace / framework message escapes even on an
+    # unhandled path. Asserted by an integration test.
+    include-stacktrace: never
+    include-message: never
+    include-binding-errors: never
+
+spring:
+  application:
+    name: lims-core-service
+
+  datasource:
+    # Secrets are externalized. Defaults are safe local/docker values only —
+    # the real password belongs in application-local.yml (git-ignored) or the
+    # DB_PASSWORD env var. NEVER commit a real credential here.
+    # NOTE: in docker-compose the Keycloak DB is published on host 5433 and the
+    # LIMS app DB on 5434 — host-run must target 5434. Inside compose the app uses
+    # the `docker` profile (application-docker.yml) and connects to lims-postgres:5432.
+    url: ${DB_URL:jdbc:postgresql://localhost:5434/durdans_lims_db}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    open-in-view: false
+    show-sql: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+  liquibase:
+    enabled: true
+    change-log: classpath:/liquibase/master.xml
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: http://localhost:8081/realms/lims-realm
+
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: lims-dispatch-ingress
+      auto-offset-reset: earliest
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      # Durability for authorized-report events: wait for all in-sync replicas,
+      # retry transient failures, and dedupe on the broker so a retried publish is
+      # not delivered twice. Losing/duplicating a report event is a patient-safety
+      # event, so the producer is configured strictly.
+      acks: all
+      retries: 5
+      properties:
+        enable.idempotence: true
+        max.in.flight.requests.per.connection: 5
+        delivery.timeout.ms: 120000
+    properties:
+      spring.json.add.type.headers: false
+
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    # No default: mail is disabled until MAIL_USERNAME/MAIL_PASSWORD are supplied
+    # (env or application-local.yml). Do NOT commit a working mail credential.
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    protocol: smtp
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+            required: true
+          ssl:
+            trust: smtp.gmail.com
+          connectiontimeout: 30000
+          timeout: 30000
+          writetimeout: 30000
+        debug: false
+
+  cloud:
+    aws:
+      region: us-east-1
+      credentials:
+        # test/test are LocalStack defaults (not real secrets). Override with
+        # AWS_ACCESS_KEY/AWS_SECRET_KEY in real environments.
+        access-key: ${AWS_ACCESS_KEY:test}
+        secret-key: ${AWS_SECRET_KEY:test}
+      s3:
+        bucket: lims-patient-documents
+      endpoint: http://localhost:4566
+
+app:
+  billing:
+    service-charge-percentage: 5
+    overdue-threshold-hours: 24
+
+  services:
+    patient-base-url: http://localhost:11000
+
+  kafka:
+    lab-report-listener-enabled: false
+    topics:
+      lab-report-authorized: lab.report.authorized
+
+  file:
+    max-size: 10485760
+    allowed-types:
+      - application/pdf
+      - image/jpeg
+      - image/png
+    allowed-extensions:
+      - pdf
+      - png
+      - jpg
+      - jpeg
+
+  verification:
+    base-url: http://localhost:11000
+
+  # Critical-value (panic) callback workflow (H1). A critical result opens a callback
+  # that must be acknowledged with a read-back; unacknowledged callbacks escalate
+  # through bounded tiers per the SLA. fallback-contact is where a callback is routed
+  # when the order carries no deliverable clinician contact — it must never be blank so
+  # a panic value is never silently un-notified.
+  critical:
+    scheduler-enabled: true
+    poll-interval-ms: 60000
+    ack-timeout-minutes: 15
+    stat-ack-timeout-minutes: 5
+    max-escalation-levels: 3
+    fallback-contact: ${CRITICAL_FALLBACK_CONTACT:lab-oncall@durdans.example}
+    escalation-contact: ${CRITICAL_ESCALATION_CONTACT:}
+
+  # Instrument integration (ASTM). Disabled by default so it does not bind a port
+  # without an analyzer/simulator. Enable, then run the simulator's analyzer mode
+  # against this port to demo the machine -> middleware -> LIMS loop.
+  instrument:
+    listener:
+      enabled: false
+      port: 12000
+      instrument-id: ASTM-IN-01
+
+  # Admin user management via the Keycloak Admin API (server-to-server). Disabled
+  # by default so the app starts without admin service-account credentials.
+  # Requires a confidential client with a service account + realm-management roles.
+  keycloak-admin:
+    enabled: false
+    server-url: ${KEYCLOAK_URL:http://localhost:8081}
+    realm: ${KEYCLOAK_REALM:lims-realm}
+    client-id: ${KEYCLOAK_ADMIN_CLIENT_ID:lims-admin-cli}
+    client-secret: ${KEYCLOAK_ADMIN_CLIENT_SECRET:}
+
+# Observability: liveness/readiness probes + Prometheus metrics.
+# Management runs on a SEPARATE port (11001) so metrics/health are served on an
+# internal-only connector that is NOT published to the host in docker-compose and
+# NOT opened in the prod security group. Prometheus scrapes app:11001 over the
+# private network; the public API port (11000) never exposes /actuator. This is
+# the standard fix for "Prometheus scrape returns 401 because /actuator is locked".
+management:
+  server:
+    port: 11001
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: when_authorized
+  health:
+    # Mail is best-effort and sent asynchronously via the outbox — an SMTP outage
+    # must NOT mark the whole service unhealthy (and the probe can't reach Gmail
+    # from inside the cluster anyway). Dispatch failures surface via metrics/alerts.
+    mail:
+      enabled: false
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+  info:
+    env:
+      enabled: false
+  # G6: distributed tracing via OpenTelemetry → OTLP. Sampling is full in dev/demo and
+  # env-tunable for prod. The exporter targets a local OTLP collector (Tempo) by default;
+  # in docker-compose the app's OTLP_ENDPOINT points at the tempo service.
+  tracing:
+    enabled: true
+    sampling:
+      probability: ${TRACING_SAMPLE_RATE:1.0}
+  otlp:
+    tracing:
+      endpoint: ${OTLP_ENDPOINT:http://localhost:4318/v1/traces}
+
+# F2: Resilience4j — retry + circuit-breaker on outbound S3 / SMTP / patient-HTTP.
+# Breaker + retry metrics (resilience4j_circuitbreaker_state/_calls, resilience4j_retry_calls)
+# are exported to /actuator/prometheus by resilience4j-micrometer. registerHealthIndicator
+# is false so an external dependency outage does NOT flip the service readiness to DOWN —
+# consistent with keeping mail out of the health check. Blocking clients are time-bounded by
+# their own socket timeouts (RestTemplate 2s/5s, SMTP 30s), so @TimeLimiter is not used.
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        failureRateThreshold: 50
+        waitDurationInOpenState: 30s
+        permittedNumberOfCallsInHalfOpenState: 3
+        registerHealthIndicator: false
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+    instances:
+      s3:
+        baseConfig: default
+      smtp:
+        baseConfig: default
+      patientHttp:
+        baseConfig: default
+  retry:
+    configs:
+      default:
+        maxAttempts: 3
+        waitDuration: 500ms
+        enableExponentialBackoff: true
+        exponentialBackoffMultiplier: 2
+    instances:
+      s3:
+        baseConfig: default
+      smtp:
+        baseConfig: default
+        waitDuration: 1s
+      patientHttp:
+        maxAttempts: 2
+        waitDuration: 300ms

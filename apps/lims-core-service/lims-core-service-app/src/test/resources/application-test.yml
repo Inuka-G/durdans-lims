@@ -1,0 +1,31 @@
+# Profile: test — used by the Testcontainers integration tests.
+# The datasource is supplied dynamically by @ServiceConnection (the Postgres
+# Testcontainer), so it is intentionally NOT set here. Everything else inherits
+# from application.yml; we only switch off the external integrations a context /
+# slice test should not reach.
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: validate
+  liquibase:
+    enabled: true
+
+# G6: no OTLP exporter in tests (no collector to reach).
+management:
+  tracing:
+    enabled: false
+
+app:
+  kafka:
+    lab-report-listener-enabled: false
+  instrument:
+    listener:
+      enabled: false
+  keycloak-admin:
+    enabled: false
+  # H1: drive critical-value delivery/escalation deterministically from tests, not the
+  # timer. fallback-contact is a phone (no '@') so the SMS channel (MockSmsService) is
+  # exercised and "notified" can be asserted without a live SMTP server.
+  critical:
+    scheduler-enabled: false
+    fallback-contact: "+94770000000"

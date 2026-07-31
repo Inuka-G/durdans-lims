@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="
+        http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.7.xsd">
+
+<changeSet id="create-patient-document-table" author="Kalana Sandakelum">
+
+    <createTable tableName="patient_document">
+
+        <!-- Primary Key -->
+        <column name="id" type="UUID">
+            <constraints primaryKey="true" nullable="false"/>
+        </column>
+
+        <!-- Foreign Key to Patient -->
+        <column name="patient_id" type="UUID">
+            <constraints nullable="false"/>
+        </column>
+
+        <!-- Document Metadata -->
+        <column name="document_type" type="VARCHAR(50)">
+            <constraints nullable="false"/>
+        </column>
+
+        <column name="original_file_name" type="VARCHAR(255)">
+            <constraints nullable="false"/>
+        </column>
+
+        <column name="stored_file_name" type="VARCHAR(255)">
+            <constraints nullable="false"/>
+        </column>
+
+        <column name="content_type" type="VARCHAR(100)">
+            <constraints nullable="false"/>
+        </column>
+
+        <column name="file_size" type="BIGINT"/>
+
+        <column name="s3_key" type="VARCHAR(500)">
+            <constraints nullable="false" unique="true"/>
+        </column>
+
+        <column name="description" type="VARCHAR(500)"/>
+
+        <!-- File Security & Integrity -->
+        <column name="file_hash" type="VARCHAR(64)">
+            <constraints nullable="false"/>
+        </column>
+
+        <!-- Soft Delete -->
+        <column name="is_deleted" type="BOOLEAN" defaultValueBoolean="false">
+            <constraints nullable="false"/>
+        </column>
+
+        <!-- Audit Fields - Who uploaded -->
+        <column name="uploaded_by" type="VARCHAR(255)">
+            <constraints nullable="false"/>
+        </column>
+
+        <column name="uploaded_ip" type="VARCHAR(45)">
+            <constraints nullable="false"/>
+        </column>
+
+        <!-- Access Control -->
+        <column name="branch_code" type="VARCHAR(20)">
+            <constraints nullable="false"/>
+        </column>
+
+        <!-- Base Entity Timestamp Fields -->
+        <column name="created_at" type="TIMESTAMP">
+            <constraints nullable="false"/>
+        </column>
+
+        <column name="created_by" type="VARCHAR(255)">
+            <constraints nullable="false"/>
+        </column>
+
+        <column name="updated_at" type="TIMESTAMP"/>
+
+        <column name="updated_by" type="VARCHAR(255)"/>
+
+    </createTable>
+
+    <!-- Foreign Key Constraint -->
+    <addForeignKeyConstraint
+            baseTableName="patient_document"
+            baseColumnNames="patient_id"
+            referencedTableName="patient"
+            referencedColumnNames="id"
+            constraintName="fk_patient_document_patient"/>
+
+    <!-- Unique Constraint: Prevent same file upload by same patient -->
+    <addUniqueConstraint
+            tableName="patient_document"
+            columnNames="patient_id, file_hash"
+            constraintName="uk_patient_file_hash"/>
+
+</changeSet>
+</databaseChangeLog>

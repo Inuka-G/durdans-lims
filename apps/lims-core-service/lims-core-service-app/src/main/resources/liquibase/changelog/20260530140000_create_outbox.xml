@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+
+    <!--
+      WHY: Transactional outbox. Domain writes append an event row in the SAME
+      transaction as the business change; a relay publishes it to Kafka and marks
+      it published. This makes event delivery at-least-once even if the broker is
+      down at commit time (the previous AFTER_COMMIT direct send silently lost the
+      event on any broker hiccup).
+    -->
+    <changeSet id="20260530140000-1-create-outbox" author="lims">
+        <createTable tableName="outbox_event">
+            <column name="id" type="uuid">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="aggregate_type" type="varchar(64)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="aggregate_id" type="varchar(128)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="event_type" type="varchar(64)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="topic" type="varchar(128)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="message_key" type="varchar(128)"/>
+            <column name="payload" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="timestamp with time zone" defaultValueComputed="CURRENT_TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+            <column name="published_at" type="timestamp with time zone"/>
+            <column name="attempts" type="integer" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <!-- Relay polls unpublished rows oldest-first. -->
+        <createIndex tableName="outbox_event" indexName="idx_outbox_unpublished">
+            <column name="published_at"/>
+            <column name="created_at"/>
+        </createIndex>
+    </changeSet>
+
+</databaseChangeLog>

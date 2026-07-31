@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+
+    <changeSet id="create-audit-log-table" author="kalana">
+
+        <createTable tableName="audit_log">
+
+            <column name="id" type="UUID">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+
+            <column name="action" type="VARCHAR(50)">
+                <constraints nullable="false"/>
+            </column>
+
+            <column name="entity_type" type="VARCHAR(100)">
+                <constraints nullable="false"/>
+            </column>
+
+            <column name="entity_id" type="UUID"/>
+
+            <column name="patient_code" type="VARCHAR(50)"/>
+
+            <column name="performed_by" type="VARCHAR(100)">
+                <constraints nullable="false"/>
+            </column>
+
+            <column name="branch_code" type="VARCHAR(50)">
+                <constraints nullable="false"/>
+            </column>
+
+            <column name="ip_address" type="VARCHAR(100)"/>
+
+            <column name="timestamp" type="TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+
+            <column name="details" type="JSONB"/>
+
+        </createTable>
+
+    </changeSet>
+
+</databaseChangeLog>

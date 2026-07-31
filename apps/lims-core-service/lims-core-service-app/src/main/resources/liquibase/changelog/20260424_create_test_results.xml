@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="
+           http://www.liquibase.org/xml/ns/dbchangelog
+           http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
+
+    <changeSet id="20260424-05-create-test-results" author="sithu">
+
+        <createTable tableName="test_results">
+            <column name="id" type="uuid">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+
+            <column name="sample_id" type="uuid">
+                <constraints nullable="false"/>
+            </column>
+
+            <column name="parameter_id" type="uuid">
+                <constraints nullable="false"/>
+            </column>
+
+            <column name="result_value" type="varchar(100)">
+                <constraints nullable="false"/>
+            </column>
+
+            <column name="flag" type="varchar(30)"/>
+
+            <column name="mlt_notes" type="varchar(500)"/>
+
+            <column name="is_draft" type="boolean" defaultValueBoolean="true"/>
+
+            <column name="created_at" type="timestamp"/>
+            <column name="created_by" type="varchar(100)"/>
+            <column name="updated_at" type="timestamp"/>
+            <column name="updated_by" type="varchar(100)"/>
+            <column name="is_deleted" type="boolean" defaultValueBoolean="false"/>
+            <column name="version" type="bigint"/>
+        </createTable>
+
+        <addForeignKeyConstraint
+                baseTableName="test_results"
+                baseColumnNames="sample_id"
+                referencedTableName="samples"
+                referencedColumnNames="id"
+                constraintName="fk_test_results_sample"/>
+
+        <addForeignKeyConstraint
+                baseTableName="test_results"
+                baseColumnNames="parameter_id"
+                referencedTableName="test_parameters"
+                referencedColumnNames="id"
+                constraintName="fk_test_results_parameter"/>
+
+        <addUniqueConstraint
+                tableName="test_results"
+                columnNames="sample_id, parameter_id"
+                constraintName="uk_test_results_sample_parameter"/>
+
+        <createIndex tableName="test_results" indexName="idx_test_results_sample_id">
+            <column name="sample_id"/>
+        </createIndex>
+
+        <createIndex tableName="test_results" indexName="idx_test_results_parameter_id">
+            <column name="parameter_id"/>
+        </createIndex>
+
+    </changeSet>
+
+</databaseChangeLog>

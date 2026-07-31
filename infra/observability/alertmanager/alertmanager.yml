@@ -1,0 +1,41 @@
+# Durdans LIMS — Alertmanager routing (G2).
+# Page-severity alerts (critical-value SLA breach, outbox dead-letter) route to the
+# `pager` receiver; everything else to `default`. The receivers are placeholders — wire
+# a real integration (PagerDuty/Opsgenie/Slack/email) via env, the same way mail creds
+# are kept out of the repo (application.yml). DO NOT commit real tokens.
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: default
+  group_by: ["alertname", "severity"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    - matchers:
+        - severity = "page"
+      receiver: pager
+      group_wait: 10s
+      repeat_interval: 1h
+
+receivers:
+  - name: default
+    # Placeholder. Example email receiver (uncomment + supply SMTP via env):
+    # email_configs:
+    #   - to: lab-ops@durdans.example
+    #     from: alertmanager@durdans.example
+    #     smarthost: smtp.example:587
+    #     auth_username: '${SMTP_USER}'
+    #     auth_password: '${SMTP_PASS}'
+
+  - name: pager
+    # Placeholder for the on-call paging integration (PagerDuty/Opsgenie webhook).
+    # webhook_configs:
+    #   - url: '${PAGER_WEBHOOK_URL}'
+
+inhibit_rules:
+  # A page suppresses a same-alertname warning to cut noise.
+  - source_matchers: [severity = "page"]
+    target_matchers: [severity = "warning"]
+    equal: ["alertname"]

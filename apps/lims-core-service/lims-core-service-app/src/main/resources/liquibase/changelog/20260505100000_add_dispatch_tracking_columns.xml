@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="
+        http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.17.xsd">
+
+    <changeSet id="20260505100000-add-delivery-attempt-tracking-columns" author="lims">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="report_delivery_attempt" columnName="recipient_contact"/>
+            </not>
+        </preConditions>
+
+        <addColumn tableName="report_delivery_attempt">
+            <column name="recipient_contact" type="VARCHAR(1000)"/>
+            <column name="tracking_number" type="VARCHAR(100)"/>
+            <column name="tracking_url" type="VARCHAR(2048)"/>
+        </addColumn>
+
+        <createIndex indexName="idx_delivery_attempt_tracking" tableName="report_delivery_attempt">
+            <column name="tracking_number"/>
+        </createIndex>
+    </changeSet>
+</databaseChangeLog>

@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="
+        http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.17.xsd">
+
+    <changeSet id="20260425000000-add-dispatch-is-deleted-column" author="lims">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="report_delivery_attempt" columnName="is_deleted"/>
+            </not>
+        </preConditions>
+
+        <addColumn tableName="report_delivery_attempt">
+            <column name="is_deleted" type="BOOLEAN" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+    </changeSet>
+
+    <changeSet id="20260425000000-add-dispatch-version-column" author="lims">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="report_delivery_attempt" columnName="version"/>
+            </not>
+        </preConditions>
+
+        <addColumn tableName="report_delivery_attempt">
+            <column name="version" type="BIGINT" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+    </changeSet>
+
+</databaseChangeLog>

@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+
+    <!--
+      H2 — Result amendment / versioning (ISO 15189 / CAP / CLIA corrected-report rules).
+
+      A released result (TECHNICALLY_VERIFIED / CLINICALLY_AUTHORIZED / DISPATCHED) must
+      NEVER be silently overwritten. A correction snapshots the prior value into
+      test_result_amendment (immutable history) before the live test_results row is
+      updated, with the reason, the amender, and an e-signature captured. Many
+      amendments may exist per result, so the FK is on test_result_id (NOT the
+      (sample_id, parameter_id) unique key, which keeps a single live row per analyte).
+    -->
+
+    <changeSet id="20260619121000-1-create-test-result-amendment" author="kalana">
+        <createTable tableName="test_result_amendment">
+            <column name="id" type="uuid">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="test_result_id" type="uuid">
+                <constraints nullable="false"/>
+            </column>
+            <column name="version_no" type="int">
+                <constraints nullable="false"/>
+            </column>
+
+            <column name="previous_value" type="varchar(100)"/>
+            <column name="previous_numeric" type="numeric(14,4)"/>
+            <column name="previous_flag" type="varchar(30)"/>
+            <column name="previous_status" type="varchar(50)"/>
+
+            <column name="new_value" type="varchar(100)"/>
+            <column name="new_numeric" type="numeric(14,4)"/>
+            <column name="new_flag" type="varchar(30)"/>
+
+            <column name="amendment_reason" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="amended_by" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="amended_at" type="timestamp">
+                <constraints nullable="false"/>
+            </column>
+            <column name="signature" type="varchar(255)"/>
+
+            <column name="created_at" type="timestamp"/>
+            <column name="created_by" type="varchar(100)"/>
+            <column name="updated_at" type="timestamp"/>
+            <column name="updated_by" type="varchar(100)"/>
+            <column name="is_deleted" type="boolean" defaultValueBoolean="false"/>
+            <column name="version" type="bigint"/>
+        </createTable>
+
+        <addForeignKeyConstraint
+                baseTableName="test_result_amendment"
+                baseColumnNames="test_result_id"
+                referencedTableName="test_results"
+                referencedColumnNames="id"
+                constraintName="fk_amendment_test_result"/>
+
+        <createIndex tableName="test_result_amendment" indexName="ix_amendment_test_result">
+            <column name="test_result_id"/>
+        </createIndex>
+
+        <rollback>
+            <dropTable tableName="test_result_amendment"/>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

@@ -1,0 +1,46 @@
+#!/usr/bin/env node
+/**
+ * Strip AI tool attribution from commit messages.
+ *
+ * The work in this repository is the team's. Tool attribution in commit metadata
+ * misrepresents authorship — a `Co-Authored-By:` trailer creates a real entry in
+ * the GitHub contributors list.
+ *
+ * The earlier version of this hook matched only `Co-Authored-By:`, which is why
+ * two `Made-with: Cursor` commits reached the predecessor repositories. It now
+ * matches every trailer form seen in the wild.
+ *
+ * Enforced in CI as well — see .github/workflows/security.yml (commit-hygiene).
+ */
+const fs = require("fs");
+
+const commitMsgFile = process.argv[2];
+if (!commitMsgFile) {
+  process.exit(0);
+}
+
+const TOOLS =
+  "Claude|Anthropic|Cursor|Copilot|ChatGPT|OpenAI|Gemini|Codeium|Windsurf|Tabnine|Amazon Q|Devin|Aider";
+
+const ATTRIBUTION = [
+  // Co-Authored-By: Claude <noreply@anthropic.com>
+  new RegExp(`^\\s*Co-[Aa]uthored-[Bb]y:\\s*(${TOOLS})`, "i"),
+  // Made-with: Cursor   /   Generated-by: Claude
+  new RegExp(`^\\s*(Made-with|Generated-by|Assisted-by|Written-by):\\s*(${TOOLS})`, "i"),
+  // 🤖 Generated with [Claude Code](https://claude.com/claude-code)
+  new RegExp(`^\\s*(🤖\\s*)?Generated with\\s*\\[?(${TOOLS})`, "i"),
+  // any trailer carrying a tool's noreply address
+  /^\s*Co-[Aa]uthored-[Bb]y:.*(noreply@anthropic\.com|cursoragent@cursor\.com|copilot@github\.com)/i,
+];
+
+const original = fs.readFileSync(commitMsgFile, "utf8");
+const cleaned = original
+  .split(/\r?\n/)
+  .filter((line) => !ATTRIBUTION.some((re) => re.test(line)))
+  .join("\n")
+  .replace(/\n{3,}/g, "\n\n")
+  .replace(/\n+$/, "\n");
+
+if (cleaned !== original) {
+  fs.writeFileSync(commitMsgFile, cleaned);
+}

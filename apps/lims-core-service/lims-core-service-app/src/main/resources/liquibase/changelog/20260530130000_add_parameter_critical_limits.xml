@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+
+    <!--
+      WHY: Critical (panic) values are analyte-specific clinical thresholds, not a
+      percentage of the reference interval. These columns let the result engine
+      flag CRITICAL_LOW/HIGH against real limits instead of the old +/-30% heuristic.
+    -->
+    <changeSet id="20260530130000-1-add-critical-columns" author="lims">
+        <comment>Add critical_low/critical_high to test_parameters.</comment>
+        <addColumn tableName="test_parameters">
+            <column name="critical_low" type="numeric(10,2)"/>
+            <column name="critical_high" type="numeric(10,2)"/>
+        </addColumn>
+    </changeSet>
+
+    <changeSet id="20260530130000-2-seed-critical-limits" author="lims">
+        <comment>Seed typical adult panic limits for the seeded analytes (by parameter id).</comment>
+        <sql dbms="postgresql"><![CDATA[
+-- FBC
+UPDATE test_parameters SET critical_low = 2.00,   critical_high = 30.00   WHERE id = '21111111-1111-4111-8111-111111111001'; -- WBC 10^9/L
+UPDATE test_parameters SET critical_low = 7.00,   critical_high = 20.00   WHERE id = '21111111-1111-4111-8111-111111111003'; -- Hemoglobin g/dL
+UPDATE test_parameters SET critical_low = 20.00,  critical_high = 60.00   WHERE id = '21111111-1111-4111-8111-111111111004'; -- Hematocrit %
+UPDATE test_parameters SET critical_low = 50.00,  critical_high = 1000.00 WHERE id = '21111111-1111-4111-8111-111111111008'; -- Platelets 10^9/L
+-- Glucose mg/dL
+UPDATE test_parameters SET critical_low = 50.00,  critical_high = 400.00  WHERE id = '21111111-1111-4111-8111-111111111013';
+-- Urea / Creatinine (high only)
+UPDATE test_parameters SET critical_high = 100.00 WHERE id = '21111111-1111-4111-8111-111111111020'; -- Urea mg/dL
+UPDATE test_parameters SET critical_high = 7.40   WHERE id = '21111111-1111-4111-8111-111111111021'; -- Creatinine mg/dL
+-- Electrolytes mmol/L
+UPDATE test_parameters SET critical_low = 120.00, critical_high = 160.00  WHERE id = '21111111-1111-4111-8111-111111111023'; -- Sodium
+UPDATE test_parameters SET critical_low = 2.80,   critical_high = 6.20    WHERE id = '21111111-1111-4111-8111-111111111024'; -- Potassium
+UPDATE test_parameters SET critical_low = 80.00,  critical_high = 120.00  WHERE id = '21111111-1111-4111-8111-111111111025'; -- Chloride
+-- LFT
+UPDATE test_parameters SET critical_high = 15.00  WHERE id = '21111111-1111-4111-8111-111111111026'; -- Total Bilirubin mg/dL
+        ]]></sql>
+    </changeSet>
+
+</databaseChangeLog>

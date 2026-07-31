@@ -1,0 +1,115 @@
+name: Frontend CI
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - "apps/frontend/**"
+      - ".github/workflows/frontend.yml"
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - "apps/frontend/**"
+      - ".github/workflows/frontend.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+  security-events: write
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPO: durdans-lims/frontend
+
+defaults:
+  run:
+    working-directory: apps/frontend
+
+jobs:
+  verify:
+    name: Lint, type-check, test, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Enable pnpm
+        run: corepack enable
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Lint
+        run: pnpm lint
+      - name: Type-check
+        run: pnpm exec tsc --noEmit
+      - name: Unit tests
+        run: pnpm test --if-present
+      - name: Build (sanity)
+        run: pnpm build
+
+  image:
+    name: Image build, scan, deploy
+    needs: verify
+    if: ${{ github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Build context is the app directory, not the repo root — keeps the image
+      # small and stops an unrelated app's changes invalidating the layer cache.
+      - name: Build image
+        run: |
+          docker build \
+            --build-arg NEXT_PUBLIC_API_URL="${{ vars.NEXT_PUBLIC_API_URL || 'http://localhost:11000' }}" \
+            --build-arg NEXT_PUBLIC_KEYCLOAK_URL="${{ vars.NEXT_PUBLIC_KEYCLOAK_URL || 'http://localhost:8081' }}" \
+            --build-arg NEXT_PUBLIC_KEYCLOAK_REALM="${{ vars.NEXT_PUBLIC_KEYCLOAK_REALM || 'lims-realm' }}" \
+            --build-arg NEXT_PUBLIC_KEYCLOAK_CLIENT_ID="${{ vars.NEXT_PUBLIC_KEYCLOAK_CLIENT_ID || 'lims-frontend' }}" \
+            -t lims-frontend:${{ github.sha }} .
+
+      - name: Trivy scan (fail on HIGH/CRITICAL)
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: lims-frontend:${{ github.sha }}
+          format: sarif
+          output: trivy-frontend.sarif
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+
+      - name: Upload Trivy SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: apps/frontend/trivy-frontend.sarif
+
+      - name: Configure AWS credentials (OIDC)
+        if: ${{ vars.AWS_DEPLOY_ROLE_ARN != '' }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        if: ${{ vars.AWS_DEPLOY_ROLE_ARN != '' }}
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Tag + push to ECR
+        if: ${{ vars.AWS_DEPLOY_ROLE_ARN != '' }}
+        run: |
+          REG=${{ steps.ecr.outputs.registry }}
+          docker tag lims-frontend:${{ github.sha }} $REG/$ECR_REPO:${{ github.sha }}
+          docker tag lims-frontend:${{ github.sha }} $REG/$ECR_REPO:latest
+          docker push $REG/$ECR_REPO:${{ github.sha }}
+          docker push $REG/$ECR_REPO:latest
+
+      - name: Deploy to host (SSM)
+        if: ${{ vars.AWS_DEPLOY_ROLE_ARN != '' }}
+        run: |
+          aws ssm send-command \
+            --region $AWS_REGION \
+            --document-name "AWS-RunShellScript" \
+            --targets "Key=tag:Name,Values=durdans-lims-demo-host" \
+            --comment "deploy frontend ${{ github.sha }}" \
+            --parameters 'commands=["cd /opt/lims","docker compose pull frontend","docker compose up -d frontend"]'

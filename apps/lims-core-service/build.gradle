@@ -1,0 +1,56 @@
+plugins {
+	id 'java'
+	// 'apply false' tells Gradle: "Don't run this here, just make it available for sub-modules"
+	id 'org.springframework.boot' version '3.5.10' apply false
+	id 'io.spring.dependency-management' version '1.1.7'
+}
+
+allprojects {
+	group = 'com.uom.lims'
+	version = '0.0.1-SNAPSHOT'
+
+	repositories {
+		mavenCentral()
+	}
+}
+
+subprojects {
+	apply plugin: 'java'
+	apply plugin: 'io.spring.dependency-management'
+	apply plugin: 'jacoco'
+
+	java {
+		toolchain {
+			languageVersion = JavaLanguageVersion.of(21)
+		}
+	}
+
+	// Shared configurations and dependencies for ALL modules
+	configurations {
+		compileOnly {
+			extendsFrom annotationProcessor
+		}
+	}
+
+	dependencies {
+		compileOnly 'org.projectlombok:lombok'
+		annotationProcessor 'org.projectlombok:lombok'
+		testImplementation 'org.springframework.boot:spring-boot-starter-test'
+		testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+	}
+
+	tasks.withType(Test).configureEach {
+		useJUnitPlatform()
+		finalizedBy tasks.named('jacocoTestReport')
+	}
+
+	// Coverage report (XML for CI tooling, HTML for humans) — the demonstrable
+	// "we measured our test coverage" evidence for the review.
+	tasks.named('jacocoTestReport') {
+		dependsOn tasks.named('test')
+		reports {
+			xml.required = true
+			html.required = true
+		}
+	}
+}
