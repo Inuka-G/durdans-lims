@@ -54,11 +54,13 @@ jobs:
           exit-code: "1"
           ignore-unfixed: true
 
+      # trivy-action is a `uses:` step, so it ignores defaults.run.working-directory
+      # and writes to the workspace root. Both paths below must stay root-relative.
       - name: Upload Trivy SARIF
         if: always()
         uses: github/codeql-action/upload-sarif@v3
         with:
-          sarif_file: apps/lims-core-service/trivy-backend.sarif
+          sarif_file: trivy-backend.sarif
 
       - name: Configure AWS credentials (OIDC)
         if: ${{ vars.AWS_DEPLOY_ROLE_ARN != '' }}

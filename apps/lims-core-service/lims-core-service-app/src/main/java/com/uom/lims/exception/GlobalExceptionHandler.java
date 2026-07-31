@@ -238,15 +238,4 @@ public class GlobalExceptionHandler {
                 return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(body);
         }
 
-        @ExceptionHandler(BusinessRuleException.class)
-        public ResponseEntity<Map<String, Object>> handleBusinessRuleException(BusinessRuleException ex) {
-                Map<String, Object> body = new HashMap<>();
-                body.put("timestamp", LocalDateTime.now());
-                body.put("status", HttpStatus.UNPROCESSABLE_ENTITY.value());
-                body.put("error", "Business Rule Violation");
-                body.put("message", ex.getMessage());
-
-                return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(body);
-        }
-
 }

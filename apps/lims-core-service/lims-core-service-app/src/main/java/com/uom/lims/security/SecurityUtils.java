@@ -170,36 +170,4 @@ public final class SecurityUtils {
         String username = jwt.getClaimAsString("preferred_username");
         return username != null ? username : jwt.getSubject();
     }
-
-    public static String getCurrentUserId() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-
-        if (authentication == null || !(authentication.getPrincipal() instanceof Jwt jwt)) {
-            return null;
-        }
-
-        return jwt.getSubject();
-    }
-
-    public static String getCurrentDisplayName() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-
-        if (authentication == null || !(authentication.getPrincipal() instanceof Jwt jwt)) {
-            return null;
-        }
-
-        String name = jwt.getClaimAsString("name");
-        if (name != null && !name.isBlank()) {
-            return name;
-        }
-
-        String givenName = jwt.getClaimAsString("given_name");
-        String familyName = jwt.getClaimAsString("family_name");
-        String fullName = ((givenName != null ? givenName : "") + " " + (familyName != null ? familyName : "")).trim();
-        if (!fullName.isBlank()) {
-            return fullName;
-        }
-
-        return getCurrentUsername();
-    }
 }
