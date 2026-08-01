@@ -91,4 +91,46 @@ public class TestResultEntity extends BaseEntity {
     /** True once a released value has been corrected via the amendment workflow (H2). */
     @Column(name = "is_amended", nullable = false)
     private Boolean amended = false;
+
+    // ---- QC release gate -------------------------------------------------
+    //
+    // Which analyser produced this value, and when it was measured. Both are
+    // needed to find the QC that governs it; neither was recorded before.
+    //
+    // Null on rows that predate the gate, which evaluate to NOT_EVALUATED rather
+    // than being retroactively blocked.
+
+    @Column(name = "instrument_code", length = 64)
+    private String instrumentCode;
+
+    /**
+     * When the analyser measured this value.
+     *
+     * <p>Deliberately separate from {@code createdAt}: instrument ingestion updates
+     * an existing row rather than inserting, so {@code createdAt} still reflects the
+     * first arrival and would match a re-ingested result against the wrong control.
+     */
+    @Column(name = "measured_at")
+    private Instant measuredAt;
+
+    /** The QC verdict frozen at release: PASS, WARN, FAIL, STALE, NO_QC, NOT_REQUIRED, NOT_EVALUATED. */
+    @Column(name = "qc_status", length = 16)
+    private String qcStatus;
+
+    /** The specific control run that produced {@link #qcStatus}. */
+    @Column(name = "qc_result_id")
+    private java.util.UUID qcResultId;
+
+    // A supervisor may release over a failed control. The override never changes
+    // qcStatus — laundering a failure into a pass is the failure mode the gate
+    // exists to prevent — so these three fields are the whole record of it.
+
+    @Column(name = "qc_override_by", length = 255)
+    private String qcOverrideBy;
+
+    @Column(name = "qc_override_at")
+    private Instant qcOverrideAt;
+
+    @Column(name = "qc_override_reason", length = 1000)
+    private String qcOverrideReason;
 }

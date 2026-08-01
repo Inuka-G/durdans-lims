@@ -16,4 +16,24 @@ public interface QcResultRepository extends JpaRepository<QcResultEntity, UUID> 
 
     /** Most recent runs across all controls (for the QC dashboard). */
     List<QcResultEntity> findByOrderByPerformedAtDesc(Pageable pageable);
+
+    /**
+     * Candidate controls governing a measurement on {@code instrument} for
+     * {@code loinc} at time {@code at} — every control run at or before that
+     * moment, newest first within each level.
+     *
+     * <p>The caller reduces this to the newest row per control level, because a
+     * run is only in control if EVERY level was in control. Ordering by level
+     * then time makes that reduction a single pass.
+     */
+    @org.springframework.data.jpa.repository.Query(
+            "select q from QcResultEntity q "
+                    + "where q.instrument = :instrument and q.loincCode = :loinc "
+                    + "and q.performedAt <= :at "
+                    + "order by q.controlLevel asc, q.performedAt desc")
+    List<QcResultEntity> findGoverningCandidates(
+            @org.springframework.data.repository.query.Param("instrument") String instrument,
+            @org.springframework.data.repository.query.Param("loinc") String loinc,
+            @org.springframework.data.repository.query.Param("at") java.time.Instant at,
+            Pageable pageable);
 }

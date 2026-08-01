@@ -1,0 +1,162 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+
+    <!--
+        QC release gate.
+
+        Westgard rules were evaluated and the verdict thrown away: a failed control
+        did not hold, block or flag patient results from the same run. The reason it
+        could not was structural — there was no key by which a patient result could
+        be matched to the QC that governs it:
+
+          * "instrument" existed in three unreconciled vocabularies — display names
+            in qc_result, inst-00N in reference-data/instruments.json, and the
+            literal ASTM-IN-01 in the TCP listener config;
+          * qc_result.analyte is free text at PANEL granularity ("Full Blood
+            Count") while results are keyed on test_parameters.loinc_code;
+          * test_results carried neither the instrument that produced it nor when
+            it was measured.
+
+        These changesets add the missing key. All additive.
+    -->
+
+    <!-- One canonical instrument vocabulary. Both the QC side and the result side
+         reference instrument.code, so the join is on a real key rather than on a
+         string somebody typed twice. -->
+    <changeSet id="20260801120000-1-create-instrument" author="kalana">
+        <comment>Canonical instrument registry — the shared vocabulary the gate joins on</comment>
+        <createTable tableName="instrument">
+            <column name="code" type="VARCHAR(64)">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="name" type="VARCHAR(128)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="instrument_type" type="VARCHAR(64)"/>
+            <column name="branch_code" type="VARCHAR(50)"/>
+            <!-- false for genuine bench methods (microscopy, manual ESR): they have
+                 no analyser, so analyser QC cannot exist and must not be demanded. -->
+            <column name="qc_required" type="BOOLEAN" defaultValueBoolean="true">
+                <constraints nullable="false"/>
+            </column>
+            <column name="is_active" type="BOOLEAN" defaultValueBoolean="true">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <rollback>
+            <dropTable tableName="instrument"/>
+        </rollback>
+    </changeSet>
+
+    <!-- Codes match reference-data/instruments.json so the existing read-only
+         instruments screen and the gate agree. -->
+    <changeSet id="20260801120000-2-seed-instrument" author="kalana">
+        <comment>Seed the registry from the instruments the lab already lists</comment>
+        <insert tableName="instrument">
+            <column name="code" value="inst-001"/>
+            <column name="name" value="Sysmex XN-1000"/>
+            <column name="instrument_type" value="Haematology Analyser"/>
+            <column name="branch_code" value="BR001"/>
+            <column name="qc_required" valueBoolean="true"/>
+            <column name="is_active" valueBoolean="true"/>
+        </insert>
+        <insert tableName="instrument">
+            <column name="code" value="inst-002"/>
+            <column name="name" value="Cobas c501"/>
+            <column name="instrument_type" value="Chemistry Analyser"/>
+            <column name="branch_code" value="BR001"/>
+            <column name="qc_required" valueBoolean="true"/>
+            <column name="is_active" valueBoolean="true"/>
+        </insert>
+        <insert tableName="instrument">
+            <column name="code" value="inst-003"/>
+            <column name="name" value="BioMérieux VITEK 2"/>
+            <column name="instrument_type" value="Microbiology ID/AST"/>
+            <column name="branch_code" value="BR001"/>
+            <column name="qc_required" valueBoolean="true"/>
+            <column name="is_active" valueBoolean="true"/>
+        </insert>
+        <insert tableName="instrument">
+            <column name="code" value="inst-004"/>
+            <column name="name" value="Cobas e411"/>
+            <column name="instrument_type" value="Immunoassay Analyser"/>
+            <column name="branch_code" value="BR001"/>
+            <column name="qc_required" valueBoolean="true"/>
+            <column name="is_active" valueBoolean="true"/>
+        </insert>
+        <!-- A result entered from a bench method still needs an instrument on the
+             form; this is the honest answer rather than leaving it blank. -->
+        <insert tableName="instrument">
+            <column name="code" value="BENCH-MANUAL"/>
+            <column name="name" value="Manual bench method"/>
+            <column name="instrument_type" value="Manual"/>
+            <column name="qc_required" valueBoolean="false"/>
+            <column name="is_active" valueBoolean="true"/>
+        </insert>
+        <rollback>
+            <delete tableName="instrument"/>
+        </rollback>
+    </changeSet>
+
+    <!-- A coded analyte. Without it the QC row and the result row have no shared
+         analyte identifier and the gate joins zero rows. -->
+    <changeSet id="20260801120000-3-qc-result-loinc" author="kalana">
+        <comment>Coded analyte on qc_result, plus the index the gate lookup needs</comment>
+        <addColumn tableName="qc_result">
+            <column name="loinc_code" type="VARCHAR(20)"/>
+        </addColumn>
+        <createIndex tableName="qc_result" indexName="idx_qc_result_gate">
+            <column name="instrument"/>
+            <column name="loinc_code"/>
+            <column name="control_level"/>
+            <column name="performed_at"/>
+        </createIndex>
+        <rollback>
+            <dropIndex tableName="qc_result" indexName="idx_qc_result_gate"/>
+            <dropColumn tableName="qc_result" columnName="loinc_code"/>
+        </rollback>
+    </changeSet>
+
+    <!--
+        The result side of the join, plus the verdict frozen at release.
+
+        measured_at is a separate column rather than a reuse of created_at: created_at
+        is not re-stamped when instrument ingestion updates an existing row, so a
+        re-ingested result would be matched against the QC of its first arrival.
+
+        All columns are nullable on purpose. Rows that predate this change have no
+        instrument and no measured_at, and evaluate to NOT_EVALUATED — they are not
+        retroactively blocked. Only results produced after the gate ships carry a
+        verdict.
+    -->
+    <changeSet id="20260801120000-4-test-results-qc-columns" author="kalana">
+        <comment>Instrument, measurement time and the QC verdict on test_results</comment>
+        <addColumn tableName="test_results">
+            <column name="instrument_code" type="VARCHAR(64)"/>
+            <column name="measured_at" type="TIMESTAMP WITH TIME ZONE"/>
+            <column name="qc_status" type="VARCHAR(16)"/>
+            <column name="qc_result_id" type="UUID"/>
+            <column name="qc_override_by" type="VARCHAR(255)"/>
+            <column name="qc_override_at" type="TIMESTAMP WITH TIME ZONE"/>
+            <column name="qc_override_reason" type="VARCHAR(1000)"/>
+        </addColumn>
+        <createIndex tableName="test_results" indexName="idx_test_results_qc_status">
+            <column name="qc_status"/>
+        </createIndex>
+        <rollback>
+            <dropIndex tableName="test_results" indexName="idx_test_results_qc_status"/>
+            <dropColumn tableName="test_results" columnName="instrument_code"/>
+            <dropColumn tableName="test_results" columnName="measured_at"/>
+            <dropColumn tableName="test_results" columnName="qc_status"/>
+            <dropColumn tableName="test_results" columnName="qc_result_id"/>
+            <dropColumn tableName="test_results" columnName="qc_override_by"/>
+            <dropColumn tableName="test_results" columnName="qc_override_at"/>
+            <dropColumn tableName="test_results" columnName="qc_override_reason"/>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

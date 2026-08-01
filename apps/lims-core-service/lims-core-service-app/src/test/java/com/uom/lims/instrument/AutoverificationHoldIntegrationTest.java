@@ -18,6 +18,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import java.math.BigDecimal;
+import java.time.temporal.ChronoUnit;
+import java.time.Instant;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -40,6 +42,9 @@ class AutoverificationHoldIntegrationTest extends AbstractIntegrationTest {
     @Autowired
     private SampleRepository sampleRepository;
 
+    /** A code from the seeded instrument registry; "analyzer-1" is not one. */
+    private static final String INSTRUMENT = "inst-001";
+
     private TestCatalogEntity catalog;
     private TestParameterEntity plt;
 
@@ -51,6 +56,13 @@ class AutoverificationHoldIntegrationTest extends AbstractIntegrationTest {
         // PLT (LOINC 777-3, device code PLT in DeviceCodeMap); critical-low 20, reference 150–400.
         plt = fixtures.parameter(catalog.getId(), "Platelets", "777-3",
                 new BigDecimal("150"), new BigDecimal("400"), new BigDecimal("20"), new BigDecimal("1000"));
+
+        // A passing control for the analyte on the analyser these tests ingest from.
+        //
+        // "A normal in-range value auto-releases" was always conditional on QC being
+        // in control; the assertion was right and the fixture simply never said so,
+        // because nothing checked. It does now, so the condition has to be stated.
+        fixtures.qcResult(INSTRUMENT, "777-3", "L1", "PASS", Instant.now().minus(1, ChronoUnit.HOURS));
     }
 
     @Test
@@ -61,7 +73,7 @@ class AutoverificationHoldIntegrationTest extends AbstractIntegrationTest {
         AstmMessage.SpecimenResults specimen = new AstmMessage.SpecimenResults("S-ING-CRIT",
                 List.of(new AstmMessage.Result("PLT", "Platelets", "10", "10*9/L", "L")));
 
-        InstrumentResultIngestionService.IngestOutcome outcome = ingestionService.ingest(specimen, "analyzer-1");
+        InstrumentResultIngestionService.IngestOutcome outcome = ingestionService.ingest(specimen, INSTRUMENT);
         assertThat(outcome.ingested()).as("result must bind to the parameter, not silently mismatch").isEqualTo(1);
 
         TestResultEntity result = testResultRepository.findBySampleId(sample.getId()).get(0);
@@ -82,7 +94,7 @@ class AutoverificationHoldIntegrationTest extends AbstractIntegrationTest {
         AstmMessage.SpecimenResults specimen = new AstmMessage.SpecimenResults("S-ING-NORM",
                 List.of(new AstmMessage.Result("PLT", "Platelets", "250", "10*9/L", "N")));
 
-        InstrumentResultIngestionService.IngestOutcome outcome = ingestionService.ingest(specimen, "analyzer-1");
+        InstrumentResultIngestionService.IngestOutcome outcome = ingestionService.ingest(specimen, INSTRUMENT);
         assertThat(outcome.ingested()).isEqualTo(1);
 
         TestResultEntity result = testResultRepository.findBySampleId(sample.getId()).get(0);

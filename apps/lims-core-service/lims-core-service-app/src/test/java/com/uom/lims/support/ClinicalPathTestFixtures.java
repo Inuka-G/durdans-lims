@@ -59,6 +59,7 @@ public class ClinicalPathTestFixtures {
     private final TestResultAmendmentRepository amendmentRepository;
     private final CriticalValueNotificationRepository criticalNotificationRepository;
     private final CriticalValueEscalationAttemptRepository escalationAttemptRepository;
+    private final com.uom.lims.qc.QcResultRepository qcResultRepository;
 
     public ClinicalPathTestFixtures(BranchRepository branchRepository,
                                     PatientRepository patientRepository,
@@ -70,7 +71,8 @@ public class ClinicalPathTestFixtures {
                                     TestResultRepository testResultRepository,
                                     TestResultAmendmentRepository amendmentRepository,
                                     CriticalValueNotificationRepository criticalNotificationRepository,
-                                    CriticalValueEscalationAttemptRepository escalationAttemptRepository) {
+                                    CriticalValueEscalationAttemptRepository escalationAttemptRepository,
+            com.uom.lims.qc.QcResultRepository qcResultRepository) {
         this.branchRepository = branchRepository;
         this.patientRepository = patientRepository;
         this.testCatalogRepository = testCatalogRepository;
@@ -82,10 +84,12 @@ public class ClinicalPathTestFixtures {
         this.amendmentRepository = amendmentRepository;
         this.criticalNotificationRepository = criticalNotificationRepository;
         this.escalationAttemptRepository = escalationAttemptRepository;
+        this.qcResultRepository = qcResultRepository;
     }
 
     /** Deletes seeded data in child→parent FK order. Never touches audit_log (append-only, H3). */
     public void cleanAll() {
+        qcResultRepository.deleteAll();
         escalationAttemptRepository.deleteAll();
         criticalNotificationRepository.deleteAll();
         amendmentRepository.deleteAll();
@@ -202,5 +206,30 @@ public class ClinicalPathTestFixtures {
         result.setAmended(false);
         result.setCreatedBy("test-seed");
         return testResultRepository.save(result);
+    }
+
+    /**
+     * A recorded control run, so a test can put the QC gate into a known state.
+     *
+     * <p>Needed because the gate is fail-safe: with no control on file a result
+     * evaluates to NO_QC and is held. A test asserting that a normal value
+     * auto-releases has to say which control permitted it.
+     *
+     * @param status PASS, WARN or FAIL
+     */
+    public com.uom.lims.qc.QcResultEntity qcResult(String instrumentCode, String loincCode,
+            String controlLevel, String status, java.time.Instant performedAt) {
+        com.uom.lims.qc.QcResultEntity qc = new com.uom.lims.qc.QcResultEntity();
+        qc.setInstrument(instrumentCode);
+        qc.setLoincCode(loincCode);
+        qc.setAnalyte(loincCode);
+        qc.setControlLevel(controlLevel);
+        qc.setMeasuredValue(new java.math.BigDecimal("5.0"));
+        qc.setMean(new java.math.BigDecimal("5.0"));
+        qc.setSd(new java.math.BigDecimal("0.2"));
+        qc.setStatus(status);
+        qc.setPerformedAt(performedAt);
+        qc.setPerformedBy("test-seed");
+        return qcResultRepository.save(qc);
     }
 }
