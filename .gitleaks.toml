@@ -1,0 +1,36 @@
+# gitleaks configuration
+#
+# Starts from the full default rule set and subtracts only what has been shown,
+# case by case, to be a false positive. Never add a broad path or rule exclusion
+# here to make a build go green — if a real secret is committed, the fix is to
+# rotate it and remove it, not to teach the scanner to ignore it.
+#
+# Run locally before pushing:
+#   docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:latest \
+#     detect --source=/repo --redact --no-banner
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Documented false positives"
+
+# Match against the whole matched line rather than just the captured secret, so
+# the exclusions below can be anchored to the variable name that makes them safe.
+regexTarget = "line"
+
+regexes = [
+  # S3_KEY is the S3 *object key* of a database dump — a filename, not a
+  # credential. The name is fixed by infra/scripts/pg-restore.sh, which reads
+  # $S3_KEY, so the runbook cannot use a different variable name. The default
+  # generic-api-key rule matches it purely because the name ends in "KEY" and a
+  # timestamped filename has high entropy.
+  #   e.g. S3_KEY=durdans_lims_db_20260619T020000Z.dump
+  '''S3_KEY=[A-Za-z0-9_]+\.dump''',
+]
+
+paths = [
+  # Lockfiles are integrity hashes, not secrets, and they are large enough to
+  # produce steady false positives on entropy rules.
+  '''apps/frontend/pnpm-lock\.yaml''',
+]
