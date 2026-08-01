@@ -1,0 +1,14 @@
+out/
+build/
+.gradle/
+*.log
+*.class
+.idea/
+branch_structure.json
+temp_auto_push.bat
+temp_interactive_push.bat
+
+# NOTE: this file must never list itself. A .gitignore that ignores itself is
+# silently absent from the repository, so every rule above protects only the
+# machine it was written on — which is how the realm-export, .env and
+# application-local.yml guards came to exist on one laptop and nowhere else.

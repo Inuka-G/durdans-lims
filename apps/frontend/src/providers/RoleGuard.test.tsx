@@ -1,10 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 
-const replace = vi.fn();
+// Hoisted so the vi.mock factory can read them, and so each test can point the
+// guard at a different route. Without a settable pathname the suite could only
+// ever exercise one PREFIX_MAP entry — which is how the /admin and /branch-admin
+// entries stayed broken while CI was green.
+const nav = vi.hoisted(() => ({ pathname: '/mlt/worklist', replace: vi.fn() }));
+
 vi.mock('next/navigation', () => ({
-  usePathname: () => '/mlt/worklist',
-  useRouter: () => ({ replace }),
+  usePathname: () => nav.pathname,
+  useRouter: () => ({ replace: nav.replace }),
 }));
 
 const useMetadataMock = vi.fn();
@@ -19,7 +24,8 @@ import RoleGuard from '@/providers/RoleGuard';
 // determined.
 describe('RoleGuard (fail-closed authorization)', () => {
   beforeEach(() => {
-    replace.mockClear();
+    nav.replace.mockClear();
+    nav.pathname = '/mlt/worklist';
     useMetadataMock.mockReset();
   });
 
@@ -27,20 +33,20 @@ describe('RoleGuard (fail-closed authorization)', () => {
     useMetadataMock.mockReturnValue({ metadata: null, loading: true, error: null });
     render(<RoleGuard><div>secret</div></RoleGuard>);
     expect(screen.queryByText('secret')).toBeNull();
-    expect(replace).not.toHaveBeenCalled();
+    expect(nav.replace).not.toHaveBeenCalled();
   });
 
   it('redirects to /login when metadata errors', async () => {
     useMetadataMock.mockReturnValue({ metadata: null, loading: false, error: new Error('boom') });
     render(<RoleGuard><div>secret</div></RoleGuard>);
-    await waitFor(() => expect(replace).toHaveBeenCalledWith('/login'));
+    await waitFor(() => expect(nav.replace).toHaveBeenCalledWith('/login'));
     expect(screen.queryByText('secret')).toBeNull();
   });
 
   it('redirects to /login when there are no nav items', async () => {
     useMetadataMock.mockReturnValue({ metadata: { navItems: [] }, loading: false, error: null });
     render(<RoleGuard><div>secret</div></RoleGuard>);
-    await waitFor(() => expect(replace).toHaveBeenCalledWith('/login'));
+    await waitFor(() => expect(nav.replace).toHaveBeenCalledWith('/login'));
   });
 
   it('renders children when the current path is granted', async () => {
@@ -48,14 +54,42 @@ describe('RoleGuard (fail-closed authorization)', () => {
     useMetadataMock.mockReturnValue({ metadata: { navItems: [{ linkUrl: '/lab-testing' }] }, loading: false, error: null });
     render(<RoleGuard><div>secret</div></RoleGuard>);
     await waitFor(() => expect(screen.getByText('secret')).toBeInTheDocument());
-    expect(replace).not.toHaveBeenCalled();
+    expect(nav.replace).not.toHaveBeenCalled();
   });
 
   it('redirects to the first nav destination when the path is NOT granted', async () => {
     // '/phlebotomy' grants only '/phlebotomy' — '/mlt/worklist' is not allowed.
     useMetadataMock.mockReturnValue({ metadata: { navItems: [{ linkUrl: '/phlebotomy' }] }, loading: false, error: null });
     render(<RoleGuard><div>secret</div></RoleGuard>);
-    await waitFor(() => expect(replace).toHaveBeenCalledWith('/phlebotomy/worklist'));
+    await waitFor(() => expect(nav.replace).toHaveBeenCalledWith('/phlebotomy/worklist'));
+    expect(screen.queryByText('secret')).toBeNull();
+  });
+
+  // The seeded nav items are '/admin' and '/branch-admin'; the App Router segments
+  // are '/superadmin' and '/branch'. When PREFIX_MAP mapped those entries to
+  // themselves, every admin screen 404'd and a user holding only SUPER_ADMIN could
+  // not reach any page at all. These two tests pin the mapping.
+  it('grants /superadmin/** to a user whose nav item is /admin', async () => {
+    nav.pathname = '/superadmin/users';
+    useMetadataMock.mockReturnValue({ metadata: { navItems: [{ linkUrl: '/admin' }] }, loading: false, error: null });
+    render(<RoleGuard><div>secret</div></RoleGuard>);
+    await waitFor(() => expect(screen.getByText('secret')).toBeInTheDocument());
+    expect(nav.replace).not.toHaveBeenCalled();
+  });
+
+  it('grants /branch/** to a user whose nav item is /branch-admin', async () => {
+    nav.pathname = '/branch/activity-logs';
+    useMetadataMock.mockReturnValue({ metadata: { navItems: [{ linkUrl: '/branch-admin' }] }, loading: false, error: null });
+    render(<RoleGuard><div>secret</div></RoleGuard>);
+    await waitFor(() => expect(screen.getByText('secret')).toBeInTheDocument());
+    expect(nav.replace).not.toHaveBeenCalled();
+  });
+
+  it('still denies /superadmin/** to a user without the /admin nav item', async () => {
+    nav.pathname = '/superadmin/users';
+    useMetadataMock.mockReturnValue({ metadata: { navItems: [{ linkUrl: '/lab-testing' }] }, loading: false, error: null });
+    render(<RoleGuard><div>secret</div></RoleGuard>);
+    await waitFor(() => expect(nav.replace).toHaveBeenCalled());
     expect(screen.queryByText('secret')).toBeNull();
   });
 });

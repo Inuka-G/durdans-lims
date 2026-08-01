@@ -1,0 +1,73 @@
+HELP.md
+
+# Build artifacts
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+# Eclipse / STS
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+bin/
+!**/src/main/**/bin/
+!**/src/test/**/bin/
+
+# IntelliJ IDEA\
+.idea/
+*.iws
+*.iml
+*.ipr
+out/
+!**/src/main/**/out/
+!**/src/test/**/out/
+
+# NetBeans
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+# VS Code
+.cursor/
+.codex-logs/
+
+# AI assistant local artifacts
+.claude/
+.claude-code/
+claude*.log
+
+# Application config / secrets
+#
+# Deny-by-default so a developer's application-local.yml can never be committed.
+# Every profile that is genuinely part of the build must be negated below, and
+# every negation must be reviewed: adding one here is a decision to publish that
+# file. Keep secrets in env vars regardless — see SECURITY.md.
+#
+# This rule is why application-docker.yml went missing: the profile was named in
+# docker-compose.yml (SPRING_PROFILES_ACTIVE=docker) but the file it referred to
+# was silently untracked, so the containerized app fell back to localhost
+# defaults and never reached the database.
+**/src/main/resources/application-*.yml
+**/src/main/resources/application-*.yaml
+!**/src/main/resources/application.yml
+!**/src/main/resources/application.yaml
+!**/src/main/resources/application-endpoint.yml
+!**/src/main/resources/application-endpoint.yaml
+!**/src/main/resources/application-docker.yml
+!**/src/main/resources/application-local.yml.example
+branch_structure.json
+temp_auto_push.bat
+temp_interactive_push.bat
+
+# NOTE: this file must never list itself. A .gitignore that ignores itself is
+# silently absent from the repository, so every rule above protects only the
+# machine it was written on — which is how the realm-export, .env and
+# application-local.yml guards came to exist on one laptop and nowhere else.

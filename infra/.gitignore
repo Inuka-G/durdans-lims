@@ -1,0 +1,28 @@
+# Local environment / secrets — never commit
+.env
+*.env
+!.env.example
+
+# LocalStack / runtime state
+.localstack/
+
+# Keycloak realm EXPORTS — contain client secrets, realm signing keys and real
+# user data (PII + password hashes). Import these from a secret store at deploy
+# time; never commit them, especially to a public repo.
+#
+# Keycloak names an export "<realm>-realm.json", so these patterns catch the
+# thing you get from `kcadm export` or the admin console. The one file that IS
+# committed is deliberately named keycloak-imports/lims-dev-seed.json — no
+# "realm" in the filename — so it falls outside these rules rather than needing
+# a negation that a future export could accidentally match. That seed was run
+# through a sanitizer: no signing keys, no client secrets, no real users.
+keycloak-imports/*-realm.json
+keycloak-imports/*realm*.json
+branch_structure.json
+temp_auto_push.bat
+temp_interactive_push.bat
+
+# NOTE: this file must never list itself. A .gitignore that ignores itself is
+# silently absent from the repository, so every rule above protects only the
+# machine it was written on — which is how the realm-export, .env and
+# application-local.yml guards came to exist on one laptop and nowhere else.
