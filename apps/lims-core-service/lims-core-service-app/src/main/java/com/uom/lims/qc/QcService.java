@@ -3,7 +3,8 @@ package com.uom.lims.qc;
 import com.uom.lims.api.dto.response.QcDashboardResponse;
 import com.uom.lims.api.dto.response.QcRunItemResponse;
 import com.uom.lims.security.SecurityUtils;
-import com.uom.lims.service.LabOperationsService;
+import com.uom.lims.instrument.InstrumentRepository;
+import com.uom.lims.repository.TestParameterRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -18,8 +19,10 @@ import java.util.List;
 
 /**
  * Records internal-QC runs, evaluating each against the Westgard multirules, and
- * serves the QC dashboard from persisted data (falling back to the static seed
- * only when no real QC has been recorded yet).
+ * serves the QC dashboard from persisted data only.
+ *
+ * <p>Whether a recorded verdict permits a patient result to be released is a
+ * separate question, answered by {@link QcGateService}.
  */
 @Service
 @RequiredArgsConstructor
@@ -30,10 +33,19 @@ public class QcService {
     private static final int SERIES_WINDOW = 30;
 
     private final QcResultRepository repository;
-    private final LabOperationsService labOperationsService;
+    private final InstrumentRepository instrumentRepository;
+    private final TestParameterRepository testParameterRepository;
 
-    public record RecordQcRunRequest(String instrument, String analyte, String controlLevel, String controlLot,
-                                     BigDecimal measuredValue, BigDecimal mean, BigDecimal sd) {
+    /**
+     * @param instrument must be a code from the instrument registry — the release
+     *                   gate joins on it, so a free-text name silently disconnects
+     *                   the control from every result it should govern
+     * @param loincCode  the coded analyte controlled, matching
+     *                   {@code test_parameters.loinc_code}; {@code analyte} is the
+     *                   human label and is not a join key
+     */
+    public record RecordQcRunRequest(String instrument, String analyte, String loincCode, String controlLevel,
+                                     String controlLot, BigDecimal measuredValue, BigDecimal mean, BigDecimal sd) {
     }
 
     public record QcRunOutcome(String id, String status, List<String> violations) {
@@ -46,6 +58,24 @@ public class QcService {
             throw new com.uom.lims.exception.BusinessValidationException(
                     "measuredValue, mean and a positive sd are required");
         }
+        // The gate's join key must be validated where the control is written. If a
+        // free-text instrument name or a blank LOINC is accepted here, the control
+        // is recorded, looks fine on the dashboard, and governs nothing — which is
+        // exactly the failure this whole change exists to remove.
+        if (instrumentRepository.findByCodeAndActiveTrue(req.instrument()).isEmpty()) {
+            throw new com.uom.lims.exception.BusinessValidationException(
+                    "Unknown or inactive instrument code '" + req.instrument()
+                            + "'. Use a code from the instrument registry.");
+        }
+        if (req.loincCode() == null || req.loincCode().isBlank()) {
+            throw new com.uom.lims.exception.BusinessValidationException(
+                    "loincCode is required — it is how this control is matched to the results it governs.");
+        }
+        if (!testParameterRepository.existsByLoincCode(req.loincCode().trim())) {
+            throw new com.uom.lims.exception.BusinessValidationException(
+                    "No test parameter uses LOINC '" + req.loincCode() + "'.");
+        }
+
         double value = req.measuredValue().doubleValue();
         double mean = req.mean().doubleValue();
         double sd = req.sd().doubleValue();
@@ -65,6 +95,7 @@ public class QcService {
         QcResultEntity entity = new QcResultEntity();
         entity.setInstrument(req.instrument());
         entity.setAnalyte(req.analyte());
+        entity.setLoincCode(req.loincCode().trim());
         entity.setControlLevel(req.controlLevel());
         entity.setControlLot(req.controlLot());
         entity.setMeasuredValue(req.measuredValue());
@@ -83,10 +114,11 @@ public class QcService {
     @Transactional(readOnly = true)
     public QcDashboardResponse getDashboard() {
         List<QcResultEntity> recent = repository.findByOrderByPerformedAtDesc(PageRequest.of(0, 50));
-        if (recent.isEmpty()) {
-            // No real QC yet — keep the seeded demo dashboard.
-            return labOperationsService.getQcDashboard();
-        }
+        // No fallback to the seeded demo runs. It used to return six fabricated PASS
+        // rows whenever real QC was empty, which is indefensible next to a gate that
+        // holds patient results on QC state: the screen would show controls passing
+        // while every result was held for NO_QC. An empty QC dashboard is the true
+        // answer and the one that prompts somebody to run controls.
         List<QcRunItemResponse> runs = recent.stream().map(QcService::toRun).toList();
         int passed = (int) runs.stream().filter(r -> "PASS".equals(r.status())).count();
         int warnings = (int) runs.stream().filter(r -> "WARN".equals(r.status())).count();

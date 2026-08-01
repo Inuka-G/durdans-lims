@@ -13,4 +13,7 @@ public interface TestParameterRepository extends JpaRepository<TestParameterEnti
     List<TestParameterEntity> findByLoincCode(String loincCode);
 
     List<TestParameterEntity> findByTestIdAndLoincCode(UUID testId, String loincCode);
+
+    /** Used by the QC gate to reject a control coded against an analyte nothing measures. */
+    boolean existsByLoincCode(String loincCode);
 }

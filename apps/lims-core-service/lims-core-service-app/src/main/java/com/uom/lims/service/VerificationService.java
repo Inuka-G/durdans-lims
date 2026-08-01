@@ -16,6 +16,7 @@ import com.uom.lims.audit.AuditLog;
 import com.uom.lims.audit.AuditLogRepository;
 import com.uom.lims.audit.AuditService;
 import com.uom.lims.api.verification.enums.ResultStatus;
+import com.uom.lims.exception.BusinessRuleException;
 import com.uom.lims.exception.ResourceNotFoundException;
 import com.uom.lims.entity.SampleEntity;
 import com.uom.lims.entity.TestCatalogEntity;
@@ -26,6 +27,7 @@ import com.uom.lims.patient.PatientRepository;
 import com.uom.lims.repository.SampleRepository;
 import com.uom.lims.repository.TestCatalogRepository;
 import com.uom.lims.repository.TestResultRepository;
+import com.uom.lims.qc.QcGateService;
 import com.uom.lims.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -38,6 +40,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.time.Period;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -48,6 +51,7 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+@lombok.extern.slf4j.Slf4j
 @RequiredArgsConstructor
 @Service
 public class VerificationService {
@@ -70,6 +74,7 @@ public class VerificationService {
             ACTION_RETURNED_TO_MLT,
             ACTION_RETURNED_FROM_CLINICAL
     );
+    private static final String ACTION_QC_OVERRIDE_RELEASE = "QC_OVERRIDE_RELEASE";
     private static final String MLT_NOTE_MARKER = "[MLT_NOTE]";
     private static final String SUPERVISOR_NOTE_MARKER = "[SUPERVISOR_NOTE]";
 
@@ -81,6 +86,7 @@ public class VerificationService {
     private final TestResultMapper testResultMapper;
     private final PatientRepository patientRepository;
     private final ObjectMapper objectMapper;
+    private final QcGateService qcGateService;
 
     @Transactional(readOnly = true)
     public List<VerificationPendingItemResponse> getPendingSamples() {
@@ -394,6 +400,18 @@ public class VerificationService {
             throw new IllegalStateException("No pending parameter results to verify for this sample.");
         }
 
+        // ---- QC release gate -------------------------------------------------
+        //
+        // This is where a result actually becomes releasable, so this is where the
+        // control has to hold. Every path that releases arrives here: single verify,
+        // bulkVerify (which calls verifyResult through the proxy), and re-release
+        // after an amendment, which resets the result to ENTERED.
+        //
+        // The verdict is re-evaluated rather than trusted from ingestion: a control
+        // recorded in between may have cleared the hold, and one recorded late may
+        // have created it.
+        applyQcGate(targets, request);
+
         SampleEntity sample = anchor.getSample();
         sample.setStatus(SampleStatus.VERIFIED);
 
@@ -482,6 +500,98 @@ public class VerificationService {
         }
 
         return resultMap;
+    }
+
+    /** Roles permitted to release results over a QC failure. */
+    private static final List<String> QC_OVERRIDE_ROLES =
+            List.of("LAB_SUPERVISOR", "BRANCH_ADMIN", "SUPER_ADMIN");
+
+    private static final int MIN_OVERRIDE_REASON = 20;
+
+    /**
+     * Hold the release when the governing QC did not pass, unless a supervisor
+     * explicitly releases over it with a documented reason.
+     *
+     * <p>The QC status recorded on each result is refreshed here and then frozen —
+     * it is the verdict as at release, which is what an assessor asks for. An
+     * override never rewrites it to PASS: the result continues to read FAIL
+     * everywhere, alongside who waived it and why.
+     */
+    private void applyQcGate(List<TestResultEntity> targets, VerificationRequest request) {
+        List<TestResultEntity> blocked = new ArrayList<>();
+
+        for (TestResultEntity target : targets) {
+            String loinc = target.getParameter() == null ? null : target.getParameter().getLoincCode();
+            QcGateService.QcVerdict verdict =
+                    qcGateService.evaluate(target.getInstrumentCode(), loinc, target.getMeasuredAt());
+            target.setQcStatus(verdict.state().name());
+            target.setQcResultId(verdict.governingQcId());
+
+            // An override already applied to this result (e.g. a previous partial
+            // release of the same specimen) is not demanded again.
+            if (verdict.holds() && target.getQcOverrideBy() == null) {
+                blocked.add(target);
+            }
+        }
+
+        if (blocked.isEmpty()) {
+            return;
+        }
+
+        String summary = blocked.stream()
+                .map(t -> (t.getParameter() == null ? "result" : t.getParameter().getName())
+                        + ": " + t.getQcStatus())
+                .collect(Collectors.joining(", "));
+
+        // An MLT cannot waive the control they ran. Segregation of duties is the
+        // point of the override, not an inconvenience in it.
+        boolean authorised = QC_OVERRIDE_ROLES.stream().anyMatch(SecurityUtils::hasRole);
+        if (!authorised) {
+            throw new BusinessRuleException(
+                    "QC hold — " + summary + ". A lab supervisor must release over QC.");
+        }
+
+        String reason = request == null ? null : request.getQcOverrideReason();
+        if (reason == null || reason.trim().length() < MIN_OVERRIDE_REASON) {
+            throw new BusinessRuleException(
+                    "QC hold — " + summary + ". Releasing over QC requires a documented reason of at least "
+                            + MIN_OVERRIDE_REASON + " characters.");
+        }
+
+        String username = SecurityUtils.getCurrentUsername();
+        Instant now = Instant.now();
+        for (TestResultEntity target : blocked) {
+            target.setQcOverrideBy(username);
+            target.setQcOverrideAt(now);
+            target.setQcOverrideReason(reason.trim());
+
+            auditService.log(ACTION_QC_OVERRIDE_RELEASE, VERIFICATION_ENTITY_TYPE, target.getId(),
+                    patientCodeOf(target), qcOverridePayload(target, reason.trim()), null);
+        }
+        log.warn("QC override by {}: released {} result(s) over QC — {}", username, blocked.size(), summary);
+    }
+
+    private static String patientCodeOf(TestResultEntity result) {
+        SampleEntity sample = result.getSample();
+        if (sample == null || sample.getOrderItem() == null || sample.getOrderItem().getOrder() == null) {
+            return null;
+        }
+        return sample.getOrderItem().getOrder().getPatientId();
+    }
+
+    private String qcOverridePayload(TestResultEntity result, String reason) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("instrumentCode", result.getInstrumentCode());
+        payload.put("loincCode", result.getParameter() == null ? null : result.getParameter().getLoincCode());
+        payload.put("qcStatus", result.getQcStatus());
+        payload.put("governingQcId", result.getQcResultId() == null ? null : result.getQcResultId().toString());
+        payload.put("measuredAt", result.getMeasuredAt() == null ? null : result.getMeasuredAt().toString());
+        payload.put("reason", reason);
+        try {
+            return objectMapper.writeValueAsString(payload);
+        } catch (Exception e) {
+            return "{\"reason\":\"" + reason.replace('"', '\'') + "\"}";
+        }
     }
 
     /**

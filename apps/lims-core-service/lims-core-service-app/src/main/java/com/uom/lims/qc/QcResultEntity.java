@@ -27,8 +27,17 @@ public class QcResultEntity {
     @Column(name = "instrument", nullable = false, length = 64)
     private String instrument;
 
+    /** Human label for the control series, e.g. "Haemoglobin". Display only. */
     @Column(name = "analyte", nullable = false, length = 64)
     private String analyte;
+
+    /**
+     * The coded analyte, matching {@code test_parameters.loinc_code}. This is the
+     * join key the release gate uses; {@link #analyte} is free text at panel
+     * granularity ("Full Blood Count") and cannot identify what was controlled.
+     */
+    @Column(name = "loinc_code", length = 20)
+    private String loincCode;
 
     @Column(name = "control_level", nullable = false, length = 16)
     private String controlLevel;
