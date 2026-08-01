@@ -116,6 +116,9 @@ credentials or configuration.
 ## History
 
 This repository was created on 2026-07-31 by consolidating five separate
-repositories. Their full per-file history is preserved in the archived originals
-— see [docs/HISTORY.md](docs/HISTORY.md) for the archive links and final commit
-SHAs, and [CONTRIBUTORS.md](CONTRIBUTORS.md) for who built what.
+repositories. Their full per-file history is preserved in the originals — see
+[docs/HISTORY.md](docs/HISTORY.md) for their URLs and final commit SHAs, and
+[CONTRIBUTORS.md](CONTRIBUTORS.md) for who built what.
+
+For an honest assessment of what is built, what is not, and what to do next, read
+[docs/STATE-OF-THE-PROJECT-2026-08-01.md](docs/STATE-OF-THE-PROJECT-2026-08-01.md).

@@ -23,7 +23,10 @@ git rev-list --count HEAD          # 1
 docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:latest detect --source=/repo
 ```
 
-The archived repositories remain the historical record. They are read-only.
+The predecessor repositories remain the historical record. **As of 2026-08-01
+they are still public and have not yet been made private or archived** — see
+[SECURITY-INCIDENT-2026-07.md](SECURITY-INCIDENT-2026-07.md), because their
+history still carries the leaked credentials.
 
 ## Archived sources
 
