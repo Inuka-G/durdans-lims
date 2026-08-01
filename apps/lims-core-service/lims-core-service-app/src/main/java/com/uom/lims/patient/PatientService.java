@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import com.uom.lims.security.SecurityUtils;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.context.ApplicationEventPublisher;
 import com.uom.lims.api.patient.dto.request.PatientCreateRequest;
 import com.uom.lims.api.patient.dto.request.PatientUpdateRequest;
@@ -277,6 +278,11 @@ public class PatientService {
                 PatientEntity patient = patientRepository.findByPatientCode(patientCode)
                                 .orElseThrow(() -> new ResourceNotFoundException("Patient not found: " + patientCode));
 
+                // Tenant isolation on the write path. getPatientByCode() already
+                // guards the read; without the same guard here a branch user could
+                // load nothing and still mutate another branch's patient by code.
+                SecurityUtils.assertCanAccessBranch(patient.getBranchCode(), "Patient", patientCode);
+
                 // 2. Validate Phone Uniqueness (if changed)
                 if (request.getPhone() != null && !patient.getPhone().equals(request.getPhone())) {
                         validationService.validatePhoneUnique(request.getPhone(), patientCode);
@@ -335,8 +341,21 @@ public class PatientService {
                         patient.setContactPersonName(request.getContactPersonName());
                 if (request.getContactPersonPhone() != null)
                         patient.setContactPersonPhone(request.getContactPersonPhone());
-                if (request.getBranchCode() != null)
+                // Branch is NOT mass-assignable. Accepting request.getBranchCode()
+                // here let any branch user silently move a patient — and that
+                // patient's whole order/sample/result history — into another
+                // branch, or out of their own so colleagues could no longer see
+                // them. Only a SUPER_ADMIN may reassign, mirroring registration
+                // above.
+                if (request.getBranchCode() != null
+                                && !request.getBranchCode().isBlank()
+                                && !request.getBranchCode().equalsIgnoreCase(patient.getBranchCode())) {
+                        if (!SecurityUtils.isSuperAdmin()) {
+                                throw new AccessDeniedException(
+                                                "Only a super administrator may move a patient between branches");
+                        }
                         patient.setBranchCode(request.getBranchCode());
+                }
 
                 // 6. Reset Email Verification if changed
                 boolean emailChanged = false;

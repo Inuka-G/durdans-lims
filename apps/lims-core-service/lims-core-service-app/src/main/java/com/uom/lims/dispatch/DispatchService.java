@@ -20,6 +20,7 @@ import com.uom.lims.audit.AuditService;
 import com.uom.lims.entity.OrderEntity;
 import com.uom.lims.entity.OrderItemEntity;
 import com.uom.lims.entity.SampleEntity;
+import com.uom.lims.api.verification.enums.ResultStatus;
 import com.uom.lims.entity.TestResultEntity;
 import com.uom.lims.event.ReportDispatchDomainEvent;
 import com.uom.lims.exception.InvalidRequestException;
@@ -121,6 +122,10 @@ public class DispatchService {
         String branch = request.getBranchCode().trim().toUpperCase();
         if (validateBranchContext) {
             assertRegisterBranchAllowed(branch);
+            // Caller-driven path only. The event-driven path
+            // (registerAuthorizedReportSystem) fires from the authorization
+            // transaction itself, so its result is authorized by construction.
+            assertResultClinicallyAuthorized(request.getReportReference().trim(), branch);
         }
 
         LocalDateTime authorizedAt = request.getAuthorizedAt() != null
@@ -427,6 +432,48 @@ public class DispatchService {
                 .max(Comparator.comparing(SampleEntity::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder())))
                 .map(sample -> sample.getStatus() == SampleStatus.DISPATCHED)
                 .orElse(false);
+    }
+
+    /**
+     * A dispatch item may only be registered for a result a pathologist has
+     * actually signed, in the branch that owns it.
+     *
+     * <p>reportReference is the TestResult id (see
+     * {@code ClinicalAuthorizationService}, which builds the event with
+     * {@code result.getId().toString()}). Without this check the endpoint accepted
+     * any string, so a report could enter dispatch — and be emailed to the patient
+     * — with no clinical authorization behind it, and an existing item could be
+     * overwritten by reusing its reference.
+     */
+    private void assertResultClinicallyAuthorized(String reportReference, String branch) {
+        UUID resultId;
+        try {
+            resultId = UUID.fromString(reportReference);
+        } catch (IllegalArgumentException ex) {
+            throw new InvalidRequestException(
+                    "reportReference must be the id of a clinically authorized result");
+        }
+
+        TestResultEntity result = testResultRepository.findById(resultId)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "No test result for reportReference " + reportReference));
+
+        if (result.getStatus() != ResultStatus.CLINICALLY_AUTHORIZED
+                && result.getStatus() != ResultStatus.DISPATCHED) {
+            throw new InvalidRequestException(
+                    "Result " + reportReference + " has not been clinically authorized (status: "
+                            + result.getStatus() + ")");
+        }
+
+        String resultBranch = (result.getSample() != null
+                && result.getSample().getOrderItem() != null
+                && result.getSample().getOrderItem().getOrder() != null)
+                        ? result.getSample().getOrderItem().getOrder().getBranchCode()
+                        : null;
+        if (resultBranch == null || !resultBranch.equalsIgnoreCase(branch)) {
+            throw new InvalidRequestException(
+                    "Result " + reportReference + " does not belong to branch " + branch);
+        }
     }
 
     private void assertRegisterBranchAllowed(String branch) {

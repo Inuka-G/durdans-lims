@@ -34,8 +34,23 @@ public class DispatchController implements DispatchApi {
         return ClientIpResolver.resolve(servletAttrs.getRequest());
     }
 
+    /**
+     * Machine-to-machine ingress. The normal path into dispatch is the
+     * clinical-authorization event, which reaches
+     * {@code DispatchService.registerAuthorizedReportSystem} via
+     * {@code ClinicalReportAuthorizedDispatchListener} — no HTTP call involved.
+     *
+     * <p>MLT and BRANCH_ADMIN previously held this. Because the underlying
+     * operation upserts on (reportReference, branchCode), that let a technologist
+     * overwrite the patient name and artifact URI of an already-delivered report,
+     * and the dispatch email renders artifactUri as a "Download report" link sent
+     * from the hospital's own address. It also never checked that the referenced
+     * result was authorized at all, so a report could be pushed into dispatch
+     * without a pathologist ever signing it. Restricted to SUPER_ADMIN until a
+     * dedicated service-account role exists in the realm.
+     */
     @Override
-    @PreAuthorize("hasAnyRole('MLT','SUPER_ADMIN','BRANCH_ADMIN')")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
     public DispatchItemResponse registerAuthorizedReport(@Valid RegisterAuthorizedReportRequest request) {
         return dispatchService.registerAuthorizedReport(request, currentClientIp());
     }

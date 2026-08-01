@@ -16,6 +16,7 @@ import com.uom.lims.audit.AuditLog;
 import com.uom.lims.audit.AuditLogRepository;
 import com.uom.lims.audit.AuditService;
 import com.uom.lims.api.verification.enums.ResultStatus;
+import com.uom.lims.exception.ResourceNotFoundException;
 import com.uom.lims.entity.SampleEntity;
 import com.uom.lims.entity.TestCatalogEntity;
 import com.uom.lims.entity.TestResultEntity;
@@ -483,9 +484,28 @@ public class VerificationService {
         return resultMap;
     }
 
+    /**
+     * Single loader for every result this service touches — getResultDetails,
+     * verifyResult, rejectResult, and bulkVerify via verifyResult. The tenant
+     * guard lives here rather than at each call site so a future entry point
+     * cannot forget it.
+     *
+     * <p>A result has no branch of its own; it inherits the branch of the order
+     * that requested the specimen.
+     */
     private TestResultEntity findResultById(UUID id) {
-        return testResultRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Test result not found: " + id));
+        TestResultEntity result = testResultRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Test result not found: " + id));
+        SecurityUtils.assertCanAccessBranch(branchOf(result), "Test result", id);
+        return result;
+    }
+
+    private static String branchOf(TestResultEntity result) {
+        SampleEntity sample = result.getSample();
+        if (sample == null || sample.getOrderItem() == null || sample.getOrderItem().getOrder() == null) {
+            return null; // unreachable for anyone but SUPER_ADMIN — fail closed
+        }
+        return sample.getOrderItem().getOrder().getBranchCode();
     }
 
     private List<String> resolveHistoryActions(String actionType, List<String> allowedActions) {
