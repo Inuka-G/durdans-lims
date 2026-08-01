@@ -41,7 +41,10 @@ Neither script was migrated to this repository.
 - Neither script, nor the history containing the literals, was carried into this
   repository. This repository begins at a single commit with no credential in
   its tree or history.
-- The predecessor repositories are archived read-only.
+- ⚠️ **The predecessor repositories are still public and NOT yet archived.** Every
+  literal below remains recoverable from them with `git log -p`. Making them
+  private and archiving them is open work — and archiving does not remove the
+  history, which is why rotation comes first.
 - **Rotation is tracked below and is the responsibility of each account holder.**
   Purging history is not remediation; rotation is.
 
