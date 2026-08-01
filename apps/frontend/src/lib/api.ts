@@ -1279,3 +1279,57 @@ export async function createAdminUser(req: CreateAdminUserRequest): Promise<Admi
 export async function setAdminUserEnabled(id: string, value: boolean): Promise<void> {
     await axiosInstance.patch(`/api/v1/admin/users/${id}/enabled`, null, { params: { value } });
 }
+
+// ---------------------------------------------------------------------------
+// Critical-value (panic) callbacks
+//
+// A critical result opens a callback that a clinician must acknowledge with a
+// read-back — repeating the value back is what proves it was heard correctly.
+// Unacknowledged callbacks escalate on a timer and then auto-close, so the
+// worklist below is the only thing standing between a panic value and nobody
+// having been told.
+// ---------------------------------------------------------------------------
+
+export interface CriticalNotification {
+    id: string;
+    resultId?: string | null;
+    patientCode?: string | null;
+    parameterName?: string | null;
+    flag?: string | null;
+    resultValue?: string | null;
+    priority?: string | null;
+    status?: string | null;
+    escalationLevel?: number | null;
+    recipientName?: string | null;
+    recipientContact?: string | null;
+    channel?: string | null;
+    raisedAt?: string | null;
+    notifiedAt?: string | null;
+    nextEscalationDueAt?: string | null;
+    acknowledgedBy?: string | null;
+    acknowledgedAt?: string | null;
+    readBackText?: string | null;
+    communicatedTo?: string | null;
+    readBackVerified?: boolean | null;
+}
+
+export interface AcknowledgeCriticalRequest {
+    /** The value repeated back by the clinician. Required by the backend. */
+    readBackText: string;
+    /** Who it was communicated to — name and role of the clinician called. */
+    communicatedTo?: string;
+    readBackVerified?: boolean;
+}
+
+export const getOpenCriticalValues = async (limit = 100): Promise<CriticalNotification[]> => {
+    const response = await axiosInstance.get('/api/v1/critical-values', { params: { limit } });
+    return (response.data ?? []) as CriticalNotification[];
+};
+
+export const acknowledgeCriticalValue = async (
+    id: string,
+    req: AcknowledgeCriticalRequest
+): Promise<CriticalNotification> => {
+    const response = await axiosInstance.post(`/api/v1/critical-values/${id}/acknowledge`, req);
+    return response.data as CriticalNotification;
+};

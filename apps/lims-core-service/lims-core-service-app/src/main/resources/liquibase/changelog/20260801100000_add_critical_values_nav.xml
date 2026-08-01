@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+
+    <!--
+        Critical-value callbacks had a complete backend — open, escalate, acknowledge
+        with a mandatory read-back — and no way in. No nav item pointed at it and no
+        screen called the API, so every callback the lab raised escalated to the
+        fallback contact and auto-closed unacknowledged.
+
+        Roles match the acknowledge endpoint's @PreAuthorize in CriticalValueController
+        (MLT, LAB_SUPERVISOR, PATHOLOGIST, BRANCH_ADMIN, SUPER_ADMIN). LAB_RECEPTIONIST
+        may list callbacks but not acknowledge them, so it gets no nav entry — a screen
+        whose only action is forbidden is worse than no screen.
+
+        The link_url matches the route exactly, so RoleGuard grants it through its
+        fallback (allowedPrefixes.push(item.linkUrl)) with no PREFIX_MAP entry needed.
+
+        Priority 15 puts it near the top: an unacknowledged panic value outranks
+        routine worklists.
+    -->
+    <changeSet id="20260801100000-1-critical-values-nav" author="kalana">
+        <comment>Nav entry for the critical-value callback worklist</comment>
+
+        <delete tableName="header_mapping">
+            <where>link_url = '/critical-values'</where>
+        </delete>
+
+        <insert tableName="header_mapping">
+            <column name="id" value="20000000-0000-0000-0000-000000000201"/>
+            <column name="role_name" value="MLT"/>
+            <column name="display_text" value="Critical Values"/>
+            <column name="link_url" value="/critical-values"/>
+            <column name="priority" value="15"/>
+            <column name="created_at" valueComputed="CURRENT_TIMESTAMP"/>
+            <column name="created_by" value="SYSTEM"/>
+        </insert>
+        <insert tableName="header_mapping">
+            <column name="id" value="20000000-0000-0000-0000-000000000202"/>
+            <column name="role_name" value="LAB_SUPERVISOR"/>
+            <column name="display_text" value="Critical Values"/>
+            <column name="link_url" value="/critical-values"/>
+            <column name="priority" value="15"/>
+            <column name="created_at" valueComputed="CURRENT_TIMESTAMP"/>
+            <column name="created_by" value="SYSTEM"/>
+        </insert>
+        <insert tableName="header_mapping">
+            <column name="id" value="20000000-0000-0000-0000-000000000203"/>
+            <column name="role_name" value="PATHOLOGIST"/>
+            <column name="display_text" value="Critical Values"/>
+            <column name="link_url" value="/critical-values"/>
+            <column name="priority" value="15"/>
+            <column name="created_at" valueComputed="CURRENT_TIMESTAMP"/>
+            <column name="created_by" value="SYSTEM"/>
+        </insert>
+        <insert tableName="header_mapping">
+            <column name="id" value="20000000-0000-0000-0000-000000000204"/>
+            <column name="role_name" value="BRANCH_ADMIN"/>
+            <column name="display_text" value="Critical Values"/>
+            <column name="link_url" value="/critical-values"/>
+            <column name="priority" value="15"/>
+            <column name="created_at" valueComputed="CURRENT_TIMESTAMP"/>
+            <column name="created_by" value="SYSTEM"/>
+        </insert>
+        <insert tableName="header_mapping">
+            <column name="id" value="20000000-0000-0000-0000-000000000205"/>
+            <column name="role_name" value="SUPER_ADMIN"/>
+            <column name="display_text" value="Critical Values"/>
+            <column name="link_url" value="/critical-values"/>
+            <column name="priority" value="15"/>
+            <column name="created_at" valueComputed="CURRENT_TIMESTAMP"/>
+            <column name="created_by" value="SYSTEM"/>
+        </insert>
+
+        <rollback>
+            <delete tableName="header_mapping">
+                <where>link_url = '/critical-values'</where>
+            </delete>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>
