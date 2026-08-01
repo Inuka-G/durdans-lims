@@ -148,14 +148,17 @@ public class SampleService {
         return history.map(this::toHistoryResponse);
     }
 
-    /** Tenant isolation: a branch user may only act on a sample in their branch. */
+    /**
+     * Tenant isolation: a branch user may only act on a sample in their branch.
+     *
+     * <p>A sample has no branch of its own — it inherits the branch of the order
+     * that requested it, so the guard walks orderItem → order.
+     */
     private void assertSampleBranchAccess(SampleEntity sample) {
         String branch = (sample.getOrderItem() != null && sample.getOrderItem().getOrder() != null)
                 ? sample.getOrderItem().getOrder().getBranchCode()
                 : null;
-        if (!com.uom.lims.security.SecurityUtils.canAccessBranch(branch)) {
-            throw new ResourceNotFoundException("Sample not found");
-        }
+        SecurityUtils.assertCanAccessBranch(branch, "Sample", sample.getId());
     }
 
     @Transactional(readOnly = true)
@@ -209,6 +212,13 @@ public class SampleService {
         SampleEntity sample = sampleRepository.findById(sampleId)
                 .orElseThrow(() -> new ResourceNotFoundException("Sample not found with id: " + sampleId));
 
+        // Tenant isolation. The worklists that surface a sample are branch-scoped,
+        // but this loads by id straight from the request, so without the guard a
+        // phlebotomist in one branch could mark another branch's specimen collected
+        // — the tube never left that branch, and the audit trail would name the
+        // wrong person. The helper existed; only the read paths called it.
+        assertSampleBranchAccess(sample);
+
         if (sample.getStatus() != SampleStatus.PENDING_COLLECTION
                 && sample.getStatus() != SampleStatus.RECOLLECTION_REQUIRED) {
             throw new InvalidStateTransitionException(
@@ -260,6 +270,11 @@ public class SampleService {
     public SampleResponse rejectSample(UUID sampleId, SampleRejectRequest request) {
         SampleEntity sample = sampleRepository.findById(sampleId)
                 .orElseThrow(() -> new ResourceNotFoundException("Sample not found with id: " + sampleId));
+
+        // Tenant isolation — see collectSample. Rejecting also creates a
+        // recollection request, so an unguarded call adds phantom work to another
+        // branch's queue.
+        assertSampleBranchAccess(sample);
 
         if (sample.getStatus() != SampleStatus.PENDING_COLLECTION
                 && sample.getStatus() != SampleStatus.COLLECTED
