@@ -1,0 +1,45 @@
+# Overrides for running inside the Compose network.
+#
+# infra/docker-compose.yml sets SPRING_PROFILES_ACTIVE=docker. Without this file
+# that profile resolved to nothing, so every default in application.yml applied
+# as-is — and those defaults all point at localhost, which inside a container
+# means the container itself. Liquibase never reached Postgres and the app never
+# became ready.
+#
+# Only values that are wrong *because of the container network* belong here.
+# Everything else stays in application.yml so there is one source of truth.
+
+spring:
+  datasource:
+    # Service name on lims-net, and the container's own port (5432) rather than
+    # the 5434 the host publishes.
+    url: ${DB_URL:jdbc:postgresql://lims-postgres:5432/durdans_lims_db}
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # These two deliberately differ.
+          #
+          # issuer-uri must match the `iss` claim in the token, and the token is
+          # minted for a browser that reached Keycloak on the PUBLISHED address.
+          # jwk-set-uri is fetched by this service over the private network, where
+          # the published address does not resolve.
+          #
+          # Setting jwk-set-uri also stops Spring performing OIDC discovery
+          # against issuer-uri at startup, which would fail for the same reason.
+          issuer-uri: ${KEYCLOAK_PUBLIC_URL:http://localhost:8081}/realms/${KEYCLOAK_REALM:lims-realm}
+          jwk-set-uri: ${KEYCLOAK_INTERNAL_URL:http://keycloak:8080}/realms/${KEYCLOAK_REALM:lims-realm}/protocol/openid-connect/certs
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:kafka:9092}
+
+  cloud:
+    aws:
+      # LocalStack container, not the host-published 4566.
+      endpoint: ${AWS_S3_ENDPOINT:http://localstack:4566}
+
+app:
+  keycloak-admin:
+    # Server-to-server, so the private address is the right one here.
+    server-url: ${KEYCLOAK_INTERNAL_URL:http://keycloak:8080}

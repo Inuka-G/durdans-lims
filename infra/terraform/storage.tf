@@ -111,3 +111,26 @@ resource "aws_ecr_lifecycle_policy" "this" {
     }]
   })
 }
+
+# ---------------------------------------------------------------------------
+# Keycloak realm seed
+#
+# The EC2 host is bootstrapped from user_data, which is capped at 16 KB — the
+# 80 KB realm JSON cannot be embedded there. Upload it to the bucket the
+# instance role can already read (see the PatientDocsBucket statement in
+# iam.tf) and have bootstrap.sh pull it down before `docker compose up`.
+#
+# This is the DEMO seed: it carries fixed development passwords and no real
+# users. A production realm must be imported from Secrets Manager instead —
+# see SECURITY.md.
+# ---------------------------------------------------------------------------
+resource "aws_s3_object" "keycloak_realm_seed" {
+  bucket = aws_s3_bucket.patient_docs.id
+  key    = "bootstrap/lims-dev-seed.json"
+  source = "${path.module}/../keycloak-imports/lims-dev-seed.json"
+  etag   = filemd5("${path.module}/../keycloak-imports/lims-dev-seed.json")
+
+  # Prevents a stale realm from being served if the file changes but the
+  # object is cached by the CLI.
+  cache_control = "no-cache"
+}

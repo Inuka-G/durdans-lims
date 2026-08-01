@@ -57,10 +57,18 @@ FRONTEND_TAG=${FRONTEND_TAG}
 ENVEOF
 chmod 600 .env
 
+# Keycloak realm seed. Uploaded by Terraform (aws_s3_object.keycloak_realm_seed)
+# because user_data is capped at 16 KB and the realm JSON is ~80 KB. Without it
+# Keycloak starts with --import-realm and nothing to import, so lims-realm never
+# exists and every login fails with a JWKS 404.
+mkdir -p /opt/lims/keycloak-imports
+aws s3 cp "s3://${S3_BUCKET}/bootstrap/lims-dev-seed.json" \
+  /opt/lims/keycloak-imports/lims-dev-seed.json --region "${AWS_REGION}"
+
 cat > docker-compose.yml <<'COMPOSE'
 name: durdans-lims-prod
 networks: { lims-net: { driver: bridge } }
-volumes: { kc_db: {}, kafka_data: {} }
+volumes: { kc_db: {} }
 
 services:
   kc-db:
@@ -87,24 +95,36 @@ services:
       KC_HEALTH_ENABLED: "true"
       KC_HOSTNAME_STRICT: "false"
     ports: [ "8081:8080" ]
+    # --import-realm above is a no-op without this mount. Mirrors the same mount
+    # in infra/docker-compose.yml.
+    volumes: [ "/opt/lims/keycloak-imports:/opt/keycloak/data/import:ro" ]
     networks: [lims-net]
     depends_on: { kc-db: { condition: service_healthy } }
     restart: always
 
+  # Must stay in step with infra/docker-compose.yml. bitnami/kafka was removed
+  # from Docker Hub in 2025, so the old pin made this whole script exit non-zero
+  # under `set -euxo pipefail`. The Apache image also drops the bitnami-only
+  # KAFKA_CFG_ prefix and ALLOW_PLAINTEXT_LISTENER, and ships kafka-topics.sh
+  # under /opt/kafka/bin rather than on PATH.
   kafka:
-    image: bitnami/kafka:3.7
+    image: apache/kafka:3.8.1
     environment:
-      KAFKA_CFG_NODE_ID: "1"
-      KAFKA_CFG_PROCESS_ROLES: "broker,controller"
-      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
-      KAFKA_CFG_LISTENERS: "PLAINTEXT://:9092,CONTROLLER://:9093"
-      KAFKA_CFG_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092"
-      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
-      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
-      ALLOW_PLAINTEXT_LISTENER: "yes"
-    volumes: [ "kafka_data:/bitnami/kafka" ]
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      KAFKA_LISTENERS: "PLAINTEXT://:9092,CONTROLLER://:9093"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
     networks: [lims-net]
-    healthcheck: { test: ["CMD-SHELL","kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1"], interval: 15s, timeout: 10s, retries: 10, start_period: 30s }
+    healthcheck: { test: ["CMD-SHELL","/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1 || exit 1"], interval: 15s, timeout: 10s, retries: 10, start_period: 30s }
     restart: always
 
   app:
