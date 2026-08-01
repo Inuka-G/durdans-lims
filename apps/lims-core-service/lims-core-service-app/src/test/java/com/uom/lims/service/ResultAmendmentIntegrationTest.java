@@ -1,6 +1,7 @@
 package com.uom.lims.service;
 
 import com.uom.lims.AbstractIntegrationTest;
+import com.uom.lims.api.enums.CriticalNotificationStatus;
 import com.uom.lims.api.enums.ResultFlag;
 import com.uom.lims.api.enums.SampleStatus;
 import com.uom.lims.api.verification.dto.request.ResultAmendmentRequest;
@@ -14,7 +15,10 @@ import com.uom.lims.entity.TestParameterEntity;
 import com.uom.lims.entity.TestResultEntity;
 import com.uom.lims.exception.BusinessRuleException;
 import com.uom.lims.exception.InvalidRequestException;
+import com.uom.lims.notification.CriticalValueNotification;
+import com.uom.lims.notification.CriticalValueNotificationRepository;
 import com.uom.lims.patient.PatientEntity;
+import com.uom.lims.repository.SampleRepository;
 import com.uom.lims.repository.TestResultRepository;
 import com.uom.lims.support.ClinicalPathTestFixtures;
 import org.junit.jupiter.api.AfterEach;
@@ -50,9 +54,15 @@ class ResultAmendmentIntegrationTest extends AbstractIntegrationTest {
     @Autowired
     private AuditLogRepository auditLogRepository;
 
+    @Autowired
+    private SampleRepository sampleRepository;
+    @Autowired
+    private CriticalValueNotificationRepository criticalValueNotificationRepository;
+
     private static final String AMEND_ENTITY_TYPE = "TEST_RESULT_AMENDMENT";
 
     private TestResultEntity authorizedResult;
+    private SampleEntity seededSample;
 
     @BeforeEach
     void seed() {
@@ -61,8 +71,8 @@ class ResultAmendmentIntegrationTest extends AbstractIntegrationTest {
         TestCatalogEntity catalog = fixtures.catalog("FBC-AMD", "Full Blood Count", "58410-2");
         TestParameterEntity param = fixtures.parameter(catalog.getId(), "Haemoglobin", "718-7",
                 new BigDecimal("4"), new BigDecimal("10"), new BigDecimal("2"), new BigDecimal("20"));
-        SampleEntity sample = fixtures.sampleGraph(patient, catalog, SampleStatus.AUTHORIZED, "S-AMD-1");
-        authorizedResult = fixtures.result(sample, param, ResultFlag.NORMAL,
+        seededSample = fixtures.sampleGraph(patient, catalog, SampleStatus.AUTHORIZED, "S-AMD-1");
+        authorizedResult = fixtures.result(seededSample, param, ResultFlag.NORMAL,
                 ResultStatus.CLINICALLY_AUTHORIZED, new BigDecimal("5.0"), "5.0", false);
         authAs("PATHOLOGIST", "B001");
     }
@@ -94,7 +104,19 @@ class ResultAmendmentIntegrationTest extends AbstractIntegrationTest {
         assertThat(reloaded.getResultNumeric()).isEqualByComparingTo("12.0");
         assertThat(reloaded.getVersionNo()).isEqualTo(2);
         assertThat(reloaded.getAmended()).isTrue();
-        assertThat(reloaded.getStatus()).isEqualTo(ResultStatus.CLINICALLY_AUTHORIZED);
+
+        // The prior release does not survive the correction. This previously
+        // asserted CLINICALLY_AUTHORIZED — i.e. it required the corrected value to
+        // stay reportable under a pathologist's signature for a number they never
+        // saw. The specimen goes back to the supervisor instead.
+        assertThat(reloaded.getStatus()).isEqualTo(ResultStatus.ENTERED);
+        assertThat(reloaded.getClinicallyAuthorizedBy()).isNull();
+        assertThat(reloaded.getClinicallyAuthorizedAt()).isNull();
+        assertThat(reloaded.getClinicalSignature()).isNull();
+        assertThat(reloaded.getTechnicallyVerifiedBy()).isNull();
+
+        SampleEntity reloadedSample = sampleRepository.findById(seededSample.getId()).orElseThrow();
+        assertThat(reloadedSample.getStatus()).isEqualTo(SampleStatus.SENT_FOR_VERIFICATION);
 
         List<ResultAmendmentResponse> history = amendmentService.getAmendmentHistory(authorizedResult.getId());
         assertThat(history).hasSize(1);
@@ -102,6 +124,47 @@ class ResultAmendmentIntegrationTest extends AbstractIntegrationTest {
         List<AuditLog> auditRows = auditLogRepository
                 .findByEntityTypeAndEntityIdOrderByTimestampDesc(AMEND_ENTITY_TYPE, authorizedResult.getId());
         assertThat(auditRows).extracting(AuditLog::getAction).contains("RESULT_AMENDED");
+    }
+
+    /**
+     * The reason result amendment exists is to rescue a patient from a wrong
+     * report — and correcting a value INTO the critical range raised no callback
+     * at all. A haemoglobin typo corrected 5.0 -> 21.0 (critical-high is 20) is a
+     * value somebody has to be telephoned about.
+     */
+    @Test
+    void amendingIntoACriticalValueOpensACallback() {
+        assertThat(criticalValueNotificationRepository.findAll()).isEmpty();
+
+        ResultAmendmentResponse response = amendmentService.amendResult(authorizedResult.getId(),
+                ResultAmendmentRequest.builder()
+                        .newValue("21.0")
+                        .amendmentReason("Transcription error found on review")
+                        .signatureConfirmed(true)
+                        .build());
+
+        assertThat(response.getNewFlag()).isEqualTo("CRITICAL_HIGH");
+
+        List<CriticalValueNotification> raised = criticalValueNotificationRepository.findAll();
+        assertThat(raised).hasSize(1);
+        assertThat(raised.get(0).getResultId()).isEqualTo(authorizedResult.getId());
+        assertThat(raised.get(0).getFlag()).isEqualTo("CRITICAL_HIGH");
+        assertThat(raised.get(0).getResultValue()).isEqualTo("21.0");
+        assertThat(raised.get(0).getStatus()).isEqualTo(CriticalNotificationStatus.PENDING);
+    }
+
+    @Test
+    void amendingIntoANonCriticalValueRaisesNoCallback() {
+        // 12.0 is HIGH but not critical (critical-high is 20). Amendments must not
+        // manufacture callbacks for every correction — only for critical values.
+        amendmentService.amendResult(authorizedResult.getId(),
+                ResultAmendmentRequest.builder()
+                        .newValue("12.0")
+                        .amendmentReason("Re-run after analyzer recalibration")
+                        .signatureConfirmed(true)
+                        .build());
+
+        assertThat(criticalValueNotificationRepository.findAll()).isEmpty();
     }
 
     @Test

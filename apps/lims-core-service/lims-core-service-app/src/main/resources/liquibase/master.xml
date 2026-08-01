@@ -36,4 +36,5 @@
     <include file="liquibase/changelog/20260619121500_add_test_result_version_columns.xml"/>
     <include file="liquibase/changelog/20260619122000_create_critical_value_notification.xml"/>
     <include file="liquibase/changelog/20260619123000_add_outbox_trace_context.xml"/>
+    <include file="liquibase/changelog/20260801100000_add_critical_values_nav.xml"/>
 </databaseChangeLog>
