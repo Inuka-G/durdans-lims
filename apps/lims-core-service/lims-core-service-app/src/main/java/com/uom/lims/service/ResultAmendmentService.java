@@ -2,13 +2,16 @@ package com.uom.lims.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.uom.lims.api.enums.ResultFlag;
+import com.uom.lims.api.enums.SampleStatus;
 import com.uom.lims.api.verification.dto.request.ResultAmendmentRequest;
 import com.uom.lims.api.verification.dto.response.ResultAmendmentResponse;
 import com.uom.lims.api.verification.enums.ResultStatus;
 import com.uom.lims.audit.AuditService;
+import com.uom.lims.entity.SampleEntity;
 import com.uom.lims.entity.TestParameterEntity;
 import com.uom.lims.entity.TestResultAmendmentEntity;
 import com.uom.lims.entity.TestResultEntity;
+import com.uom.lims.notification.CriticalValueNotificationService;
 import com.uom.lims.exception.BusinessRuleException;
 import com.uom.lims.exception.InvalidRequestException;
 import com.uom.lims.exception.ResourceNotFoundException;
@@ -60,6 +63,7 @@ public class ResultAmendmentService {
     private final TestResultAmendmentRepository amendmentRepository;
     private final AuditService auditService;
     private final ObjectMapper objectMapper;
+    private final CriticalValueNotificationService criticalValueNotificationService;
 
     @Transactional
     public ResultAmendmentResponse amendResult(UUID resultId, ResultAmendmentRequest request) {
@@ -125,10 +129,29 @@ public class ResultAmendmentService {
         result.setAmended(true);
         result.setLastModifiedBy(username);
         result.setLastModifiedAt(now);
+
+        // ---- the prior release no longer applies to this value ----
+        //
+        // A supervisor verified, and a pathologist signed, a number that no longer
+        // exists. Leaving CLINICALLY_AUTHORIZED in place kept the previous
+        // pathologist's name and signature attached to a value they never saw, and
+        // left the corrected result reportable with nobody having reviewed it.
+        // Send it back to the start of the release chain so verification and
+        // authorization happen again against the corrected number.
+        clearPriorRelease(result);
+
         testResultRepository.save(result);
 
         auditService.log(ACTION_AMENDED, AMEND_ENTITY_TYPE, result.getId(),
                 resolvePatientCode(result), buildAuditPayload(amendment), null);
+
+        // ---- a correction can create a NEW critical value ----
+        //
+        // This is the path that exists to rescue a patient from a wrong report, and
+        // it was the one path that raised no alarm. Correcting glucose 90 -> 25
+        // set CRITICAL_LOW and told nobody. openForResult is idempotent and
+        // self-guards on the flag, so a non-critical correction is a no-op.
+        criticalValueNotificationService.openForResult(result);
 
         if (previousStatus == ResultStatus.DISPATCHED) {
             // A wrong result already left the building — a corrected report must be re-issued.
@@ -138,7 +161,41 @@ public class ResultAmendmentService {
                     result.getId(), newVersion);
         }
 
+        if (isCritical(newFlag) && !isCritical(previousFlag)) {
+            log.warn("Amendment of result {} (v{}) produced a NEW critical value ({}): callback opened",
+                    result.getId(), newVersion, newFlag);
+        }
+
         return toResponse(amendment);
+    }
+
+    private static boolean isCritical(ResultFlag flag) {
+        return flag == ResultFlag.CRITICAL_HIGH || flag == ResultFlag.CRITICAL_LOW;
+    }
+
+    /**
+     * Drop the verification and authorization the previous value earned, and put
+     * the specimen back in the supervisor's queue.
+     *
+     * <p>Mirrors what {@code ClinicalAuthorizationService} does when a pathologist
+     * returns a result: result to a pre-release status, sample back to
+     * SENT_FOR_VERIFICATION. The immutable snapshot in
+     * {@link TestResultAmendmentEntity} keeps who signed the superseded version, so
+     * clearing these fields loses no history.
+     */
+    private void clearPriorRelease(TestResultEntity result) {
+        result.setStatus(ResultStatus.ENTERED);
+        result.setTechnicallyVerifiedBy(null);
+        result.setTechnicallyVerifiedAt(null);
+        result.setClinicallyAuthorizedBy(null);
+        result.setClinicallyAuthorizedAt(null);
+        result.setClinicalSignature(null);
+
+        SampleEntity sample = result.getSample();
+        if (sample != null) {
+            // Managed inside this transaction, so the change is flushed with the result.
+            sample.setStatus(SampleStatus.SENT_FOR_VERIFICATION);
+        }
     }
 
     @Transactional(readOnly = true)
