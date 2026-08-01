@@ -776,6 +776,12 @@ export interface SubmitResultsRequest {
         flag?: string;
     }>;
     mltNotes?: string;
+    /**
+     * Which analyser produced these values, as a registry code (or BENCH-MANUAL).
+     * The QC release gate uses it to find the control governing the result; without
+     * it the result is neither held nor vouched for.
+     */
+    instrumentCode?: string;
 }
 
 export interface VerificationPendingItem {
@@ -1332,4 +1338,60 @@ export const acknowledgeCriticalValue = async (
 ): Promise<CriticalNotification> => {
     const response = await axiosInstance.post(`/api/v1/critical-values/${id}/acknowledge`, req);
     return response.data as CriticalNotification;
+};
+
+// ---------------------------------------------------------------------------
+// QC — instruments and control runs
+//
+// Internal QC now gates release: a result whose governing control failed, is
+// stale, or was never recorded is held at verification. That makes recording a
+// control run part of the daily workflow rather than a report nobody reads.
+// ---------------------------------------------------------------------------
+
+export interface InstrumentOption {
+    code: string;
+    name: string;
+    instrumentType?: string | null;
+    /** False for bench methods — analyser QC does not apply and none can be recorded. */
+    qcRequired: boolean;
+}
+
+export interface RecordQcRunRequest {
+    /** Registry code, not a display name — the gate joins on this. */
+    instrument: string;
+    /** Human label for the control series, e.g. "Platelets". */
+    analyte: string;
+    /** Coded analyte; must match a configured test parameter's LOINC. */
+    loincCode: string;
+    controlLevel: string;
+    controlLot?: string;
+    measuredValue: number;
+    mean: number;
+    sd: number;
+}
+
+export interface QcRunOutcome {
+    id: string;
+    status: 'PASS' | 'WARN' | 'FAIL';
+    violations: string[];
+}
+
+export const getInstrumentRegistry = async (): Promise<InstrumentOption[]> => {
+    const response = await axiosInstance.get('/api/v1/mlt/instrument-registry');
+    return (response.data ?? []) as InstrumentOption[];
+};
+
+export const recordQcRun = async (req: RecordQcRunRequest): Promise<QcRunOutcome> => {
+    const response = await axiosInstance.post('/api/v1/mlt/qc-runs', req);
+    return response.data as QcRunOutcome;
+};
+
+export interface QcAnalyteOption {
+    loincCode: string;
+    name: string;
+}
+
+export const getQcAnalytes = async (): Promise<QcAnalyteOption[]> => {
+    const response = await axiosInstance.get('/api/v1/mlt/qc-analytes');
+    return (response.data ?? []) as QcAnalyteOption[];
 };

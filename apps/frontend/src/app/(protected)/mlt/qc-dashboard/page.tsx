@@ -4,6 +4,7 @@ import { QC_STATUS_CONFIG } from '@/constants/sample-lifecycle';
 import { MOCK_QC_DASHBOARD_DATA } from '@/mock/mlt.mock';
 import { getQcDashboard, type QcDashboardData } from '@/lib/api';
 import { useCallback, useEffect, useState } from 'react';
+import RecordQcRunForm from '@/components/mlt/RecordQcRunForm';
 
 const STAT_CARD_STYLES = {
     blue: {
@@ -58,6 +59,8 @@ export default function QCDashboardPage() {
                 <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">Laboratory / Quality Control</p>
                 <h1 className="text-2xl font-bold text-slate-800 mt-0.5">QC Dashboard</h1>
             </div>
+
+            <RecordQcRunForm onRecorded={loadDashboard} />
 
             {demoMode && (
                 <div className="mb-6 rounded-2xl border border-violet-200 bg-violet-50 px-5 py-3 flex gap-3 items-start">
