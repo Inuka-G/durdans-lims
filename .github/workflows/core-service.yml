@@ -62,11 +62,19 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
+      # build-mode: none analyses the source directly instead of tracing a build.
+      #
+      # The traced build kept failing here: CodeQL wraps the compiler to observe
+      # it, but `gradlew --no-daemon` still forks a separate compiler process the
+      # tracer does not follow, so the run ended in "No source code was seen
+      # during the build" after ~5 minutes. Moving the module under apps/ made it
+      # worse, because `uses:` steps ignore defaults.run.working-directory and so
+      # init and analyze look at the workspace root while the build ran a level
+      # down. Buildless analysis removes both problems and is quicker.
       - name: Init CodeQL
         uses: github/codeql-action/init@v3
         with:
           languages: java
-      - name: Build
-        run: ./gradlew :lims-core-service-app:compileJava --no-daemon
+          build-mode: none
       - name: Analyze
         uses: github/codeql-action/analyze@v3

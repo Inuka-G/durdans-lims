@@ -127,8 +127,17 @@ Unweighted mean ≈ 5.6/10. Weighting the clinical-safety + tenant-isolation dom
 
 ## 7. Prioritized remediation
 
+> **Editor's note, 2026-08-01.** This document is kept as the dated record of the
+> June review and its findings are not rewritten. Two corrections for anyone
+> acting on it today: (a) `purge-secrets.sh` no longer exists — it was never run,
+> covered 2 of the 8 leaked literals, and contained two of them in plaintext;
+> rotate at the source instead. (b) Items 2, 3 and 4 below were re-confirmed as
+> still open by the 2026-08-01 assessment — see
+> [STATE-OF-THE-PROJECT-2026-08-01.md](STATE-OF-THE-PROJECT-2026-08-01.md).
+
 **P0 — blockers (do first):**
-1. Rotate the leaked DB + Gmail credentials and **run `purge-secrets.sh`** (purge history + scrub `SECURITY.md`).
+1. Rotate the leaked DB + Gmail credentials. *(See the editor's note: ignore the
+   original instruction to run `purge-secrets.sh`.)*
 2. Add a single **server-side branch guard on every write path** (sample collect/reject, verify/reject/bulkVerify, clinical authorize/return, order create/cancel, patient update, document upload, photo) — ideally one cross-cutting `assertBranchAccess` aspect rather than per-method.
 3. **Wire QC into the release path** — block/hold auto-release and flag verification when the governing control failed Westgard; give QC records a real key to the parameter/instrument.
 4. **Wire amendment to the safety mechanisms** — recompute the flag, open a critical-value callback if the new value is critical, re-dispatch a corrected report, and reset verify/authorize state.

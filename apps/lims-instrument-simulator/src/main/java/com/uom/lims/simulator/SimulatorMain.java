@@ -6,6 +6,7 @@ import com.uom.lims.simulator.analyzer.WorkloadGenerator;
 import com.uom.lims.simulator.transport.AnalyzerClient;
 import com.uom.lims.simulator.transport.HostServer;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
@@ -64,11 +65,31 @@ public final class SimulatorMain {
                 ? Long.parseLong(opts.get("seed"))
                 : System.currentTimeMillis();
 
-        WorkloadGenerator generator = new WorkloadGenerator(seed, abnormal);
+        // --sample-id takes precedence: those barcodes are assumed to exist in
+        // LIMS. --barcode-prefix generates LIMS-shaped ids instead. With neither,
+        // the simulator's own S… layout is used and LIMS will drop every result
+        // as "no sample for barcode" — fine for `host` transcript testing, not
+        // for an end-to-end demo.
+        List<String> sampleIds = opts.containsKey("sample-id")
+                ? Arrays.stream(opts.get("sample-id").split(","))
+                        .map(String::trim).filter(s -> !s.isEmpty()).toList()
+                : List.of();
+        String barcodePrefix = opts.get("barcode-prefix");
+
+        WorkloadGenerator generator = new WorkloadGenerator(seed, abnormal, sampleIds, barcodePrefix);
         AnalyzerClient client = new AnalyzerClient(host, port, profile);
 
         System.out.printf("[sim] profile=%s panel=%s analytes=%d abnormalBias=%.2f%n",
                 profile.name(), profile.panelName(), profile.analytes().size(), abnormal);
+        if (!sampleIds.isEmpty()) {
+            System.out.printf("[sim] using %d supplied barcode(s), cycled: %s%n",
+                    sampleIds.size(), String.join(", ", sampleIds));
+        } else if (barcodePrefix != null) {
+            System.out.printf("[sim] generating LIMS-shaped barcodes: %s-<today>-00000001…%n", barcodePrefix);
+        } else {
+            System.out.println("[sim] WARNING: generating S… ids that will NOT match any LIMS barcode; "
+                    + "pass --sample-id or --barcode-prefix DH for an end-to-end run");
+        }
 
         int batch = 0;
         do {
@@ -120,21 +141,36 @@ public final class SimulatorMain {
                                          [--profile hematology|chemistry]
                                          [--count 5] [--interval 0]
                                          [--abnormal 0.15] [--seed <long>]
+                                         [--sample-id <barcode>[,<barcode>...]]
+                                         [--barcode-prefix DH]
 
                 Modes:
                   host     Listen as the LIS host and print a decoded transcript.
                   analyzer Upload dummy results to a host (broadcast mode).
 
                 Options:
-                  --profile   hematology (FBC) or chemistry (Urea & Electrolytes)
-                  --count     samples per batch
-                  --interval  seconds between batches (0 = single batch, then exit)
-                  --abnormal  0.0-1.0 bias toward abnormal/critical values
-                  --seed      fixed seed for reproducible data (default: time-based)
+                  --profile         hematology (FBC) or chemistry (Urea & Electrolytes)
+                  --count           samples per batch
+                  --interval        seconds between batches (0 = single batch, then exit)
+                  --abnormal        0.0-1.0 bias toward abnormal/critical values
+                  --seed            fixed seed for reproducible data (default: time-based)
+                  --sample-id       barcodes to send results for, comma separated and
+                                    cycled. Copy them from the LIMS accessioning screen.
+                  --barcode-prefix  generate LIMS-shaped barcodes (DH-yyyyMMdd-00000001)
+                                    instead of the simulator's own S… layout
+
+                Sample ids: LIMS looks a specimen up by barcode and silently skips
+                results it cannot match. The default S… ids never match, so for an
+                end-to-end run pass real barcodes with --sample-id, or --barcode-prefix DH
+                against a freshly seeded database where the sequence starts at 1.
 
                 Quick start (two terminals):
                   1)  SimulatorMain host --port 12000
                   2)  SimulatorMain analyzer --port 12000 --profile hematology --count 5
+
+                End-to-end into a running LIMS:
+                      SimulatorMain analyzer --port 12000 --profile hematology \\
+                        --sample-id DH-20260801-00000001,DH-20260801-00000002
                 """);
     }
 }

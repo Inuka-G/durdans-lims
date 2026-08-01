@@ -25,8 +25,12 @@ const PREFIX_MAP: Record<string, string[]> = {
     "/report-dispatch": ["/dispatch"],
     "/orders-billing": ["/orders-billing"],
     "/dashboard": ["/dashboard", "/patients", "/audit"], // Patient management uses dashboard, patients, and audit
-    "/admin": ["/admin"],
-    "/branch-admin": ["/branch-admin"],
+    // The seeded nav items are /admin and /branch-admin, but the App Router
+    // segments are (protected)/superadmin and (protected)/branch. Mapping these
+    // to themselves silently locked every admin screen behind a 404 — including
+    // every page for a user holding only SUPER_ADMIN.
+    "/admin": ["/superadmin"],
+    "/branch-admin": ["/branch"],
 };
 
 export default function RoleGuard({ children }: { children: ReactNode }) {
