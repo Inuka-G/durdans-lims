@@ -91,8 +91,10 @@ Stating this plainly so nobody has to reverse-engineer it from the code:
 - **Not connected:** no physical analyzer is integrated. Instrument and QC data
   come from `lims-instrument-simulator` and static reference JSON. The ingestion
   endpoint it exercises is real; the device link is not.
-- **Test coverage:** currently narrow — a small number of automated tests, not a
-  suite that would justify calling the system verified.
+- **Test coverage:** 144 automated tests — 131 backend (27 classes, including
+  Testcontainers integration tests against a real PostgreSQL) and 13 frontend.
+  Backend line coverage is about 28%, so the covered paths are genuinely
+  covered, but most of the code is not yet exercised.
 
 ---
 
