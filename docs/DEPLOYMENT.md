@@ -105,10 +105,17 @@ Terraform). Set these repo **variables** after `terraform apply`:
 
 ## 4. Required human actions (one-time)
 
-1. **Rotate the leaked DB + Gmail credentials** and run
-   `lims-core-service/scripts/purge-secrets.sh` to scrub git history (see `SECURITY.md`).
-2. `terraform apply` with your AWS account.
-3. Push the three repos to GitHub and set the repo variables above.
+1. **Rotate the eight leaked credentials.** Do NOT look for
+   `scripts/purge-secrets.sh` — it was deleted, never ran, covered only 2 of the
+   8 literals, and embedded two of them in plaintext. Rotation at the source
+   system is the remediation; history rewriting is not. See
+   [SECURITY-INCIDENT-2026-07.md](SECURITY-INCIDENT-2026-07.md) for the list and
+   the current status.
+2. **Make the five predecessor repositories private, then archive them.** They
+   are still public as of 2026-08-01.
+3. `terraform apply` with your AWS account.
+4. Push to `kalanas210/durdans-lims` and set the repo variables above. (This is
+   one repository now, not three — see [HISTORY.md](HISTORY.md).)
 
 ---
 
