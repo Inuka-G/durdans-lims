@@ -28,6 +28,7 @@ import com.uom.lims.repository.TestResultRepository;
 import com.uom.lims.patient.PatientRepository;
 import com.uom.lims.patient.PatientEntity;
 import com.uom.lims.exception.ResourceNotFoundException;
+import com.uom.lims.qc.QcGateService;
 import com.uom.lims.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -70,6 +71,7 @@ public class MltTestingService {
         private final AuditLogRepository auditLogRepository;
         private final ObjectMapper objectMapper;
         private final com.uom.lims.notification.CriticalValueNotificationService criticalValueNotificationService;
+        private final QcGateService qcGateService;
 
         @Transactional(readOnly = true)
         public SampleResultsResponse getSampleResults(UUID sampleId) {
@@ -250,6 +252,20 @@ public class MltTestingService {
                         result.setDraft(isDraft);
                         result.setFlag(resolveResultFlag(item, parameter, patientGender, patientAge));
                         result.setStatus(isDraft ? null : ResultStatus.ENTERED);
+
+                        // Record what produced the value so the QC gate can find the
+                        // control governing it. Stamped here, enforced at verification:
+                        // manual entry lands on ENTERED, which is pre-release, and
+                        // blocking data capture would only move MLTs onto paper.
+                        if (!isDraft) {
+                                result.setInstrumentCode(request.instrumentCode());
+                                result.setMeasuredAt(Instant.now());
+                                QcGateService.QcVerdict qc = qcGateService.evaluate(
+                                                request.instrumentCode(), parameter.getLoincCode(),
+                                                result.getMeasuredAt());
+                                result.setQcStatus(qc.state().name());
+                                result.setQcResultId(qc.governingQcId());
+                        }
 
                         // Reassign to the saved instance: BaseEntity's non-null @Version makes
                         // Spring Data merge a new row, so only the RETURNED entity carries the
