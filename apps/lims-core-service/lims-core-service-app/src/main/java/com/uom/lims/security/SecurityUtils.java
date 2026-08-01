@@ -1,5 +1,6 @@
 package com.uom.lims.security;
 
+import com.uom.lims.exception.ResourceNotFoundException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.access.AccessDeniedException;
@@ -155,6 +156,30 @@ public final class SecurityUtils {
         }
         String mine = getCurrentBranchId();
         return mine != null && mine.equalsIgnoreCase(resourceBranch);
+    }
+
+    /**
+     * Guard a tenant-owned record on a WRITE path, where the record was loaded by
+     * id and the caller's branch has not otherwise been applied.
+     *
+     * <p>Throws {@link ResourceNotFoundException} rather than
+     * {@link AccessDeniedException} deliberately, matching the read paths: a 403
+     * would confirm that the id exists in some other branch, which is exactly the
+     * fact enumeration is trying to learn. The attempt is logged at WARN so the
+     * probe is still visible to operators.
+     *
+     * @param resourceBranch the branch that owns the record; {@code null} is
+     *                       inaccessible to everyone but SUPER_ADMIN
+     * @param resourceLabel  human-readable type name for the message, e.g. "Sample"
+     * @param resourceId     the id the caller supplied, echoed back in the message
+     */
+    public static void assertCanAccessBranch(String resourceBranch, String resourceLabel, Object resourceId) {
+        if (canAccessBranch(resourceBranch)) {
+            return;
+        }
+        log.warn("Cross-branch write blocked: user '{}' (branch {}) attempted to modify {} {} owned by branch {}",
+                getCurrentUsername(), getCurrentBranchId(), resourceLabel, resourceId, resourceBranch);
+        throw new ResourceNotFoundException(resourceLabel + " not found with id: " + resourceId);
     }
 
     private static String firstNonBlank(String... values) {
