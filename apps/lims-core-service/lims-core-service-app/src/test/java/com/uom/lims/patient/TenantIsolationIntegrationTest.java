@@ -12,8 +12,12 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import java.time.LocalDate;
 
+import org.springframework.http.MediaType;
+
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -92,5 +96,70 @@ class TenantIsolationIntegrationTest extends AbstractIntegrationTest {
         mockMvc.perform(get("/api/v1/patients/{code}", PATIENT_CODE)
                 .with(branchUser("B001", "DISPATCH_OFFICER")))
                 .andExpect(status().isForbidden());
+    }
+
+    // ------------------------------------------------------------------
+    // Write paths.
+    //
+    // The read guards above were in place while every write path loaded by id
+    // and mutated with no branch check at all, so isolation held for looking and
+    // not for touching. These pin the write side.
+    // ------------------------------------------------------------------
+
+    private static String updateBody(String fullName, String branchCode) {
+        String branch = branchCode == null ? "" : ",\"branchCode\":\"" + branchCode + "\"";
+        return "{\"fullName\":\"" + fullName + "\",\"phone\":\"+94770000001\"" + branch + "}";
+    }
+
+    @Test
+    void sameBranchUser_canUpdateOwnPatient() throws Exception {
+        mockMvc.perform(put("/api/v1/patients/{code}", PATIENT_CODE)
+                .with(branchUser("B001", "FRONT_DESK"))
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(updateBody("Renamed By Own Branch", null)))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void otherBranchUser_cannotUpdatePatient_andExistenceIsNotLeaked() throws Exception {
+        mockMvc.perform(put("/api/v1/patients/{code}", PATIENT_CODE)
+                .with(branchUser("B002", "FRONT_DESK"))
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(updateBody("Renamed By Other Branch", null)))
+                .andExpect(status().isNotFound());
+
+        // The write must not have landed.
+        PatientEntity after = patientRepository.findByPatientCode(PATIENT_CODE).orElseThrow();
+        org.junit.jupiter.api.Assertions.assertEquals("Tenant Test Patient", after.getFullName());
+    }
+
+    @Test
+    void branchUser_cannotMovePatientToAnotherBranch() throws Exception {
+        // branchCode was mass-assignable: a branch user could push a patient — and
+        // that patient's whole order and result history — out of their own branch.
+        mockMvc.perform(put("/api/v1/patients/{code}", PATIENT_CODE)
+                .with(branchUser("B001", "FRONT_DESK"))
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(updateBody("Tenant Test Patient", "B002")))
+                .andExpect(status().isForbidden());
+
+        PatientEntity after = patientRepository.findByPatientCode(PATIENT_CODE).orElseThrow();
+        org.junit.jupiter.api.Assertions.assertEquals("B001", after.getBranchCode());
+    }
+
+    @Test
+    void superAdmin_mayMovePatientBetweenBranches() throws Exception {
+        mockMvc.perform(put("/api/v1/patients/{code}", PATIENT_CODE)
+                .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_SUPER_ADMIN")))
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(updateBody("Tenant Test Patient", "B002")))
+                .andExpect(status().isOk());
+
+        PatientEntity after = patientRepository.findByPatientCode(PATIENT_CODE).orElseThrow();
+        org.junit.jupiter.api.Assertions.assertEquals("B002", after.getBranchCode());
     }
 }

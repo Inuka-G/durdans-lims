@@ -978,6 +978,12 @@ public class OrderService {
                 OrderEntity order = orderRepository.findByIdAndDeletedFalse(id)
                                 .orElseThrow(() -> new ResourceNotFoundException("Order not found with id: " + id));
 
+                // Tenant isolation. The order lists are branch-scoped but this loads
+                // by id, so without the guard a user could cancel another branch's
+                // pending order — cascading its samples out of that branch's
+                // phlebotomy queue.
+                SecurityUtils.assertCanAccessBranch(order.getBranchCode(), "Order", id);
+
                 if (order.getStatus() != OrderStatus.PENDING) {
                         throw new InvalidStateTransitionException(
                                         "Cannot cancel order " + order.getOrderNo() +
