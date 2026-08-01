@@ -15,6 +15,7 @@ import com.uom.lims.audit.AuditLogRepository;
 import com.uom.lims.api.enums.SampleStatus;
 import com.uom.lims.audit.AuditService;
 import com.uom.lims.api.verification.enums.ResultStatus;
+import com.uom.lims.exception.ResourceNotFoundException;
 import com.uom.lims.dispatch.DispatchService;
 import com.uom.lims.entity.SampleEntity;
 import com.uom.lims.entity.TestCatalogEntity;
@@ -328,9 +329,27 @@ public class ClinicalAuthorizationService {
         );
     }
 
+    /**
+     * Single loader for every result this service touches. The tenant guard lives
+     * here so clinical authorization and return-for-recheck cannot be performed
+     * on another branch's result by supplying its id.
+     *
+     * <p>A result has no branch of its own; it inherits the branch of the order
+     * that requested the specimen.
+     */
     private TestResultEntity findResultById(UUID id) {
-        return testResultRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Test result not found: " + id));
+        TestResultEntity result = testResultRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Test result not found: " + id));
+        SecurityUtils.assertCanAccessBranch(branchOf(result), "Test result", id);
+        return result;
+    }
+
+    private static String branchOf(TestResultEntity result) {
+        SampleEntity sample = result.getSample();
+        if (sample == null || sample.getOrderItem() == null || sample.getOrderItem().getOrder() == null) {
+            return null; // unreachable for anyone but SUPER_ADMIN — fail closed
+        }
+        return sample.getOrderItem().getOrder().getBranchCode();
     }
 
     private List<String> resolveHistoryActions(String actionType, List<String> allowedActions) {

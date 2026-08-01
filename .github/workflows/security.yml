@@ -56,6 +56,42 @@ jobs:
           fi
           echo "clean"
 
+  ignore-rules-present:
+    name: Secret-guard ignore rules are in the repo
+    runs-on: ubuntu-latest
+    # Three .gitignore files each listed ".gitignore" among their own patterns,
+    # so git never added them. The rules that block realm exports, .env files and
+    # application-local.yml existed only on the laptop they were written on;
+    # anyone cloning got no protection at all. This asserts they are present.
+    steps:
+      - uses: actions/checkout@v4
+      - name: Required ignore files must be tracked
+        run: |
+          REQUIRED="
+            .gitignore
+            apps/frontend/.gitignore
+            apps/lims-core-service/.gitignore
+            apps/lims-instrument-simulator/.gitignore
+            infra/.gitignore
+            infra/terraform/.gitignore
+          "
+          fail=0
+          for f in $REQUIRED; do
+            if git ls-files --error-unmatch "$f" >/dev/null 2>&1; then
+              echo "ok       $f"
+            else
+              echo "::error::$f is not tracked — its rules protect nobody."
+              fail=1
+            fi
+          done
+          # Belt and braces: a tracked file that names itself would drop out of
+          # the repo on the next clean checkout.
+          if git ls-files '*.gitignore' '.gitignore' | xargs -r grep -lx '\.gitignore'; then
+            echo "::error::A .gitignore lists itself; it will silently leave the repository."
+            fail=1
+          fi
+          exit $fail
+
   commit-hygiene:
     name: Commit hygiene
     runs-on: ubuntu-latest
