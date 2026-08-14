@@ -390,16 +390,6 @@
         }
       ],
       "security-admin-console": [],
-      "postman-client": [
-        {
-          "id": "d8c34814-f35e-4e78-aeef-55bb3f299d2d",
-          "name": "uma_protection",
-          "composite": false,
-          "clientRole": true,
-          "containerId": "dee3a4b6-6913-4ab0-b8e0-9a37653724f6",
-          "attributes": {}
-        }
-      ],
       "admin-cli": [],
       "lims-frontend": [],
       "account-console": [],
@@ -502,8 +492,7 @@
           "attributes": {}
         }
       ],
-      "lims-backend": [],
-      "postman-id": []
+      "lims-backend": []
     }
   },
   "groups": [],
