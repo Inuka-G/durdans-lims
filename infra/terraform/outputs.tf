@@ -4,15 +4,20 @@ output "host_public_ip" {
 }
 
 output "frontend_url" {
-  value = "http://${local.public_addr}:3000"
+  value = local.frontend_origin
 }
 
 output "api_url" {
-  value = "http://${local.public_addr}:11000"
+  value = local.api_origin
 }
 
 output "keycloak_url" {
-  value = "http://${local.public_addr}:8081"
+  value = local.keycloak_origin
+}
+
+output "host_instance_id" {
+  description = "EC2 instance targeted by the GitHub Actions SSM deployment"
+  value       = aws_instance.lims.id
 }
 
 output "ecr_app_repo" {

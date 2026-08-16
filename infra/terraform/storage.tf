@@ -134,3 +134,15 @@ resource "aws_s3_object" "keycloak_realm_seed" {
   # object is cached by the CLI.
   cache_control = "no-cache"
 }
+
+# The host fetches this immutable deployment helper during bootstrap. Keeping it
+# in S3 avoids inflating EC2 user_data and gives CI one audited entry point for
+# health verification and rollback.
+resource "aws_s3_object" "deploy_service_script" {
+  bucket = aws_s3_bucket.patient_docs.id
+  key    = "bootstrap/deploy-service.sh"
+  source = "${path.module}/../scripts/deploy-service.sh"
+  etag   = filemd5("${path.module}/../scripts/deploy-service.sh")
+
+  cache_control = "no-cache"
+}

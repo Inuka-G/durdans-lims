@@ -3,8 +3,12 @@
 aws_region  = "us-east-1"
 environment = "demo"
 
-# Compute / DB sizing (defaults already fit the ~$34/mo budget)
-ec2_instance_type  = "t3.small"
+# Keyless GitHub Actions deployment. The IAM trust is restricted to main.
+github_org           = "kalanas210"
+github_deploy_branch = "main"
+
+# Compute / DB sizing (4 GB avoids JVM contention across app/Keycloak/Kafka)
+ec2_instance_type  = "t3.medium"
 rds_instance_class = "db.t4g.micro"
 
 # Leave empty to use SSM Session Manager (recommended). Or lock SSH to your IP:
@@ -18,5 +22,5 @@ frontend_image_tag = "latest"
 domain_name = ""
 
 # Cost guardrail — set your email to receive budget alerts at 80% / 100%.
-budget_monthly_usd = 40
+budget_monthly_usd = 60
 alert_email        = ""

@@ -4,7 +4,7 @@
 locals {
   oidc_enabled = var.github_org != ""
   oidc_subjects = [
-    for repo in var.github_repos : "repo:${var.github_org}/${repo}:*"
+    for repo in var.github_repos : "repo:${var.github_org}/${repo}:ref:refs/heads/${var.github_deploy_branch}"
   ]
 }
 
@@ -74,8 +74,16 @@ data "aws_iam_policy_document" "gha_perms" {
     resources = [for r in aws_ecr_repository.this : r.arn]
   }
   statement {
-    sid       = "SsmDeploy"
-    actions   = ["ssm:SendCommand", "ssm:GetCommandInvocation"]
+    sid     = "SsmDeployToLimsHost"
+    actions = ["ssm:SendCommand"]
+    resources = [
+      aws_instance.lims.arn,
+      "arn:aws:ssm:${var.aws_region}::document/AWS-RunShellScript",
+    ]
+  }
+  statement {
+    sid       = "ReadSsmDeployResult"
+    actions   = ["ssm:GetCommandInvocation"]
     resources = ["*"]
   }
 }

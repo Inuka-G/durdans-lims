@@ -19,6 +19,9 @@ desktop.ini
 .claude/
 .cursor/
 .codex-logs/
+.tooling/
+**/.build-temp/
+**/.terraform-tmp/
 
 # --- local env files; the tracked examples stay ---
 .env

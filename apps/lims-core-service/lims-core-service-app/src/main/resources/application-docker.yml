@@ -36,8 +36,11 @@ spring:
 
   cloud:
     aws:
+      region: ${AWS_REGION:us-east-1}
       # LocalStack container, not the host-published 4566.
       endpoint: ${AWS_S3_ENDPOINT:http://localstack:4566}
+      s3:
+        bucket: ${AWS_S3_BUCKET:lims-patient-documents}
 
 app:
   keycloak-admin:

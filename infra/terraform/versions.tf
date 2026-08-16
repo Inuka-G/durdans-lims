@@ -12,15 +12,10 @@ terraform {
     }
   }
 
-  # Remote state — bootstrap the bucket + lock table once (see README "Remote state"),
-  # then uncomment and run `terraform init -migrate-state`.
-  # backend "s3" {
-  #   bucket         = "durdans-lims-tfstate"
-  #   key            = "lims/terraform.tfstate"
-  #   region         = "us-east-1"
-  #   dynamodb_table = "durdans-lims-tflock"
-  #   encrypt        = true
-  # }
+  # Values are supplied with -backend-config during init because the bucket name
+  # includes the AWS account ID. S3 native locking avoids a paid/legacy DynamoDB
+  # lock table; bucket versioning provides state recovery.
+  backend "s3" {}
 }
 
 provider "aws" {

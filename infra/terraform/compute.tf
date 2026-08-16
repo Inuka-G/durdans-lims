@@ -18,9 +18,13 @@ resource "aws_eip" "lims" {
 }
 
 locals {
-  # The instance address the BROWSER will use to reach Keycloak/API. With a domain
-  # set, front everything with Caddy/TLS; otherwise the EIP over HTTP for a demo.
-  public_addr = var.domain_name != "" ? var.domain_name : aws_eip.lims.public_ip
+  # Browser-facing origins. With a domain, Caddy terminates TLS on three hostnames.
+  # Without one, Caddy still serves the frontend on port 80 while the API and
+  # Keycloak use their explicit demo ports.
+  public_addr     = var.domain_name != "" ? var.domain_name : aws_eip.lims.public_ip
+  frontend_origin = var.domain_name != "" ? "https://${var.domain_name}" : "http://${aws_eip.lims.public_ip}"
+  api_origin      = var.domain_name != "" ? "https://api.${var.domain_name}" : "http://${aws_eip.lims.public_ip}:11000"
+  keycloak_origin = var.domain_name != "" ? "https://auth.${var.domain_name}" : "http://${aws_eip.lims.public_ip}:8081"
 
   # user_data = a small interpolated header that exports the Terraform-known values,
   # followed by a STATIC bootstrap script (file() is not interpolated, so no $$ escaping).
@@ -35,7 +39,12 @@ locals {
     export MAIL_SECRET="${aws_secretsmanager_secret.mail.name}"
     export KC_SECRET="${aws_secretsmanager_secret.keycloak_admin.name}"
     export S3_BUCKET="${aws_s3_bucket.patient_docs.bucket}"
+    export BACKUP_BUCKET="${aws_s3_bucket.backups.bucket}"
     export PUBLIC_ADDR="${local.public_addr}"
+    export DOMAIN_NAME="${var.domain_name}"
+    export FRONTEND_ORIGIN="${local.frontend_origin}"
+    export API_ORIGIN="${local.api_origin}"
+    export KEYCLOAK_ORIGIN="${local.keycloak_origin}"
     export KEYCLOAK_REALM="lims-realm"
   EOT
 
