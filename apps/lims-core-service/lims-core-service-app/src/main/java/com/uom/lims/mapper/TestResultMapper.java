@@ -39,7 +39,10 @@ public class TestResultMapper {
                 .patientName(patientName)
                 .testType(testType)
                 .mltName(entity.getCreatedBy())
-                .qcStatus("Not Linked")
+                // Was the literal "Not Linked" for every result ever produced — the
+                // visible symptom of QC having no connection to results at all. Now
+                // the verdict frozen when the result was measured.
+                .qcStatus(entity.getQcStatus() == null ? "NOT_EVALUATED" : entity.getQcStatus())
                 .flag(entity.getFlag() == null ? null : entity.getFlag().name())
                 .createdAt(entity.getCreatedAt())
                 .updatedAt(entity.getLastModifiedAt())

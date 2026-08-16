@@ -7,6 +7,7 @@ import com.uom.lims.autoverification.AutoverificationService;
 import com.uom.lims.entity.SampleEntity;
 import com.uom.lims.entity.TestParameterEntity;
 import com.uom.lims.entity.TestResultEntity;
+import com.uom.lims.qc.QcGateService;
 import com.uom.lims.instrument.astm.AstmMessage;
 import com.uom.lims.outbox.OutboxService;
 import com.uom.lims.results.ResultFlagResolver;
@@ -44,6 +45,7 @@ public class InstrumentResultIngestionService {
     private final OutboxService outboxService;
     private final AutoverificationService autoverificationService;
     private final com.uom.lims.notification.CriticalValueNotificationService criticalValueNotificationService;
+    private final com.uom.lims.qc.QcGateService qcGateService;
 
     @Transactional
     public IngestOutcome ingest(AstmMessage.SpecimenResults specimen, String instrumentId) {
@@ -105,10 +107,26 @@ public class InstrumentResultIngestionService {
             result.setDraft(false);
             result.setStatus(ResultStatus.ENTERED);
 
+            // Record what produced this value and when, so the QC governing it can be
+            // found. Neither was captured before — which is the structural reason a
+            // failed control could not hold anything.
+            result.setInstrumentCode(instrumentId);
+            result.setMeasuredAt(Instant.now());
+
+            QcGateService.QcVerdict qc = qcGateService.evaluate(
+                    instrumentId, parameter.getLoincCode(), result.getMeasuredAt());
+            result.setQcStatus(qc.state().name());
+            result.setQcResultId(qc.governingQcId());
+
             // Autoverification: auto-release normal numeric results; hold the rest.
+            // An out-of-control, stale or absent QC holds FIRST: releasing a value
+            // whose controls failed is the single thing internal QC exists to
+            // prevent, and it outranks how normal the number happens to look.
             // An unrecognized analyzer flag is held for manual review (fail safe).
             BigDecimal prior = priorNumeric(sample, parameter.getId());
-            AutoverificationService.Decision decision = analyzerFlagUnrecognized
+            AutoverificationService.Decision decision = qc.holds()
+                    ? new AutoverificationService.Decision(false, qc.detail() + " — held")
+                    : analyzerFlagUnrecognized
                     ? new AutoverificationService.Decision(false,
                             "Unrecognized analyzer flag '" + r.flag() + "' — held for review")
                     : autoverificationService.decide(result, prior);

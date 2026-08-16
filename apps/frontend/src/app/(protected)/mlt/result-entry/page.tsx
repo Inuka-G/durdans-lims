@@ -14,6 +14,8 @@ import {
     type MltResultActivityItem,
     type ResultParameter,
     type SampleResults,
+    getInstrumentRegistry,
+    type InstrumentOption,
     type SubmitResultsRequest,
 } from '@/lib/api';
 import { formatStatusLabel } from '@/constants/sample-lifecycle';
@@ -215,6 +217,27 @@ export default function ResultEntryPage() {
         [parameters]
     );
 
+    // Which analyser produced these values. The QC release gate uses it to find
+    // the control governing the result; without it the result is neither held nor
+    // vouched for, and verification will refuse it. BENCH-MANUAL is the honest
+    // answer for a method that has no analyser.
+    const [instruments, setInstruments] = useState<InstrumentOption[]>([]);
+    const [instrumentCode, setInstrumentCode] = useState('');
+
+    useEffect(() => {
+        let cancelled = false;
+        getInstrumentRegistry()
+            .then((list) => {
+                if (!cancelled) setInstruments(list);
+            })
+            .catch(() => {
+                /* selector stays empty; submit will surface the requirement */
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
     const buildPayload = (useAllParameters: boolean): SubmitResultsRequest | null => {
         if (!sample) {
             return null;
@@ -233,6 +256,7 @@ export default function ResultEntryPage() {
                 result: parameter.result.trim(),
             })),
             mltNotes: mltNotes.trim() || undefined,
+            instrumentCode: instrumentCode || undefined,
         };
     };
 
@@ -773,6 +797,35 @@ export default function ResultEntryPage() {
                                         );
                                     })}
                                 </div>
+                            </div>
+
+                            <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5 mb-5">
+                                <label
+                                    htmlFor="instrumentCode"
+                                    className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2"
+                                >
+                                    Instrument
+                                </label>
+                                <select
+                                    id="instrumentCode"
+                                    value={instrumentCode}
+                                    onChange={(event) => setInstrumentCode(event.target.value)}
+                                    disabled={isReadOnly}
+                                    className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
+                                >
+                                    <option value="">Select the analyser…</option>
+                                    {instruments.map((option) => (
+                                        <option key={option.code} value={option.code}>
+                                            {option.name}
+                                            {option.qcRequired ? '' : ' — no analyser QC'}
+                                        </option>
+                                    ))}
+                                </select>
+                                <p className="mt-2 text-xs text-slate-500">
+                                    Which analyser produced these values. Quality control is matched to the
+                                    result through it, so a specimen submitted without one is held at
+                                    verification until a supervisor resolves it.
+                                </p>
                             </div>
 
                             <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">

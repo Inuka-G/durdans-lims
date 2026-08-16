@@ -18,6 +18,15 @@ public class VerificationRequest {
 
     private String supervisorNote;
 
-    /** Required when a supervisor releases a result over a QC hold. */
+    /**
+     * Required only when releasing results whose internal QC did not pass. A
+     * supervisor-level role must state why the run is being released over an
+     * out-of-control, stale or absent control; the reason is stored on each
+     * result and written to the tamper-evident audit log.
+     *
+     * <p>Supplying it does NOT change the recorded QC status — a failed control
+     * still reads FAIL everywhere afterwards. Laundering a failure into a pass
+     * is the exact outcome the gate exists to prevent.
+     */
     private String qcOverrideReason;
 }
