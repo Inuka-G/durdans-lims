@@ -1,6 +1,6 @@
 # Cost guardrail — emails at 80% and 100% of the monthly target so a runaway
-# resource never silently drains the $120 of credits. Signals cost-awareness to
-# the reviewer; only created when an alert email is supplied.
+# resource never silently drains the available AWS credits. Notifications are
+# attached only when an alert email is supplied.
 resource "aws_budgets_budget" "monthly" {
   name         = "${local.name}-monthly"
   budget_type  = "COST"

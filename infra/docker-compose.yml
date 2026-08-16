@@ -62,7 +62,7 @@ services:
 
   # ---- Keycloak ----
   keycloak:
-    image: quay.io/keycloak/keycloak:24.0
+    image: quay.io/keycloak/keycloak:26.7.1
     container_name: lims-keycloak
     command: start-dev --spi-theme-static-max-age=-1 --spi-theme-cache-themes=false --spi-theme-cache-templates=false --import-realm
     environment:
@@ -70,8 +70,8 @@ services:
       KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
       KC_DB_USERNAME: keycloak
       KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-keycloak}
-      KEYCLOAK_ADMIN: admin
-      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
       KC_HEALTH_ENABLED: "true"
       KC_METRICS_ENABLED: "true"
     networks: [lims-net]
@@ -83,7 +83,7 @@ services:
     volumes:
       - ./keycloak-themes:/opt/keycloak/themes
       - ./keycloak-imports:/opt/keycloak/data/import
-    # NOTE: the keycloak 24 image is ubi-micro (no shell/curl) so a container
+    # NOTE: the Keycloak image is ubi-micro (no shell/curl) so a container
     # HEALTHCHECK is impractical; dependents use condition: service_started and the
     # resource server fetches JWKS lazily on first request.
     restart: always
@@ -162,6 +162,12 @@ services:
       # Mail is disabled unless supplied (see .env.example)
       MAIL_USERNAME: ${MAIL_USERNAME:-}
       MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      # SMS is mock by default; set these in infra/.env for OzoneDesk delivery.
+      SMS_PROVIDER: ${SMS_PROVIDER:-mock}
+      SMS_API_URL: ${SMS_API_URL:-http://sms.ozonedesk.com/api/v1/send.php}
+      SMS_USER_ID: ${SMS_USER_ID:-}
+      SMS_API_KEY: ${SMS_API_KEY:-}
+      SMS_SENDER_ID: ${SMS_SENDER_ID:-}
       # G6: export traces to Tempo over OTLP/HTTP on the private network.
       OTLP_ENDPOINT: http://tempo:4318/v1/traces
       TRACING_SAMPLE_RATE: ${TRACING_SAMPLE_RATE:-1.0}

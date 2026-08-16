@@ -48,8 +48,8 @@ docker compose down -v         # stop + delete all data
 
 ## 2. AWS deployment (Terraform)
 
-Cost-optimized single-EC2 + RDS + S3 target (~$34/mo; see
-`infra/terraform/README.md` for the full breakdown and the ECS
+Cost-controlled single-EC2 + RDS + S3 demo target (see
+`infra/terraform/README.md` for the breakdown and the ECS
 "production target" plan).
 
 ```bash
@@ -59,7 +59,9 @@ terraform init && terraform apply
 # outputs: frontend_url, api_url, keycloak_url, ecr_*_repo, ssm_session_command
 ```
 
-Then push images (CI does this automatically) and browse `frontend_url`.
+The first apply creates empty ECR repositories and starts Keycloak/Kafka/Caddy.
+After the GitHub variables below are set, a push to `main` builds immutable
+images, scans them, pushes them to ECR and deploys them through SSM.
 
 **Operate the host without SSH:**
 ```bash
@@ -73,24 +75,27 @@ RDS keeps the data. The Budget alarm emails at 80%/100% of the monthly target.
 
 ## 3. CI/CD flow
 
-| Repo | Workflow | On push to `main`/`enterprise-hardening` |
-|------|----------|------------------------------------------|
-| lims-core-service | `ci.yml` + `release.yml` | build+test, gitleaks, CodeQL → image → **Trivy** → ECR → **SSM deploy** |
-| frontend | `ci.yml` | lint, `tsc --noEmit`, build → image → Trivy → ECR → deploy |
-| lims-infrastructure | `terraform.yml` | fmt, validate, **Checkov** |
+| Workflow | On push |
+|----------|---------|
+| `core-service-release.yml` | Build/test → image → **Trivy** → ECR → **SSM deploy** on `main` |
+| `frontend.yml` | lint, typecheck, tests, build → image → **Trivy** → ECR → **SSM deploy** on `main` |
+| `terraform.yml` | Terraform fmt/validate and Checkov |
 
 Deploy auth is **keyless** (GitHub OIDC → the `…-gha-deploy` IAM role from
 Terraform). Set these repo **variables** after `terraform apply`:
 - `AWS_DEPLOY_ROLE_ARN` = `github_actions_role_arn` output
+- `AWS_INSTANCE_ID` = `host_instance_id` output
+- `AWS_REGION` = Terraform region (currently `us-east-1`)
 - `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_KEYCLOAK_URL` = the EIP/domain URLs
+- `NEXT_PUBLIC_KEYCLOAK_REALM` = `lims-realm`
+- `NEXT_PUBLIC_KEYCLOAK_CLIENT_ID` = `lims-frontend`
 
 ---
 
 ## 3a. Backups & disaster recovery (H5)
 
-- **App DB:** RDS automated backups + 7-day **PITR** (primary) and a nightly
-  `pg_dump` → encrypted S3 backups bucket (secondary). **Keycloak DB:** nightly
-  `pg_dump` only (it is not on RDS).
+- **App DB:** RDS automated backups + 7-day **PITR**. **Keycloak DB:** a nightly
+  compressed `pg_dump` is uploaded to the encrypted/versioned backups bucket.
 - **Local/demo:** the `db-backup` compose sidecar runs
   [`scripts/pg-backup.sh`](../infra/scripts/pg-backup.sh) nightly into the
   `backups` volume (set `BACKUP_S3_BUCKET` to also push off-host).
@@ -113,8 +118,8 @@ Terraform). Set these repo **variables** after `terraform apply`:
    the current status.
 2. **Make the five predecessor repositories private, then archive them.** They
    are still public as of 2026-08-01.
-3. `terraform apply` with your AWS account.
-4. Push to `kalanas210/durdans-lims` and set the repo variables above. (This is
+3. Set the GitHub variables above after `terraform apply`.
+4. Push to `kalanas210/durdans-lims`. (This is
    one repository now, not three — see [HISTORY.md](HISTORY.md).)
 
 ---

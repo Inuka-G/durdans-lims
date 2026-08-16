@@ -7,6 +7,7 @@ const verificationItems = [
     { name: "Bulk Approval", icon: "checklist_rtl", href: "/verification/bulk-approval", iconColor: "text-emerald-600", iconBg: "bg-emerald-100" },
     { name: "Verification History", icon: "history", href: "/verification/history", iconColor: "text-violet-600", iconBg: "bg-violet-100" },
     { name: "Review Case", icon: "rate_review", href: "/verification/review", iconColor: "text-blue-600", iconBg: "bg-blue-100" },
+    { name: "Critical Values", icon: "crisis_alert", href: "/critical-values", iconColor: "text-red-600", iconBg: "bg-red-100" },
 ];
 
 export default function SeniorMLTSidebar() {

@@ -3,6 +3,7 @@ package com.uom.lims.config;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.web.client.RestTemplate;
 
 import java.time.Duration;
@@ -18,6 +19,18 @@ public class RestTemplateConfig {
         return builder
                 .connectTimeout(Duration.ofSeconds(2))
                 .readTimeout(Duration.ofSeconds(5))
+                .build();
+    }
+
+    // OzoneDesk can accept and deliver an SMS before its PHP endpoint returns.
+    // A separate, longer read timeout prevents a delivered message from being
+    // recorded as failed while keeping the shorter timeout for internal reads.
+    @Bean
+    @Qualifier("smsRestTemplate")
+    public RestTemplate smsRestTemplate(RestTemplateBuilder builder) {
+        return builder
+                .connectTimeout(Duration.ofSeconds(5))
+                .readTimeout(Duration.ofSeconds(30))
                 .build();
     }
 }

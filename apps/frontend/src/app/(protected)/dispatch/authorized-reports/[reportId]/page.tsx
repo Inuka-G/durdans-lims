@@ -112,8 +112,12 @@ const withDoctorPrefix = (value?: string | null) => {
     return cleaned.startsWith("Dr.") ? cleaned : `Dr. ${cleaned}`;
 };
 
-const buildDispatchNotice = (updated: DispatchItemDetail): DispatchNotice => {
-    const attempts = updated.attempts ?? [];
+const buildDispatchNotice = (updated: DispatchItemDetail, requestedMethods: ApiDeliveryMethod[]): DispatchNotice => {
+    const allAttempts = updated.attempts ?? [];
+    const attempts = requestedMethods.flatMap((method) => {
+        const attempt = [...allAttempts].reverse().find((candidate) => candidate.method === method);
+        return attempt ? [attempt] : [];
+    });
     const delivered = attempts.filter((attempt) => attempt.status === "DELIVERED").length;
     const sent = attempts.filter((attempt) => attempt.status === "SENT").length;
     const failed = attempts.filter((attempt) => attempt.status === "FAILED");
@@ -154,9 +158,11 @@ const showDispatchNotice = (notice: DispatchNotice) => {
 
 function mapDetailToReportData(detail: DispatchItemDetail): ReportViewData {
     const authorizedTime = formatDateTime(detail.authorizedAt);
-    const methods = (detail.preferredDeliveryMethods?.length
-        ? detail.preferredDeliveryMethods
-        : (["SMS", "WHATSAPP", "EMAIL", "POST"] as ApiDeliveryMethod[])) as ApiDeliveryMethod[];
+    const supportedMethods: ApiDeliveryMethod[] = ["SMS", "EMAIL"];
+    const configuredMethods = detail.preferredDeliveryMethods?.filter((method) =>
+        supportedMethods.includes(method)
+    );
+    const methods = configuredMethods?.length ? configuredMethods : supportedMethods;
     const resultRows = detail.results?.length
         ? detail.results.map((row) => ({
             parameter: fallbackText(row.parameter),
@@ -206,7 +212,7 @@ export default function AuthorizedReportPage() {
     const [detail, setDetail] = useState<DispatchItemDetail | null>(null);
     const [reportData, setReportData] = useState<ReportViewData | null>(null);
     const [loadError, setLoadError] = useState("");
-    const [selectedMethods, setSelectedMethods] = useState<ApiDeliveryMethod[]>(["SMS", "WHATSAPP", "EMAIL", "POST"]);
+    const [selectedMethods, setSelectedMethods] = useState<ApiDeliveryMethod[]>(["SMS", "EMAIL"]);
     const [overrideEmail, setOverrideEmail] = useState("");
     const [overridePhone, setOverridePhone] = useState("");
     const [overrideWhatsappPhone, setOverrideWhatsappPhone] = useState("");
@@ -228,7 +234,7 @@ export default function AuthorizedReportPage() {
             setSelectedMethods(
                 mapped.deliveryMethods.length
                     ? mapped.deliveryMethods
-                    : (["SMS", "WHATSAPP", "EMAIL", "POST"] as ApiDeliveryMethod[])
+                    : (["SMS", "EMAIL"] as ApiDeliveryMethod[])
             );
             setDispatched(d.overallStatus === "DELIVERED");
         } catch {
@@ -270,14 +276,14 @@ export default function AuthorizedReportPage() {
             setDetail(updated);
             setReportData(mapDetailToReportData(updated));
             setDispatched(updated.overallStatus === "DELIVERED");
-            const notice = buildDispatchNotice(updated);
+            const notice = buildDispatchNotice(updated, selectedMethods);
             setDispatchNotice(notice);
             showDispatchNotice(notice);
         } catch (e) {
             console.error(e);
             const notice: DispatchNotice = {
                 tone: "error",
-                message: "Dispatch failed. Check patient email, phone, WhatsApp number, postal address, or try again.",
+                message: "Dispatch failed. Check the patient email/phone and try again.",
             };
             setDispatchNotice(notice);
             showDispatchNotice(notice);
@@ -785,7 +791,7 @@ export default function AuthorizedReportPage() {
                             Select Delivery Methods
                         </h3>
                         <div className="flex flex-col gap-3">
-                            {(Object.keys(methodConfig) as ApiDeliveryMethod[]).map((method) => {
+                            {(["SMS", "EMAIL"] as ApiDeliveryMethod[]).map((method) => {
                                 const m = methodConfig[method];
                                 const isSelected = selectedMethods.includes(method);
                                 return (

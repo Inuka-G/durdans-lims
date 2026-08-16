@@ -18,7 +18,8 @@ permissions:
   security-events: write # Trivy SARIF upload
 
 env:
-  AWS_REGION: us-east-1
+  AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+  AWS_INSTANCE_ID: ${{ vars.AWS_INSTANCE_ID }}
   ECR_REPO: durdans-lims/core-service
 
 defaults:
@@ -45,7 +46,7 @@ jobs:
         run: docker build -t lims-core-service:${{ github.sha }} .
 
       - name: Trivy scan (fail on HIGH/CRITICAL)
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: lims-core-service:${{ github.sha }}
           format: sarif
@@ -63,19 +64,19 @@ jobs:
           sarif_file: trivy-backend.sarif
 
       - name: Configure AWS credentials (OIDC)
-        if: ${{ vars.AWS_DEPLOY_ROLE_ARN != '' }}
+        if: ${{ github.ref == 'refs/heads/main' && vars.AWS_DEPLOY_ROLE_ARN != '' && vars.AWS_INSTANCE_ID != '' }}
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to ECR
-        if: ${{ vars.AWS_DEPLOY_ROLE_ARN != '' }}
+        if: ${{ github.ref == 'refs/heads/main' && vars.AWS_DEPLOY_ROLE_ARN != '' && vars.AWS_INSTANCE_ID != '' }}
         id: ecr
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Tag + push to ECR
-        if: ${{ vars.AWS_DEPLOY_ROLE_ARN != '' }}
+        if: ${{ github.ref == 'refs/heads/main' && vars.AWS_DEPLOY_ROLE_ARN != '' && vars.AWS_INSTANCE_ID != '' }}
         run: |
           REG=${{ steps.ecr.outputs.registry }}
           docker tag lims-core-service:${{ github.sha }} $REG/$ECR_REPO:${{ github.sha }}
@@ -84,11 +85,33 @@ jobs:
           docker push $REG/$ECR_REPO:latest
 
       - name: Deploy to host (SSM — pull + restart)
-        if: ${{ vars.AWS_DEPLOY_ROLE_ARN != '' }}
+        if: ${{ github.ref == 'refs/heads/main' && vars.AWS_DEPLOY_ROLE_ARN != '' && vars.AWS_INSTANCE_ID != '' }}
         run: |
-          aws ssm send-command \
-            --region $AWS_REGION \
+          PARAMS=$(jq -nc --arg command "/opt/lims/deploy-service.sh app $GITHUB_SHA" '{commands:[$command]}')
+          COMMAND_ID=$(aws ssm send-command \
+            --region "$AWS_REGION" \
             --document-name "AWS-RunShellScript" \
-            --targets "Key=tag:Name,Values=durdans-lims-demo-host" \
+            --instance-ids "$AWS_INSTANCE_ID" \
             --comment "deploy backend ${{ github.sha }}" \
-            --parameters 'commands=["cd /opt/lims","docker compose pull app","docker compose up -d app"]'
+            --parameters "$PARAMS" \
+            --query 'Command.CommandId' \
+            --output text)
+
+          if ! aws ssm wait command-executed \
+            --region "$AWS_REGION" \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$AWS_INSTANCE_ID"; then
+            aws ssm get-command-invocation \
+              --region "$AWS_REGION" \
+              --command-id "$COMMAND_ID" \
+              --instance-id "$AWS_INSTANCE_ID" \
+              --query '{Status:Status,Output:StandardOutputContent,Error:StandardErrorContent}' || true
+            exit 1
+          fi
+
+          aws ssm get-command-invocation \
+            --region "$AWS_REGION" \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$AWS_INSTANCE_ID" \
+            --query 'StandardOutputContent' \
+            --output text

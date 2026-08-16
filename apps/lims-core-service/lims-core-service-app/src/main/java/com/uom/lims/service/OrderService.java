@@ -36,6 +36,7 @@ import com.uom.lims.repository.OrderSpecifications;
 import com.uom.lims.repository.SampleRepository;
 import com.uom.lims.repository.TestCatalogRepository;
 import com.uom.lims.repository.TestResultRepository;
+import com.uom.lims.notification.PatientLifecycleNotificationService;
 import com.uom.lims.util.ReferenceNumberGenerator;
 import com.uom.lims.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
@@ -90,6 +91,7 @@ public class OrderService {
         private final ReportDispatchItemRepository dispatchItemRepository;
         private final ReportDeliveryAttemptRepository deliveryAttemptRepository;
         private final AuditLogRepository auditLogRepository;
+        private final PatientLifecycleNotificationService patientLifecycleNotificationService;
 
         /**
          * WHY: Creating an order is the entry point for the entire clinical workflow.
@@ -246,6 +248,10 @@ public class OrderService {
 
                 log.info("Order {} created successfully with bill for patient {}",
                                 savedOrder.getOrderNo(), savedOrder.getPatientId());
+
+                // Published inside the transaction and sent only AFTER_COMMIT. A rollback
+                // can never leave the patient with a tracking message for a missing order.
+                patientLifecycleNotificationService.orderCreated(savedOrder, bill);
 
                 // Step 9: Map the saved entity to a response DTO, enriching items with test
                 // catalog data.
