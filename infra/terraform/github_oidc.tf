@@ -9,10 +9,17 @@ locals {
 }
 
 resource "aws_iam_openid_connect_provider" "github" {
-  count           = local.oidc_enabled && var.create_github_oidc_provider ? 1 : 0
-  url             = "https://token.actions.githubusercontent.com"
-  client_id_list  = ["sts.amazonaws.com"]
-  thumbprint_list = ["6938fd4d98bab03faadb97b34396831e3780aea1"]
+  count          = local.oidc_enabled && var.create_github_oidc_provider ? 1 : 0
+  url            = "https://token.actions.githubusercontent.com"
+  client_id_list = ["sts.amazonaws.com"]
+  # Keep the prior DigiCert chain plus GitHub's current Let's Encrypt chain.
+  # IAM accepts up to five and falls back to these when its CA trust store
+  # cannot validate the discovery/JWKS endpoint directly.
+  thumbprint_list = [
+    "6938fd4d98bab03faadb97b34396831e3780aea1",
+    "ab9d0263244dd0326eb67015705a667e79cfe998",
+    "cabd2a79a1076a31f21d253635cb039d4329a5e8",
+  ]
 }
 
 data "aws_iam_openid_connect_provider" "github" {
