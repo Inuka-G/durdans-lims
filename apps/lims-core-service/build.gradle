@@ -1,8 +1,23 @@
 plugins {
 	id 'java'
 	// 'apply false' tells Gradle: "Don't run this here, just make it available for sub-modules"
-	id 'org.springframework.boot' version '3.5.10' apply false
+	id 'org.springframework.boot' version '3.5.14' apply false
 	id 'io.spring.dependency-management' version '1.1.7'
+}
+
+// Security patch levels newer than the Spring Boot 3.5.14 BOM. Keep the
+// application on the compatible Spring 6 / Jakarta EE generation while
+// overriding components with published HIGH/CRITICAL vulnerability fixes.
+ext {
+	set('spring-framework.version', '6.2.19')
+	set('spring-data-bom.version', '2025.0.12')
+	set('spring-kafka.version', '3.3.16')
+	set('tomcat.version', '10.1.55')
+	set('postgresql.version', '42.7.12')
+	set('kafka.version', '3.9.2')
+	set('netty.version', '4.1.136.Final')
+	set('micrometer.version', '1.15.12')
+	set('jackson-bom.version', '2.21.4')
 }
 
 allprojects {
@@ -37,6 +52,12 @@ subprojects {
 		annotationProcessor 'org.projectlombok:lombok'
 		testImplementation 'org.springframework.boot:spring-boot-starter-test'
 		testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+	}
+
+	dependencyManagement {
+		dependencies {
+			dependency 'org.lz4:lz4-java:1.8.1'
+		}
 	}
 
 	tasks.withType(Test).configureEach {
