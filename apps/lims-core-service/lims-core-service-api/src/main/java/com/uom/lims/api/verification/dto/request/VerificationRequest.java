@@ -17,4 +17,7 @@ public class VerificationRequest {
     private String mltNotes;
 
     private String supervisorNote;
+
+    /** Required when a supervisor releases a result over a QC hold. */
+    private String qcOverrideReason;
 }

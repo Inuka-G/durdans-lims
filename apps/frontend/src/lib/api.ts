@@ -548,6 +548,7 @@ export interface VerificationPayload {
     status?: string;
     mltNotes?: string;
     supervisorNote?: string;
+    qcOverrideReason?: string;
 }
 
 export interface BulkVerificationPayload {
