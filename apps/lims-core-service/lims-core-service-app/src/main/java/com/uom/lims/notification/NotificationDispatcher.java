@@ -36,9 +36,21 @@ public class NotificationDispatcher {
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onPhoneOtpRequested(PhoneOtpRequestedEvent event) {
         try {
-            smsService.sendSms(event.phone(), "Your verification OTP is: " + event.rawOtp());
+            smsService.sendSms(event.phone(),
+                    "Durdans LIMS verification code: " + event.rawOtp()
+                            + ". Valid for 5 minutes. Do not share this code with anyone.");
         } catch (Exception e) {
             log.error("Failed to send OTP SMS to {}", PiiMasker.maskPhone(event.phone()), e);
+        }
+    }
+
+    @Async("notificationExecutor")
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void onPatientLifecycleSmsRequested(PatientLifecycleSmsRequestedEvent event) {
+        try {
+            smsService.sendSms(event.phone(), event.message());
+        } catch (Exception e) {
+            log.error("Failed to send patient lifecycle SMS to {}", PiiMasker.maskPhone(event.phone()), e);
         }
     }
 }

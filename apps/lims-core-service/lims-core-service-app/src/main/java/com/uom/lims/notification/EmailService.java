@@ -1,12 +1,18 @@
 package com.uom.lims.notification;
 
+import com.uom.lims.dispatch.LabReportData;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.retry.annotation.Retry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
+import org.springframework.web.util.HtmlUtils;
+
+import java.time.format.DateTimeFormatter;
+import java.util.Locale;
 
 /**
  * F2: SMTP sends are wrapped in a retry + circuit-breaker ("smtp"). The SMTP socket
@@ -53,30 +59,17 @@ public class EmailService {
 
     @Retry(name = "smtp", fallbackMethod = "sendLabReportEmailFallback")
     @CircuitBreaker(name = "smtp")
-    public void sendLabReportEmail(String toEmail, String patientName, String reportReference, String testPanelLabel,
-            String artifactUri) {
+    public void sendLabReportEmail(String toEmail, LabReportData report, byte[] reportPdf) {
         try {
             jakarta.mail.internet.MimeMessage message = mailSender.createMimeMessage();
             org.springframework.mail.javamail.MimeMessageHelper helper = new org.springframework.mail.javamail.MimeMessageHelper(
                     message, true, "UTF-8");
             helper.setFrom(fromEmail);
             helper.setTo(toEmail);
-            helper.setSubject("Your laboratory report " + reportReference + " – Durdans Hospital");
-            String linkOrNote = (artifactUri != null && !artifactUri.isBlank())
-                    ? "<p><a href=\"" + artifactUri + "\">Download report</a></p>"
-                    : "<p>Your report is available at the laboratory reception.</p>";
-            String html = """
-                    <p>Dear %s,</p>
-                    <p>Your authorized laboratory report is ready.</p>
-                    <ul>
-                    <li><b>Report</b>: %s</li>
-                    <li><b>Test</b>: %s</li>
-                    </ul>
-                    %s
-                    <p>— Durdans Hospital Laboratory</p>
-                    """
-                    .formatted(patientName, reportReference, testPanelLabel, linkOrNote);
-            helper.setText(html, true);
+            helper.setSubject("Durdans Laboratory Report - " + display(report.testPanel())
+                    + " - " + display(report.patientName()));
+            helper.setText(generateLabReportEmailHtml(report), true);
+            helper.addAttachment(reportFilename(report), new ByteArrayResource(reportPdf), "application/pdf");
             mailSender.send(message);
         } catch (jakarta.mail.MessagingException e) {
             throw new RuntimeException("Failed to send lab report email to " + toEmail, e);
@@ -173,8 +166,7 @@ public class EmailService {
     }
 
     @SuppressWarnings("unused")
-    private void sendLabReportEmailFallback(String toEmail, String patientName, String reportReference,
-            String testPanelLabel, String artifactUri, Throwable t) {
+    private void sendLabReportEmailFallback(String toEmail, LabReportData report, byte[] reportPdf, Throwable t) {
         throw emailUnavailable(toEmail, t);
     }
 
@@ -186,5 +178,96 @@ public class EmailService {
     private RuntimeException emailUnavailable(String toEmail, Throwable t) {
         log.warn("Email delivery to {} unavailable (retry/breaker): {}", toEmail, t.toString());
         return new RuntimeException("Email delivery unavailable (circuit open or retries exhausted)", t);
+    }
+
+    private String generateLabReportEmailHtml(LabReportData report) {
+        StringBuilder rows = new StringBuilder();
+        for (LabReportData.ResultRow row : report.results()) {
+            String background = row.abnormal() ? "#fff1f2" : "#ffffff";
+            String flagColor = row.abnormal() ? "#b42318" : "#18794e";
+            rows.append("""
+                    <tr style="background:%s">
+                      <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb">%s</td>
+                      <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;font-weight:700;color:#0b1f3a">%s</td>
+                      <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb">%s</td>
+                      <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb">%s</td>
+                      <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;font-weight:700;color:%s">%s</td>
+                    </tr>
+                    """.formatted(
+                    background, html(row.parameter()), html(row.value()), html(row.unit()),
+                    html(row.referenceRange()), flagColor, html(label(row.flag()))));
+        }
+        if (rows.isEmpty()) {
+            rows.append("<tr><td colspan=\"5\" style=\"padding:16px;color:#64748b\">"
+                    + "The detailed result is included in the attached PDF.</td></tr>");
+        }
+
+        String clinicalNote = report.clinicalNote() == null || report.clinicalNote().isBlank()
+                ? ""
+                : "<div style=\"margin-top:20px;padding:14px 16px;background:#f8fafc;border-left:4px solid #137fec\">"
+                + "<strong>Clinical note</strong><br>" + html(report.clinicalNote()) + "</div>";
+
+        return """
+                <!doctype html>
+                <html><body style="margin:0;background:#f1f5f9;font-family:Arial,sans-serif;color:#334155">
+                  <div style="padding:28px 12px">
+                    <div style="max-width:760px;margin:auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 18px rgba(15,23,42,.08)">
+                      <div style="background:#0b1f3a;padding:24px 30px;color:#fff">
+                        <div style="font-size:22px;font-weight:800;letter-spacing:.5px">DURDANS HOSPITAL</div>
+                        <div style="color:#7dd3fc;margin-top:4px">Laboratory Services</div>
+                      </div>
+                      <div style="padding:28px 30px">
+                        <div style="display:inline-block;padding:6px 10px;border-radius:20px;background:#e8f5ee;color:#18794e;font-size:12px;font-weight:700">CLINICALLY AUTHORIZED</div>
+                        <h1 style="margin:16px 0 8px;color:#0b1f3a;font-size:23px">Your laboratory report is ready</h1>
+                        <p style="font-size:15px;line-height:1.6">Dear %s,</p>
+                        <p style="font-size:15px;line-height:1.6">Your <strong>%s</strong> report has been clinically reviewed and authorized. A complete PDF report is attached to this email.</p>
+
+                        <table role="presentation" style="width:100%%;margin:20px 0;border-collapse:collapse;background:#f8fafc;border-radius:8px">
+                          <tr><td style="padding:10px 12px;color:#64748b">Patient ID</td><td style="padding:10px 12px;font-weight:700">%s</td><td style="padding:10px 12px;color:#64748b">Sample</td><td style="padding:10px 12px;font-weight:700">%s</td></tr>
+                          <tr><td style="padding:10px 12px;color:#64748b">Report ID</td><td style="padding:10px 12px;font-weight:700">%s</td><td style="padding:10px 12px;color:#64748b">Authorized</td><td style="padding:10px 12px;font-weight:700">%s</td></tr>
+                        </table>
+
+                        <h2 style="font-size:16px;color:#0b1f3a;margin:22px 0 10px">Result summary</h2>
+                        <div style="overflow-x:auto"><table style="width:100%%;border-collapse:collapse;font-size:13px;border:1px solid #e5e7eb">
+                          <thead><tr style="background:#0b1f3a;color:#fff;text-align:left">
+                            <th style="padding:10px 12px">Parameter</th><th style="padding:10px 12px">Result</th><th style="padding:10px 12px">Unit</th><th style="padding:10px 12px">Reference</th><th style="padding:10px 12px">Flag</th>
+                          </tr></thead><tbody>%s</tbody>
+                        </table></div>
+                        %s
+                        <div style="margin-top:22px;padding:14px 16px;background:#eff6ff;border-radius:8px;color:#1e3a5f;font-size:13px;line-height:1.5">
+                          <strong>Attached:</strong> Complete authorized laboratory report (PDF). Please consult your doctor for clinical interpretation.
+                        </div>
+                        <p style="margin-top:24px;font-size:13px;color:#64748b">Electronically authorized by <strong>%s</strong>.</p>
+                      </div>
+                      <div style="padding:18px 30px;background:#f8fafc;color:#94a3b8;font-size:11px;line-height:1.5">This confidential email contains personal health information intended only for the named recipient. Please do not reply to this automated message.</div>
+                    </div>
+                  </div>
+                </body></html>
+                """.formatted(
+                html(report.patientName()), html(report.testPanel()), html(report.patientCode()),
+                html(report.sampleBarcode()), html(report.reportReference()), format(report.authorizedAt()),
+                rows, clinicalNote, html(report.authorizedBy()));
+    }
+
+    private static String reportFilename(LabReportData report) {
+        String reference = display(report.reportReference()).replaceAll("[^A-Za-z0-9_-]", "-");
+        return "Durdans-Lab-Report-" + reference + ".pdf";
+    }
+
+    private static String html(String value) {
+        return HtmlUtils.htmlEscape(display(value));
+    }
+
+    private static String label(String value) {
+        return display(value).replace('_', ' ');
+    }
+
+    private static String display(String value) {
+        return value == null || value.isBlank() ? "Not recorded" : value.trim();
+    }
+
+    private static String format(java.time.OffsetDateTime value) {
+        return value == null ? "Not recorded"
+                : value.format(DateTimeFormatter.ofPattern("dd MMM yyyy, hh:mm a", Locale.UK));
     }
 }

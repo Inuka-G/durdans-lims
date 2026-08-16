@@ -3,6 +3,8 @@ package com.uom.lims.dispatch;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.uom.lims.api.dispatch.dto.request.RegisterAuthorizedReportRequest;
 import com.uom.lims.api.dispatch.enums.DispatchItemStatus;
+import com.uom.lims.api.dispatch.enums.DeliveryAttemptStatus;
+import com.uom.lims.api.dispatch.enums.DeliveryMethod;
 import com.uom.lims.api.verification.enums.ResultStatus;
 import com.uom.lims.audit.AuditService;
 import com.uom.lims.entity.OrderEntity;
@@ -120,6 +122,51 @@ class DispatchServiceRegisterTest {
 
         assertThrows(InvalidRequestException.class,
                 () -> dispatchService.registerAuthorizedReport(req, "192.168.1.10"));
+    }
+
+    @Test
+    void finalizeDispatchReloadsAttemptsInsteadOfTouchingDetachedLazyCollection() {
+        UUID itemId = UUID.randomUUID();
+        ReportDispatchItemEntity detached = new ReportDispatchItemEntity();
+        detached.setId(itemId);
+
+        ReportDispatchItemEntity managed = new ReportDispatchItemEntity();
+        managed.setId(itemId);
+        managed.setReportReference(UUID.randomUUID().toString());
+        managed.setBranchCode(BRANCH);
+        managed.setPatientDisplayName("Patient");
+        managed.setTestPanelLabel("FBC");
+        managed.setAuthorizedAt(LocalDateTime.now());
+        managed.setOverallStatus(DispatchItemStatus.PENDING);
+
+        ReportDeliveryAttemptEntity completed = new ReportDeliveryAttemptEntity();
+        completed.setDispatchItem(detached);
+        completed.setMethod(DeliveryMethod.EMAIL);
+        completed.setStatus(DeliveryAttemptStatus.DELIVERED);
+        ReportDeliveryAttemptEntity completedSms = new ReportDeliveryAttemptEntity();
+        completedSms.setDispatchItem(detached);
+        completedSms.setMethod(DeliveryMethod.SMS);
+        completedSms.setStatus(DeliveryAttemptStatus.DELIVERED);
+        ReportDeliveryAttemptEntity historicalPendingSms = new ReportDeliveryAttemptEntity();
+        historicalPendingSms.setDispatchItem(detached);
+        historicalPendingSms.setMethod(DeliveryMethod.SMS);
+        historicalPendingSms.setStatus(DeliveryAttemptStatus.PENDING);
+        ReportDeliveryAttemptEntity historicalWhatsapp = new ReportDeliveryAttemptEntity();
+        historicalWhatsapp.setDispatchItem(detached);
+        historicalWhatsapp.setMethod(DeliveryMethod.WHATSAPP);
+        historicalWhatsapp.setStatus(DeliveryAttemptStatus.PENDING);
+
+        when(itemRepository.findById(itemId)).thenReturn(Optional.of(managed));
+        when(itemRepository.save(managed)).thenReturn(managed);
+        when(attemptRepository.findByDispatchItemIdOrderByCreatedAtAsc(itemId))
+                .thenReturn(List.of(historicalPendingSms, historicalWhatsapp, completed, completedSms));
+        when(testResultRepository.findById(any())).thenReturn(Optional.empty());
+
+        var response = dispatchService.finalizeDispatch(
+                detached, List.of(completed, completedSms), "DISPATCH_REPORT", "DISPATCH_EXECUTED", "{}", "127.0.0.1");
+
+        assertEquals(DispatchItemStatus.DELIVERED, response.getOverallStatus());
+        verify(attemptRepository).saveAll(List.of(completed, completedSms));
     }
 
     @Test

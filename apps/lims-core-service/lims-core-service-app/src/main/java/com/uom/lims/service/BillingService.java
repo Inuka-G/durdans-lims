@@ -19,6 +19,7 @@ import com.uom.lims.repository.BillRepository;
 import com.uom.lims.repository.OrderRepository;
 import com.uom.lims.repository.PaymentRepository;
 import com.uom.lims.repository.TestCatalogRepository;
+import com.uom.lims.notification.PatientLifecycleNotificationService;
 import com.uom.lims.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -49,6 +50,7 @@ public class BillingService {
         private final TestCatalogRepository testCatalogRepository;
         private final PatientClientService patientClientService;
         private final BillingProperties billingProperties;
+        private final PatientLifecycleNotificationService patientLifecycleNotificationService;
 
         /**
          * WHY: Fetching a bill by order ID is the primary path from the order detail
@@ -212,6 +214,7 @@ public class BillingService {
                                 request.getAmount(),
                                 bill.getBillNo(),
                                 SecurityUtils.getCurrentUsername());
+                patientLifecycleNotificationService.paymentConfirmed(saved, request.getPaymentMethod().name());
                 return toResponse(saved);
         }
 
