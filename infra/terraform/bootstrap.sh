@@ -1,6 +1,6 @@
 # =====================================================================
 # Static EC2 bootstrap (appended to the Terraform-generated header that exports
-# AWS_REGION, ECR_*, *_SECRET, S3_BUCKET, PUBLIC_ADDR, KEYCLOAK_REALM, *_TAG).
+# AWS_REGION, ECR_*, *_SECRET, bucket/origin values, KEYCLOAK_REALM, *_TAG).
 # Brings up the LIMS compose stack: app+frontend (from ECR) + Keycloak + Kafka,
 # with the app DB on RDS and patient documents on real S3 (IAM instance role).
 # =====================================================================
@@ -10,6 +10,17 @@ set -euxo pipefail
 dnf update -y
 dnf install -y docker python3
 systemctl enable --now docker
+
+# A small swap file absorbs short JVM/image-pull spikes. The services still have
+# explicit memory ceilings below, so swap is a safety valve rather than capacity.
+if [[ ! -f /swapfile ]]; then
+  dd if=/dev/zero of=/swapfile bs=1M count=2048
+  chmod 600 /swapfile
+  mkswap /swapfile
+  swapon /swapfile
+  echo '/swapfile none swap sw 0 0' >> /etc/fstab
+fi
+
 mkdir -p /usr/libexec/docker/cli-plugins
 curl -SL "https://github.com/docker/compose/releases/download/v2.29.7/docker-compose-linux-x86_64" \
   -o /usr/libexec/docker/cli-plugins/docker-compose
@@ -44,12 +55,18 @@ cat > .env <<ENVEOF
 DB_URL=${DB_URL}
 DB_USERNAME=${DB_USERNAME}
 DB_PASSWORD=${DB_PASSWORD}
+AWS_REGION=${AWS_REGION}
 MAIL_USERNAME=${MAIL_USERNAME}
 MAIL_PASSWORD=${MAIL_PASSWORD}
 KEYCLOAK_ADMIN_PASSWORD=${KC_ADMIN_PASSWORD}
 KEYCLOAK_DB_PASSWORD=${KC_ADMIN_PASSWORD}
 PUBLIC_ADDR=${PUBLIC_ADDR}
+DOMAIN_NAME=${DOMAIN_NAME}
+FRONTEND_ORIGIN=${FRONTEND_ORIGIN}
+API_ORIGIN=${API_ORIGIN}
+KEYCLOAK_ORIGIN=${KEYCLOAK_ORIGIN}
 S3_BUCKET=${S3_BUCKET}
+BACKUP_BUCKET=${BACKUP_BUCKET}
 ECR_APP=${ECR_APP}
 ECR_FRONTEND=${ECR_FRONTEND}
 APP_TAG=${APP_TAG}
@@ -65,14 +82,68 @@ mkdir -p /opt/lims/keycloak-imports
 aws s3 cp "s3://${S3_BUCKET}/bootstrap/lims-dev-seed.json" \
   /opt/lims/keycloak-imports/lims-dev-seed.json --region "${AWS_REGION}"
 
+# The committed demo realm only trusts localhost. Patch its public client to the
+# Terraform-computed live origin before the first (and only) realm import.
+export FRONTEND_ORIGIN
+python3 <<'PY'
+import json
+import os
+from pathlib import Path
+
+realm_path = Path("/opt/lims/keycloak-imports/lims-dev-seed.json")
+realm = json.loads(realm_path.read_text(encoding="utf-8"))
+origin = os.environ["FRONTEND_ORIGIN"].rstrip("/")
+
+for client in realm.get("clients", []):
+    if client.get("clientId") != "lims-frontend":
+        continue
+    client["rootUrl"] = origin
+    client["baseUrl"] = origin
+    client["redirectUris"] = [f"{origin}/*"]
+    client["webOrigins"] = [origin]
+    client.setdefault("attributes", {})["post.logout.redirect.uris"] = f"{origin}/*"
+    break
+else:
+    raise SystemExit("lims-frontend client is missing from the realm seed")
+
+realm_path.write_text(json.dumps(realm, indent=2) + "\n", encoding="utf-8")
+PY
+
+aws s3 cp "s3://${S3_BUCKET}/bootstrap/deploy-service.sh" \
+  /opt/lims/deploy-service.sh --region "${AWS_REGION}"
+chmod 700 /opt/lims/deploy-service.sh
+
+if [[ -n "${DOMAIN_NAME}" ]]; then
+  cat > Caddyfile <<CADDY
+${DOMAIN_NAME} {
+  reverse_proxy frontend:3000
+}
+
+api.${DOMAIN_NAME} {
+  reverse_proxy app:11000
+}
+
+auth.${DOMAIN_NAME} {
+  reverse_proxy keycloak:8080
+}
+CADDY
+else
+  cat > Caddyfile <<'CADDY'
+:80 {
+  reverse_proxy frontend:3000
+}
+CADDY
+fi
+
 cat > docker-compose.yml <<'COMPOSE'
 name: durdans-lims-prod
 networks: { lims-net: { driver: bridge } }
-volumes: { kc_db: {} }
+volumes: { kc_db: {}, caddy_data: {}, caddy_config: {} }
 
 services:
   kc-db:
     image: postgres:15
+    mem_limit: 384m
     environment:
       POSTGRES_DB: keycloak
       POSTGRES_USER: keycloak
@@ -83,17 +154,21 @@ services:
     restart: always
 
   keycloak:
-    image: quay.io/keycloak/keycloak:24.0
+    image: quay.io/keycloak/keycloak:26.7.1
+    mem_limit: 768m
     command: start-dev --import-realm
     environment:
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://kc-db:5432/keycloak
       KC_DB_USERNAME: keycloak
       KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
-      KEYCLOAK_ADMIN: admin
-      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
       KC_HEALTH_ENABLED: "true"
       KC_HOSTNAME_STRICT: "false"
+      KC_HOSTNAME: ${KEYCLOAK_ORIGIN}
+      KC_PROXY_HEADERS: xforwarded
+      JAVA_OPTS_KC_HEAP: -Xms128m -Xmx512m
     ports: [ "8081:8080" ]
     # --import-realm above is a no-op without this mount. Mirrors the same mount
     # in infra/docker-compose.yml.
@@ -109,7 +184,9 @@ services:
   # under /opt/kafka/bin rather than on PATH.
   kafka:
     image: apache/kafka:3.8.1
+    mem_limit: 768m
     environment:
+      KAFKA_HEAP_OPTS: -Xms128m -Xmx512m
       KAFKA_NODE_ID: "1"
       KAFKA_PROCESS_ROLES: "broker,controller"
       KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
@@ -129,6 +206,7 @@ services:
 
   app:
     image: ${ECR_APP}:${APP_TAG}
+    mem_limit: 1280m
     environment:
       SPRING_PROFILES_ACTIVE: docker
       DB_URL: ${DB_URL}
@@ -136,12 +214,14 @@ services:
       DB_PASSWORD: ${DB_PASSWORD}
       KEYCLOAK_REALM: lims-realm
       KEYCLOAK_INTERNAL_URL: http://keycloak:8080
-      KEYCLOAK_PUBLIC_URL: http://${PUBLIC_ADDR}:8081
+      KEYCLOAK_PUBLIC_URL: ${KEYCLOAK_ORIGIN}
+      APP_SECURITY_CORS_ALLOWED_ORIGIN_PATTERNS: ${FRONTEND_ORIGIN}
       # Real S3 via the instance role: blank endpoint + blank static keys.
       AWS_S3_ENDPOINT: ""
       AWS_ACCESS_KEY: ""
       AWS_SECRET_KEY: ""
       AWS_S3_BUCKET: ${S3_BUCKET}
+      AWS_REGION: ${AWS_REGION}
       MAIL_USERNAME: ${MAIL_USERNAME}
       MAIL_PASSWORD: ${MAIL_PASSWORD}
     ports: [ "11000:11000" ]
@@ -151,12 +231,68 @@ services:
 
   frontend:
     image: ${ECR_FRONTEND}:${FRONTEND_TAG}
+    mem_limit: 384m
     ports: [ "3000:3000" ]
     networks: [lims-net]
     depends_on: { app: { condition: service_started } }
     restart: always
+
+  caddy:
+    image: caddy:2.10.2-alpine
+    mem_limit: 192m
+    ports: [ "80:80", "443:443" ]
+    volumes:
+      - "/opt/lims/Caddyfile:/etc/caddy/Caddyfile:ro"
+      - "caddy_data:/data"
+      - "caddy_config:/config"
+    networks: [lims-net]
+    restart: always
 COMPOSE
 
-docker compose pull || true
-docker compose up -d
-echo "LIMS stack started. Frontend: http://${PUBLIC_ADDR}:3000  API: http://${PUBLIC_ADDR}:11000  Keycloak: http://${PUBLIC_ADDR}:8081"
+# The ECR repositories are empty on the first Terraform apply. Start the base
+# services immediately, then deploy app images only when they already exist.
+docker compose up -d kc-db keycloak kafka caddy
+/opt/lims/deploy-service.sh app "${APP_TAG}" || true
+/opt/lims/deploy-service.sh frontend "${FRONTEND_TAG}" || true
+
+# Keycloak uses its own Postgres volume on this cost-optimized host. Back it up
+# off-host every night so an EC2/EBS loss does not also remove the identity DB.
+cat >/usr/local/bin/backup-keycloak.sh <<BACKUP
+#!/usr/bin/env bash
+set -euo pipefail
+stamp=\$(date -u +%Y%m%dT%H%M%SZ)
+cd /opt/lims
+docker compose exec -T kc-db pg_dump -Fc -U keycloak keycloak \
+  | aws s3 cp - "s3://${BACKUP_BUCKET}/keycloak/keycloak_\${stamp}.dump" \
+      --region "${AWS_REGION}" --only-show-errors
+BACKUP
+chmod 0750 /usr/local/bin/backup-keycloak.sh
+
+cat >/etc/systemd/system/lims-keycloak-backup.service <<'SERVICE'
+[Unit]
+Description=Back up the LIMS Keycloak database to S3
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/backup-keycloak.sh
+SERVICE
+
+cat >/etc/systemd/system/lims-keycloak-backup.timer <<'TIMER'
+[Unit]
+Description=Nightly LIMS Keycloak database backup
+
+[Timer]
+OnCalendar=*-*-* 02:15:00 UTC
+Persistent=true
+RandomizedDelaySec=15m
+
+[Install]
+WantedBy=timers.target
+TIMER
+
+systemctl daemon-reload
+systemctl enable --now lims-keycloak-backup.timer
+
+echo "LIMS host bootstrapped. Frontend: ${FRONTEND_ORIGIN}  API: ${API_ORIGIN}  Keycloak: ${KEYCLOAK_ORIGIN}"

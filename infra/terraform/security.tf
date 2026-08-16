@@ -20,10 +20,10 @@ resource "aws_security_group" "ec2" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  # Direct demo ports (frontend / API / Keycloak). Convenient for a student demo
-  # without a domain; for real prod, drop these and serve everything via 443/Caddy.
+  # Direct demo ports for the API and Keycloak when no domain is configured.
+  # The frontend is always served through Caddy on port 80/443.
   dynamic "ingress" {
-    for_each = var.domain_name == "" ? toset(["3000", "11000", "8081"]) : toset([])
+    for_each = var.domain_name == "" ? toset(["11000", "8081"]) : toset([])
     content {
       description = "demo port ${ingress.value}"
       from_port   = tonumber(ingress.value)
