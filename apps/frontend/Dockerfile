@@ -47,6 +47,11 @@ ENV NODE_ENV=production \
     HOSTNAME=0.0.0.0
 RUN addgroup -g 1001 -S nodejs && adduser -S -u 1001 -G nodejs nextjs
 
+# The current Alpine base includes the Pebble ACME test binary. The application
+# never uses it, so remove that extra Go executable (and its vulnerability
+# surface) from the production image.
+RUN rm -f /usr/bin/pebble
+
 # Standalone output: server.js + minimal node_modules, plus static assets.
 COPY --from=build --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=build --chown=nextjs:nodejs /app/.next/static ./.next/static
