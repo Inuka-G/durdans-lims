@@ -20,6 +20,7 @@ const NAV_ORDER: Record<string, number> = {
 
 const sortNavItems = (items: NavItem[]) =>
     [...new Map(items.map((item) => [item.linkUrl, item])).values()]
+        // Critical Values is a Lab Supervisor workflow page, not a top-level role/module.
         .filter((item) => item.linkUrl !== "/critical-values")
         .sort((a, b) => {
         const aOrder = NAV_ORDER[a.linkUrl] ?? Number.MAX_SAFE_INTEGER;
