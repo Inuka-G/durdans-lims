@@ -68,14 +68,26 @@ jobs:
             --build-arg NEXT_PUBLIC_KEYCLOAK_CLIENT_ID="${{ vars.NEXT_PUBLIC_KEYCLOAK_CLIENT_ID || 'lims-frontend' }}" \
             -t lims-frontend:${{ github.sha }} .
 
-      - name: Trivy scan (fail on HIGH/CRITICAL)
+      - name: Trivy gate (fail on HIGH/CRITICAL)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: lims-frontend:${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+
+      # Keep the full vulnerability inventory in GitHub code scanning without
+      # making MEDIUM/LOW findings override the HIGH/CRITICAL release gate.
+      - name: Trivy SARIF report
+        if: always()
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: lims-frontend:${{ github.sha }}
           format: sarif
           output: trivy-frontend.sarif
-          severity: HIGH,CRITICAL
-          exit-code: "1"
+          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+          exit-code: "0"
           ignore-unfixed: true
 
       # trivy-action is a `uses:` step, so it ignores defaults.run.working-directory
