@@ -21,6 +21,7 @@ WORKDIR /app
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/* \
+    && rm -f /usr/bin/pebble \
     && useradd -r -u 1001 lims
 COPY --from=build --chown=lims:lims /workspace/lims-core-service-app/build/libs/lims-core-service.jar /app/app.jar
 USER lims
