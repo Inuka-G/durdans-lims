@@ -76,9 +76,7 @@ public class DispatchService {
     private static final DateTimeFormatter RECORD_TS = DateTimeFormatter.ofPattern("d MMM, h:mm a", Locale.UK);
     private static final List<DeliveryMethod> DEFAULT_DELIVERY_METHODS = List.of(
             DeliveryMethod.SMS,
-            DeliveryMethod.WHATSAPP,
-            DeliveryMethod.EMAIL,
-            DeliveryMethod.POST);
+            DeliveryMethod.EMAIL);
 
     private final ReportDispatchItemRepository itemRepository;
     private final ReportDeliveryAttemptRepository attemptRepository;
@@ -255,7 +253,7 @@ public class DispatchService {
         }
 
         // Phase 3 (txn): merge the result and finalize.
-        return self.finalizeDispatch(prepared.item(), "DISPATCH_REPORT", "DISPATCH_EXECUTED",
+        return self.finalizeDispatch(prepared.item(), prepared.attempts(), "DISPATCH_REPORT", "DISPATCH_EXECUTED",
                 "{\"methods\":\"" + methods + "\"}", ipAddress);
     }
 
@@ -272,6 +270,11 @@ public class DispatchService {
             attempt.setRetryCount(0);
             item.getAttempts().add(attempt);
             created.add(attempt);
+        }
+        try {
+            item.setPreferredMethodsJson(objectMapper.writeValueAsString(methods));
+        } catch (Exception ex) {
+            throw new IllegalStateException("Could not persist selected delivery methods", ex);
         }
         itemRepository.save(item); // assigns ids to the new attempts (cascade)
         return new PreparedDispatch(item, created);
@@ -291,7 +294,7 @@ public class DispatchService {
         channelService.executeChannel(prepared.item(), attempt, minimal);
 
         // Phase 3 (txn): merge + finalize.
-        return self.finalizeDispatch(prepared.item(), "DISPATCH_RETRY", "DISPATCH_RETRY",
+        return self.finalizeDispatch(prepared.item(), prepared.attempts(), "DISPATCH_RETRY", "DISPATCH_RETRY",
                 "{\"attemptId\":\"" + attemptId + "\"}", ipAddress);
     }
 
@@ -315,10 +318,19 @@ public class DispatchService {
 
     /** Phase 3: merge the detached item (with the mutated attempt statuses), aggregate, audit, publish. */
     @Transactional
-    public DispatchItemResponse finalizeDispatch(ReportDispatchItemEntity item, String auditAction,
+    public DispatchItemResponse finalizeDispatch(ReportDispatchItemEntity item,
+            List<ReportDeliveryAttemptEntity> completedAttempts, String auditAction,
             String eventType, String auditDetailJson, String ipAddress) {
-        item.setOverallStatus(aggregateStatusFromAttempts(item.getAttempts()));
-        ReportDispatchItemEntity saved = itemRepository.save(item); // merge persists the mutated attempts
+        // The item returned from phase 1 is detached and its attempts collection can be
+        // an uninitialized Hibernate proxy. Persist the completed attempts explicitly,
+        // then aggregate from a fresh DB query inside this transaction.
+        attemptRepository.saveAll(completedAttempts);
+        ReportDispatchItemEntity managed = itemRepository.findById(item.getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Dispatch item not found"));
+        List<ReportDeliveryAttemptEntity> persistedAttempts =
+                attemptRepository.findByDispatchItemIdOrderByCreatedAtAsc(managed.getId());
+        managed.setOverallStatus(aggregateStatusFromAttempts(persistedAttempts, parsePreferredMethods(managed)));
+        ReportDispatchItemEntity saved = itemRepository.save(managed);
         updateLinkedOrderIfDelivered(saved);
 
         auditService.log(auditAction, "REPORT_DISPATCH", saved.getId(), saved.getReportReference(),
@@ -355,7 +367,9 @@ public class DispatchService {
         attempt.setDeliveredAt(now);
         attempt.setFailureReason(null);
 
-        item.setOverallStatus(aggregateStatusFromAttempts(item.getAttempts()));
+        List<ReportDeliveryAttemptEntity> persistedAttempts =
+                attemptRepository.findByDispatchItemIdOrderByCreatedAtAsc(item.getId());
+        item.setOverallStatus(aggregateStatusFromAttempts(persistedAttempts, parsePreferredMethods(item)));
         ReportDispatchItemEntity saved = itemRepository.save(item);
         updateLinkedOrderIfDelivered(saved);
 
@@ -659,7 +673,7 @@ public class DispatchService {
                 .max(Comparator.naturalOrder())
                 .orElse(null);
 
-        DispatchItemStatus rowStatus = aggregateStatusFromAttempts(attempts);
+        DispatchItemStatus rowStatus = aggregateStatusFromAttempts(attempts, parsePreferredMethods(item));
         String deliveredDisplay = (rowStatus == DispatchItemStatus.DELIVERED && maxDel != null)
                 ? maxDel.atZone(DISPLAY_ZONE).format(RECORD_TS)
                 : null;
@@ -875,16 +889,30 @@ public class DispatchService {
         }
     }
 
-    private static DispatchItemStatus aggregateStatusFromAttempts(List<ReportDeliveryAttemptEntity> attempts) {
-        if (attempts == null || attempts.isEmpty()) {
+    private static DispatchItemStatus aggregateStatusFromAttempts(
+            List<ReportDeliveryAttemptEntity> attempts, List<DeliveryMethod> activeMethods) {
+        if (attempts == null || attempts.isEmpty() || activeMethods == null || activeMethods.isEmpty()) {
             return DispatchItemStatus.PENDING;
         }
-        boolean anyDelivered = attempts.stream().anyMatch(a -> a.getStatus() == DeliveryAttemptStatus.DELIVERED);
-        boolean anyFailed = attempts.stream().anyMatch(a -> a.getStatus() == DeliveryAttemptStatus.FAILED);
-        boolean anyOpen = attempts.stream().anyMatch(a ->
+
+        // Attempts are returned oldest-first. Only the latest attempt for each
+        // currently selected channel represents the present delivery state;
+        // historical failures/pending rows remain available for audit but must not
+        // keep a later successful dispatch permanently PARTIAL.
+        java.util.Map<DeliveryMethod, ReportDeliveryAttemptEntity> latest = new java.util.LinkedHashMap<>();
+        attempts.stream()
+                .filter(attempt -> activeMethods.contains(attempt.getMethod()))
+                .forEach(attempt -> latest.put(attempt.getMethod(), attempt));
+        List<ReportDeliveryAttemptEntity> current = List.copyOf(latest.values());
+        if (current.isEmpty()) return DispatchItemStatus.PENDING;
+
+        boolean anyDelivered = current.stream().anyMatch(a -> a.getStatus() == DeliveryAttemptStatus.DELIVERED);
+        boolean anyFailed = current.stream().anyMatch(a -> a.getStatus() == DeliveryAttemptStatus.FAILED);
+        boolean anyOpen = current.stream().anyMatch(a ->
                 a.getStatus() == DeliveryAttemptStatus.PENDING || a.getStatus() == DeliveryAttemptStatus.SENT);
 
-        boolean allDelivered = attempts.stream().allMatch(a -> a.getStatus() == DeliveryAttemptStatus.DELIVERED);
+        boolean allDelivered = current.size() == activeMethods.stream().distinct().count()
+                && current.stream().allMatch(a -> a.getStatus() == DeliveryAttemptStatus.DELIVERED);
         if (allDelivered) {
             return DispatchItemStatus.DELIVERED;
         }

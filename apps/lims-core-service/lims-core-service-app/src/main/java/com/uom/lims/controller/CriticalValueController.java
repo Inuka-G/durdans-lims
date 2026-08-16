@@ -27,13 +27,13 @@ public class CriticalValueController {
 
     private final CriticalValueNotificationService criticalValueNotificationService;
 
-    @PreAuthorize("hasAnyRole('MLT','LAB_SUPERVISOR','PATHOLOGIST','LAB_RECEPTIONIST','LAB_RECEPTION','BRANCH_ADMIN','SUPER_ADMIN')")
+    @PreAuthorize("hasAnyRole('LAB_SUPERVISOR','BRANCH_ADMIN','SUPER_ADMIN')")
     @GetMapping
     public List<CriticalNotificationResponse> open(@RequestParam(defaultValue = "100") int limit) {
         return criticalValueNotificationService.listOpen(limit);
     }
 
-    @PreAuthorize("hasAnyRole('MLT','LAB_SUPERVISOR','PATHOLOGIST','BRANCH_ADMIN','SUPER_ADMIN')")
+    @PreAuthorize("hasAnyRole('LAB_SUPERVISOR','BRANCH_ADMIN','SUPER_ADMIN')")
     @PostMapping("/{id}/acknowledge")
     public CriticalNotificationResponse acknowledge(@PathVariable UUID id,
                                                     @RequestBody AcknowledgeCriticalRequest request) {

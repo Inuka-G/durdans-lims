@@ -399,9 +399,7 @@ public class ClinicalAuthorizationService {
                         : OffsetDateTime.ofInstant(result.getClinicallyAuthorizedAt(), ZoneId.systemDefault()))
                 .preferredDeliveryMethods(List.of(
                         DeliveryMethod.SMS,
-                        DeliveryMethod.WHATSAPP,
-                        DeliveryMethod.EMAIL,
-                        DeliveryMethod.POST))
+                        DeliveryMethod.EMAIL))
                 .build();
 
         dispatchService.registerAuthorizedReportSystem(request, "clinical-authorization");

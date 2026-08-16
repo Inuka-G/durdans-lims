@@ -130,6 +130,15 @@ app:
   verification:
     base-url: http://localhost:11000
 
+  # Use `mock` for local/test runs. Set SMS_PROVIDER=ozonedesk and supply the
+  # remaining values to send report-ready notifications and patient OTPs.
+  sms:
+    provider: ${SMS_PROVIDER:mock}
+    endpoint: ${SMS_API_URL:http://sms.ozonedesk.com/api/v1/send.php}
+    user-id: ${SMS_USER_ID:}
+    api-key: ${SMS_API_KEY:}
+    sender-id: ${SMS_SENDER_ID:}
+
   # Critical-value (panic) callback workflow (H1). A critical result opens a callback
   # that must be acknowledged with a read-back; unacknowledged callbacks escalate
   # through bounded tiers per the SLA. fallback-contact is where a callback is routed

@@ -162,6 +162,12 @@ services:
       # Mail is disabled unless supplied (see .env.example)
       MAIL_USERNAME: ${MAIL_USERNAME:-}
       MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      # SMS is mock by default; set these in infra/.env for OzoneDesk delivery.
+      SMS_PROVIDER: ${SMS_PROVIDER:-mock}
+      SMS_API_URL: ${SMS_API_URL:-http://sms.ozonedesk.com/api/v1/send.php}
+      SMS_USER_ID: ${SMS_USER_ID:-}
+      SMS_API_KEY: ${SMS_API_KEY:-}
+      SMS_SENDER_ID: ${SMS_SENDER_ID:-}
       # G6: export traces to Tempo over OTLP/HTTP on the private network.
       OTLP_ENDPOINT: http://tempo:4318/v1/traces
       TRACING_SAMPLE_RATE: ${TRACING_SAMPLE_RATE:-1.0}

@@ -21,6 +21,9 @@ public class ReportDispatchChannelService {
     private final EmailService emailService;
     private final SmsService smsService;
     private final PatientRepository patientRepository;
+    private final LabReportDataService reportDataService;
+    private final LabReportPdfService reportPdfService;
+    private final LabReportMessageFormatter messageFormatter;
 
     public void executeChannel(
             ReportDispatchItemEntity item,
@@ -46,12 +49,8 @@ public class ReportDispatchChannelService {
                 }
                 attempt.setRecipientContact(email);
                 try {
-                    emailService.sendLabReportEmail(
-                            email,
-                            item.getPatientDisplayName(),
-                            item.getReportReference(),
-                            item.getTestPanelLabel(),
-                            item.getArtifactUri());
+                    LabReportData report = reportDataService.resolve(item);
+                    emailService.sendLabReportEmail(email, report, reportPdfService.generate(report));
                     attempt.setStatus(DeliveryAttemptStatus.DELIVERED);
                     attempt.setDeliveredAt(LocalDateTime.now());
                     attempt.setFailureReason(null);
@@ -70,11 +69,8 @@ public class ReportDispatchChannelService {
                 }
                 attempt.setRecipientContact(phone);
                 try {
-                    String msg = "Durdans Lab: Report " + item.getReportReference() + " is ready. "
-                            + (item.getArtifactUri() != null && !item.getArtifactUri().isBlank()
-                                    ? "Link: " + item.getArtifactUri()
-                                    : "Collect from laboratory.");
-                    smsService.sendSms(phone, msg);
+                    LabReportData report = reportDataService.resolve(item);
+                    smsService.sendSms(phone, messageFormatter.formatSms(report));
                     attempt.setStatus(DeliveryAttemptStatus.DELIVERED);
                     attempt.setDeliveredAt(LocalDateTime.now());
                     attempt.setFailureReason(null);
@@ -84,28 +80,10 @@ public class ReportDispatchChannelService {
                 }
             }
             case WHATSAPP -> {
-                String phone = firstNonBlank(request.getOverrideWhatsappPhone(),
-                        firstNonBlank(request.getOverridePhone(), resolvePatientPhone(item.getPatientCode())));
-                if (phone == null) {
-                    attempt.setStatus(DeliveryAttemptStatus.FAILED);
-                    attempt.setFailureReason("NO_WHATSAPP_PHONE: Patient has no phone and no override was provided");
-                    return;
-                }
-                attempt.setRecipientContact(phone);
-                try {
-                    String msg = "Durdans Lab WhatsApp: Report " + item.getReportReference()
-                            + " (" + item.getTestPanelLabel() + ") is ready. "
-                            + (item.getArtifactUri() != null && !item.getArtifactUri().isBlank()
-                                    ? "Document: " + item.getArtifactUri()
-                                    : "Please collect the printed report from laboratory reception.");
-                    smsService.sendSms(phone, msg);
-                    attempt.setStatus(DeliveryAttemptStatus.DELIVERED);
-                    attempt.setDeliveredAt(LocalDateTime.now());
-                    attempt.setFailureReason(null);
-                } catch (RuntimeException ex) {
-                    attempt.setStatus(DeliveryAttemptStatus.FAILED);
-                    attempt.setFailureReason("WHATSAPP_SEND_FAILED: " + truncate(ex.getMessage(), 900));
-                }
+                // A plain SMS gateway is not a WhatsApp provider. Fail closed instead of
+                // charging the patient for a duplicate SMS and reporting it as WhatsApp.
+                attempt.setStatus(DeliveryAttemptStatus.FAILED);
+                attempt.setFailureReason("WHATSAPP_PROVIDER_NOT_CONFIGURED");
             }
             case POST -> {
                 String address = firstNonBlank(request.getPostalAddress(), resolvePatientAddress(item.getPatientCode()));

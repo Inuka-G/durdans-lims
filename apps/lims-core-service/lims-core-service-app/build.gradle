@@ -33,6 +33,7 @@ dependencies {
     implementation 'com.github.ben-manes.caffeine:caffeine'
     implementation 'org.springframework.boot:spring-boot-starter-mail'
     implementation 'org.springframework.kafka:spring-kafka'
+    implementation 'com.github.librepdf:openpdf:2.0.3'
 
     // Observability: health/readiness probes + Prometheus metrics
     implementation 'org.springframework.boot:spring-boot-starter-actuator'

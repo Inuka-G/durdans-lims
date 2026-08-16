@@ -27,6 +27,7 @@ function SidebarForRoute({ pathname }: { pathname: string }) {
     if (pathname.startsWith("/reception")) return <ReceptionSidebar />;
     if (pathname.startsWith("/mlt")) return <MLTSidebar />;
     if (pathname.startsWith("/verification")) return <SeniorMLTSidebar />;
+    if (pathname.startsWith("/critical-values")) return <SeniorMLTSidebar />;
     if (pathname.startsWith("/clinical")) return <DoctorSidebar />;
     if (pathname.startsWith("/dispatch")) return <DispatchSidebar />;
     if (pathname.startsWith("/branch")) return <BranchSidebar />;
@@ -61,4 +62,3 @@ export default function ProtectedLayout({ children }: { children: ReactNode }) {
         </AuthProvider>
     );
 }
-

@@ -19,7 +19,9 @@ const NAV_ORDER: Record<string, number> = {
 };
 
 const sortNavItems = (items: NavItem[]) =>
-    [...items].sort((a, b) => {
+    [...new Map(items.map((item) => [item.linkUrl, item])).values()]
+        .filter((item) => item.linkUrl !== "/critical-values")
+        .sort((a, b) => {
         const aOrder = NAV_ORDER[a.linkUrl] ?? Number.MAX_SAFE_INTEGER;
         const bOrder = NAV_ORDER[b.linkUrl] ?? Number.MAX_SAFE_INTEGER;
 
@@ -77,7 +79,7 @@ export default function TopNav() {
     };
 
     const getRoleTitle = () => {
-        if (pathname.startsWith("/verification")) {
+        if (pathname.startsWith("/verification") || pathname.startsWith("/critical-values")) {
             return "Lab Supervisor";
         }
 
@@ -97,7 +99,7 @@ export default function TopNav() {
     };
 
     const getRoleSubtitle = () => {
-        if (pathname.startsWith("/verification")) {
+        if (pathname.startsWith("/verification") || pathname.startsWith("/critical-values")) {
             return "Verification";
         }
 
@@ -117,6 +119,10 @@ export default function TopNav() {
     };
 
     const isActive = (url: string) => {
+        if (url === "/lab-supervision" && pathname.startsWith("/critical-values")) {
+            return true;
+        }
+
         const resolved = resolveUrl(url);
         // Find the module prefix for this link
         const prefix = Object.values(PREFIX_MAP).find((p) => resolved.startsWith(p));
@@ -149,12 +155,12 @@ export default function TopNav() {
                         </span>
                     </div>
                     <nav className="hidden md:flex items-center gap-1">
-                        {navItems.map((item, index) => {
+                        {navItems.map((item) => {
                             const href = resolveUrl(item.linkUrl);
                             const active = isActive(item.linkUrl);
                             return (
                                 <Link
-                                    key={index}
+                                    key={item.linkUrl}
                                     className={`px-4 py-5 text-sm font-semibold transition-colors ${active
                                         ? "text-primary border-b-2 border-primary"
                                         : "text-slate-500 hover:text-primary"
