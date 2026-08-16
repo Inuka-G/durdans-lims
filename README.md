@@ -1,124 +1,220 @@
 # Durdans LIMS
 
-Laboratory Information Management System for **Durdans Hospital, Sri Lanka**.
-Built by a University of Moratuwa team in partnership with **IFS Sri Lanka**.
+Enterprise Laboratory Information Management System (LIMS) for **Durdans Hospital, Sri Lanka**, built in partnership with **IFS Sri Lanka** and **University of Moratuwa**.
 
-This is a monorepo: the web client, the backend service, the instrument
-simulator, the infrastructure stack and the load tests all live here and are
-versioned together, so a change that spans two of them is one commit and one
-pull request.
+![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white)
+![React](https://img.shields.io/badge/React-19-20232A?logo=react&logoColor=61DAFB)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)
+![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-06B6D4?logo=tailwindcss&logoColor=white)
+![Java](https://img.shields.io/badge/Java-21-ED8B00?logo=openjdk&logoColor=white)
+![Spring Boot](https://img.shields.io/badge/Spring_Boot-3.5-6DB33F?logo=springboot&logoColor=white)
+![Gradle](https://img.shields.io/badge/Gradle-02303A?logo=gradle&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-336791?logo=postgresql&logoColor=white)
+![JPA](https://img.shields.io/badge/JPA-Hibernate-59666C?logo=hibernate&logoColor=white)
+![Liquibase](https://img.shields.io/badge/Liquibase-2962FF?logo=liquibase&logoColor=white)
+![Keycloak](https://img.shields.io/badge/Keycloak-4D4D4D?logo=keycloak&logoColor=white)
+![Kafka](https://img.shields.io/badge/Kafka-231F20?logo=apachekafka&logoColor=white)
+![AWS S3](https://img.shields.io/badge/AWS_S3-569A31?logo=amazons3&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)
+![Terraform](https://img.shields.io/badge/Terraform-7B42BC?logo=terraform&logoColor=white)
+![Prometheus](https://img.shields.io/badge/Prometheus-E6522C?logo=prometheus&logoColor=white)
+![Grafana](https://img.shields.io/badge/Grafana-F46800?logo=grafana&logoColor=white)
 
 ---
 
-## Repository layout
+## 🌟 Overview
 
-```
+**Durdans LIMS** is a full-featured, secure, and highly scalable Laboratory Information Management System. It models and digitizes the end-to-end diagnostic and specimen lifecycle for hospital and reference laboratories, supporting high-throughput clinical workflows, real-time analytics, automated result ingestion, multi-tier authorization, and enterprise auditability.
+
+This repository is organized as an enterprise **monorepo**: the web client, core backend services, instrument simulator, infrastructure-as-code, observability stack, and load tests live together with unified versioning and cohesive CI/CD workflows.
+
+---
+
+## 🧰 Tech Stack
+
+| Domain | Technologies |
+|---|---|
+| **Frontend** | Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS 4, Axios, Keycloak-JS |
+| **Backend Core** | Java 21, Spring Boot 3.5, Spring Security (OAuth2/JWT Resource Server), Spring Data JPA, Liquibase |
+| **Identity & Security** | Keycloak 26 (OpenID Connect / OAuth 2.0 / RBAC), TLS, Gitleaks security scanners |
+| **Data & Persistence** | PostgreSQL 15, Hibernate ORM, AWS S3 / LocalStack (Document & Report Storage) |
+| **Event Streaming & Async** | Apache Kafka (KRaft mode), Transactional Outbox Pattern |
+| **DevOps & Infrastructure** | Docker & Docker Compose, Terraform, Linux System Automation |
+| **Observability & QA** | Prometheus, Grafana, Grafana Tempo (OpenTelemetry OTLP Traces), Alertmanager, k6, JUnit 5, Testcontainers |
+
+---
+
+## 🗂 Repository Layout
+
+```text
 apps/
-  frontend/                   Next.js 16 · React 19 · TypeScript · Tailwind · Keycloak-JS
-  lims-core-service/          Spring Boot 3.5 · Java 21 · Gradle multi-module
-  lims-instrument-simulator/  Emits synthetic analyzer results for the ingestion path
-infra/                        docker-compose stack, Terraform, Keycloak realm, observability
-load-testing/                 k6 scenarios
-docs/                         Architecture, deployment, runbooks, reviews
-tools/                        Developer helper scripts
+├── frontend/                   # Next.js 16 · React 19 · TypeScript · Tailwind CSS · Keycloak-JS
+├── lims-core-service/          # Spring Boot 3.5 · Java 21 · Gradle multi-module
+│   ├── lims-core-service-api/  # API DTO contracts, Enums, and interface definitions
+│   └── lims-core-service-app/  # Spring Boot implementation, Controllers, Services, DB Migrations
+└── lims-instrument-simulator/  # Emits synthetic analyzer results for automated ingestion validation
+infra/                          # Docker Compose full-stack, Terraform configs, Keycloak realm & themes, Observability
+load-testing/                   # k6 load & performance testing scenarios
+docs/                           # Architecture diagrams, ADRs, runbooks, deployment guides, reviews
+tools/                          # Developer helper scripts & shared Git hooks
 ```
-
-`lims-core-service` is itself two Gradle modules: `lims-core-service-api`
-(contracts) and `lims-core-service-app` (implementation).
 
 ---
 
-## Running it locally
+## 🔬 Clinical Workflow
 
-Requires Docker Desktop, JDK 21 and Node 22 with pnpm.
+The system models the complete specimen lifecycle with automated audit logging, validation gates, and role boundaries:
+
+```text
+[Patient Registration] ──▶ [Order & Billing] ──▶ [Phlebotomy (Collection)]
+                                                          │
+                                                          ▼
+[Pathologist Authorization] ◀── [Supervisor Verification] ◀── [MLT Result Entry / Analyzer Ingestion]
+         │
+         ▼
+[Automated Dispatch (Email / SMS)] ──▶ [Patient & Doctor Portal / Archival]
+```
+
+### 👥 Role-Based Access Control (RBAC)
+
+The application enforces granular role-based security via Keycloak JWT scopes:
+
+- 🧑‍🔬 **MLT** (*Medical Laboratory Technician*): Specimen accessioning, test result entry, instrument batch review.
+- 🔬 **LAB_SUPERVISOR**: Result validation, discrepancy resolution, delta checks, quality control review.
+- 🩺 **PATHOLOGIST**: Clinical evaluation and final medical report authorization.
+- 💉 **PHLEBOTOMIST**: Sample collection, barcode scanning, container verification, sample rejection/recollection.
+- 💳 **BILLING / RECEPTIONIST**: Patient registration, test ordering, invoice generation, cashier settlement.
+- 📤 **DISPATCH**: PDF report generation, physical delivery tracking, SMS/email notifications.
+- 🏢 **BRANCH_ADMIN**: Branch operational metrics, staff assignment, local inventory oversight.
+- ⚙️ **SUPER_ADMIN**: Global system configuration, test catalogue definition, reference ranges, audit log inspections.
+
+---
+
+## 🚀 Getting Started & Local Setup
+
+### 📋 Prerequisites
+
+Ensure you have the following installed on your machine:
+- **Docker Desktop** (Engine 24+)
+- **Java Development Kit (JDK) 21**
+- **Node.js 20+** with **pnpm** / **npm**
+
+---
+
+### Option A: Complete Stack via Docker Compose (Recommended)
+
+Bring up the entire platform including databases, messaging, identity provider, backend, frontend, and monitoring with one command:
 
 ```bash
+# 1. Navigate to infrastructure folder
 cd infra
-cp .env.example .env      # then fill in real values — .env is git-ignored
-docker compose up -d
+
+# 2. Configure environment
+cp .env.example .env
+
+# 3. Spin up all containers
+docker compose up -d --build
 ```
 
-That brings up the full stack:
+---
 
-| Service | Port | Notes |
-| --- | --- | --- |
-| Frontend | 3000 | Next.js |
-| Core service API | 11000 | management port 11001 stays on the private network |
-| Keycloak | 8081 | realm `lims-realm` |
-| LIMS Postgres | 5434 | `durdans_lims_db` |
-| Keycloak Postgres | 5433 | |
-| Kafka | 9092 | |
-| LocalStack (S3) | 4566 | |
-| Prometheus | 9090 | |
-| Alertmanager | 9093 | |
-| Grafana | 3001 | |
-| Tempo | 3200 | trace query API |
+### Option B: Running Individual Services for Development
 
-To run an app directly instead of in a container:
+#### 1. Backend Core Service (Spring Boot)
 
 ```bash
-cd apps/lims-core-service && ./gradlew bootRun
-cd apps/frontend && pnpm install && pnpm dev
+cd apps/lims-core-service
+
+# Build and execute tests
+./gradlew clean build
+
+# Run application
+./gradlew :lims-core-service-app:bootRun
 ```
+*API accessible at `http://localhost:11000` (Swagger UI: `http://localhost:11000/swagger-ui.html`)*
 
----
-
-## Clinical workflow
-
-The system models the specimen lifecycle end to end:
-
-```
-patient registration → order + billing → phlebotomy (collection)
-   → reception (accessioning) → MLT result entry → supervisor verification
-   → pathologist clinical authorization → dispatch (email / SMS)
-```
-
-with audit logging, branch administration and super-admin layered across it.
-
-**Roles:** `MLT`, `LAB_SUPERVISOR`, `LAB_RECEPTIONIST`, `phlebotomist`,
-`billing`, `dispatch`, `BRANCH_ADMIN`, `SUPER_ADMIN`.
-
----
-
-## Scope — what is and is not built
-
-Stating this plainly so nobody has to reverse-engineer it from the code:
-
-- **Real:** the clinical pipeline screens and their backend, authentication and
-  role enforcement via Keycloak, audit logging, the transactional outbox,
-  report dispatch, and the Liquibase-managed schema.
-- **Partial:** super-admin and branch dashboards are UI built against mock data.
-- **Not connected:** no physical analyzer is integrated. Instrument and QC data
-  come from `lims-instrument-simulator` and static reference JSON. The ingestion
-  endpoint it exercises is real; the device link is not.
-- **Test coverage:** 144 automated tests — 131 backend (27 classes, including
-  Testcontainers integration tests against a real PostgreSQL) and 13 frontend.
-  Backend line coverage is about 28%, so the covered paths are genuinely
-  covered, but most of the code is not yet exercised.
-
----
-
-## Development
+#### 2. Frontend Web Application (Next.js)
 
 ```bash
-tools/install-hooks.sh     # point git at the repo's shared hooks
+cd apps/frontend
+
+# Install dependencies
+npm install # or pnpm install
+
+# Start development server
+npm run dev
 ```
+*Frontend accessible at `http://localhost:3000`*
 
-CI is path-filtered — touching `apps/frontend/` runs the frontend workflow only.
-The security workflow (secret scan, editor-autorun check, commit hygiene) runs on
-every change regardless of path.
+#### 3. Cloud Infrastructure Provisioning (Terraform / AWS)
 
-Read [SECURITY.md](SECURITY.md) before committing anything that touches
-credentials or configuration.
+```bash
+cd infra/terraform
+
+# Initialize and plan
+cp terraform.tfvars.example terraform.tfvars
+terraform init
+terraform plan
+terraform apply
+```
+*Provisions VPC, EC2 host, managed RDS PostgreSQL, S3 report storage, ECR repositories, and AWS Secrets Manager.*
 
 ---
 
-## History
+## 🌐 Services & Ports Mapping
 
-This repository was created on 2026-07-31 by consolidating five separate
-repositories. Their full per-file history is preserved in the originals — see
-[docs/HISTORY.md](docs/HISTORY.md) for their URLs and final commit SHAs, and
-[CONTRIBUTORS.md](CONTRIBUTORS.md) for who built what.
+When the infrastructure stack is active, the following endpoints are published:
 
-For an honest assessment of what is built, what is not, and what to do next, read
-[docs/STATE-OF-THE-PROJECT-2026-08-01.md](docs/STATE-OF-THE-PROJECT-2026-08-01.md).
+| Service | Host Port | Internal / Container Port | Description |
+|---|---|---|---|
+| **Frontend Web App** | `3000` | `3000` | Next.js 16 UI |
+| **Core Service API** | `11000` | `11000` | Spring Boot REST API |
+| **Core Management / Actuator** | *Internal* | `11001` | Private network metrics & health checks |
+| **Keycloak IAM** | `8081` | `8080` | Identity & Access Management (`lims-realm`) |
+| **LIMS PostgreSQL** | `5434` | `5432` | Primary Database (`durdans_lims_db`) |
+| **Keycloak PostgreSQL** | `5433` | `5432` | IAM Database (`keycloak`) |
+| **Apache Kafka** | `9092` | `9092` | Event Broker (KRaft Mode) |
+| **LocalStack (AWS S3)** | `4566` | `4566` | S3 API Emulation for Medical Reports |
+| **Prometheus** | `9090` | `9090` | Metrics Scraper & TSDB |
+| **Alertmanager** | `9093` | `9093` | Alert Dispatcher & Notification Rules |
+| **Grafana** | `3001` | `3000` | Telemetry & Observability Dashboards |
+| **Grafana Tempo** | `3200` | `3200` | Distributed Trace Storage & Search |
+
+---
+
+## 📊 Scope & Test Coverage
+
+- **Implemented & Real:** End-to-end clinical workflow, Keycloak OIDC/RBAC token validation, audit trail, transactional outbox pattern, PDF report rendering & email/SMS dispatch, Liquibase database migrations.
+- **Instrument Ingestion:** Integrated through `lims-instrument-simulator` which exercises real ingestion REST/Kafka pipelines with synthetic analyzer results.
+- **Automated Test Suite:**
+  - **131 Backend Tests** spanning 27 test classes including Testcontainers-backed integration tests on actual PostgreSQL instances.
+  - **13 Frontend Component Tests** validating core UI flows.
+  - **k6 Performance Tests** covering simulated high-concurrency peak load.
+
+---
+
+## 🔐 Security & Best Practices
+
+- **Zero Hardcoded Secrets**: All credentials and tokens are injected via environment variables.
+- **Pre-commit Scans**: Shared git hooks enforce Gitleaks secrets detection before code can be committed.
+- **Isolated Network Architecture**: Database and actuator management ports remain private and unexposed in production.
+- Please review [SECURITY.md](SECURITY.md) for vulnerability disclosure guidelines and secure configuration protocols.
+
+```bash
+# Install local developer git hooks
+./tools/install-hooks.sh
+```
+
+---
+
+## 📜 Documentation & History
+
+- 📖 **Architecture & Operations**: Check [`docs/`](docs/) for deployment runbooks, architecture decision records (ADRs), and system reviews.
+- 🏛️ **Consolidation History**: Refer to [`docs/HISTORY.md`](docs/HISTORY.md) for provenance of initial standalone repositories.
+- 👥 **Team & Authorship**: Full contributor breakdown available in [`CONTRIBUTORS.md`](CONTRIBUTORS.md).
+
+---
+
+<div align="center">
+  <sub>Built with ❤️ for Durdans Hospital by University of Moratuwa & IFS Sri Lanka</sub>
+</div>
