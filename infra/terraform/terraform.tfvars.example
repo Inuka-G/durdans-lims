@@ -3,8 +3,12 @@
 aws_region  = "us-east-1"
 environment = "demo"
 
-# Keyless GitHub Actions deployment. The IAM trust is restricted to main.
+# Keyless GitHub Actions deployment. IDs are public, immutable GitHub metadata;
+# including them prevents a renamed/deleted repository from inheriting trust.
 github_org           = "kalanas210"
+github_repos         = ["durdans-lims"]
+github_owner_id      = "123456789"
+github_repo_ids      = { durdans-lims = "987654321" }
 github_deploy_branch = "main"
 
 # Compute / DB sizing (4 GB avoids JVM contention across app/Keycloak/Kafka)

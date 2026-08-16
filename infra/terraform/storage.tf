@@ -124,11 +124,22 @@ resource "aws_ecr_lifecycle_policy" "this" {
 # users. A production realm must be imported from Secrets Manager instead —
 # see SECURITY.md.
 # ---------------------------------------------------------------------------
+locals {
+  keycloak_realm_seed = jsonencode(merge(
+    jsondecode(file("${path.module}/../keycloak-imports/lims-dev-seed.json")),
+    {
+      # An IP-only demo has no certificate yet. A domain-enabled replacement
+      # returns to Keycloak's external-HTTPS requirement automatically.
+      sslRequired = var.domain_name == "" ? "none" : "external"
+    }
+  ))
+}
+
 resource "aws_s3_object" "keycloak_realm_seed" {
-  bucket = aws_s3_bucket.patient_docs.id
-  key    = "bootstrap/lims-dev-seed.json"
-  source = "${path.module}/../keycloak-imports/lims-dev-seed.json"
-  etag   = filemd5("${path.module}/../keycloak-imports/lims-dev-seed.json")
+  bucket  = aws_s3_bucket.patient_docs.id
+  key     = "bootstrap/lims-dev-seed.json"
+  content = local.keycloak_realm_seed
+  etag    = md5(local.keycloak_realm_seed)
 
   # Prevents a stale realm from being served if the file changes but the
   # object is cached by the CLI.
