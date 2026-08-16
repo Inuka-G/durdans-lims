@@ -30,7 +30,7 @@ import jakarta.ws.rs.core.Response;
 @ConditionalOnProperty(name = "app.keycloak-admin.enabled", havingValue = "true")
 public class AdminUserService {
 
-    private static final String BRANCH_ATTR = "branch";
+    private static final String BRANCH_ATTR = "branch_id";
 
     private final Keycloak adminKeycloak;
 
