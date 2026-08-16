@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 
 import com.uom.lims.security.SecurityUtils;
 import lombok.extern.slf4j.Slf4j;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -48,11 +49,20 @@ public class MetadataService {
         List<HeaderMappingEntity> mappings = headerMappingRepository.findAllByRoleNameInOrderByPriorityAsc(roles);
         log.info("Found {} mappings for roles {}", mappings.size(), roles);
 
-        // Deduplicate and map to DTO
+        // A user can hold several roles that grant the same destination. NavItem
+        // does not define value equality, so distinct() on newly-created DTOs does
+        // not remove those duplicates. Keep the first (highest-priority) mapping
+        // for each URL instead.
         List<MetadataResponse.NavItem> navItems = mappings.stream()
-                .map(m -> new MetadataResponse.NavItem(m.getDisplayText(), m.getLinkUrl()))
-                .distinct()
-                .collect(Collectors.toList());
+                .collect(Collectors.toMap(
+                        HeaderMappingEntity::getLinkUrl,
+                        mapping -> new MetadataResponse.NavItem(
+                                mapping.getDisplayText(), mapping.getLinkUrl()),
+                        (first, duplicate) -> first,
+                        LinkedHashMap::new))
+                .values()
+                .stream()
+                .toList();
 
         return MetadataResponse.builder()
                 .currentBranchName(branchName)

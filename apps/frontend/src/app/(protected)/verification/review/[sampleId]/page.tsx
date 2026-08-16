@@ -107,6 +107,7 @@ export default function ReviewCasePage() {
     const [returnError, setReturnError] = useState<string | null>(null);
     const [approveNote, setApproveNote] = useState('');
     const [submitError, setSubmitError] = useState<string | null>(null);
+    const [requiresQcOverride, setRequiresQcOverride] = useState(false);
 
     useEffect(() => {
         const loadResultDetails = async () => {
@@ -221,6 +222,12 @@ export default function ReviewCasePage() {
             return;
         }
         const trimmedSupervisorNote = approveNote.trim();
+
+        if (requiresQcOverride && trimmedSupervisorNote.length < 20) {
+            setSubmitError('A QC override reason of at least 20 characters is required.');
+            return;
+        }
+
         const supervisorNote = trimmedSupervisorNote
             ? `Added by ${reviewerName} (${reviewerRole}): ${trimmedSupervisorNote}`
             : undefined;
@@ -232,13 +239,19 @@ export default function ReviewCasePage() {
                 status: 'TECHNICALLY_VERIFIED',
                 mltNotes: resultDetail?.mltNotes ?? undefined,
                 supervisorNote,
+                qcOverrideReason: trimmedSupervisorNote || undefined,
             });
             setShowApproveModal(false);
             setApproveNote('');
+            setRequiresQcOverride(false);
             router.push('/verification/pending');
         } catch (submitError) {
             console.error('Failed to approve result', submitError);
-            setSubmitError(resolveSubmitErrorMessage('approve', submitError));
+            const message = resolveSubmitErrorMessage('approve', submitError);
+            if (message.startsWith('QC hold')) {
+                setRequiresQcOverride(true);
+            }
+            setSubmitError(message);
         } finally {
             setIsSubmitting(false);
         }
@@ -394,7 +407,9 @@ export default function ReviewCasePage() {
                             <div>
                                 <h2 className="text-lg font-bold text-slate-900">Approve for Clinical Review</h2>
                                 <p className="mt-1 text-sm text-slate-500">
-                                    Add an optional handoff note.
+                                    {requiresQcOverride
+                                        ? 'QC is on hold. Add a documented release reason of at least 20 characters.'
+                                        : 'Add an optional handoff note.'}
                                 </p>
                             </div>
                             <button
@@ -405,6 +420,7 @@ export default function ReviewCasePage() {
                                     }
                                     setShowApproveModal(false);
                                     setApproveNote('');
+                                    setRequiresQcOverride(false);
                                     setSubmitError(null);
                                 }}
                                 className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-50 hover:text-slate-600"
@@ -415,7 +431,7 @@ export default function ReviewCasePage() {
 
                         <div className="px-6 py-5">
                             <label className="block text-sm font-semibold text-slate-700" htmlFor="approve-note">
-                                Lab Supervisor Note
+                                Lab Supervisor Note{requiresQcOverride ? ' (Required)' : ''}
                             </label>
                             <textarea
                                 id="approve-note"
@@ -427,9 +443,20 @@ export default function ReviewCasePage() {
                                     }
                                 }}
                                 rows={5}
-                                placeholder="Add a note for the pathologist."
+                                required={requiresQcOverride}
+                                minLength={requiresQcOverride ? 20 : undefined}
+                                placeholder={
+                                    requiresQcOverride
+                                        ? 'Explain why this result is being released over the QC hold.'
+                                        : 'Add a note for the pathologist.'
+                                }
                                 className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
                             />
+                            {requiresQcOverride && (
+                                <p className="mt-1 text-right text-xs text-slate-500">
+                                    {approveNote.trim().length}/20 characters minimum
+                                </p>
+                            )}
                             {submitError && (
                                 <p className="mt-2 text-sm font-medium text-red-600">{submitError}</p>
                             )}
@@ -441,6 +468,7 @@ export default function ReviewCasePage() {
                                 onClick={() => {
                                     setShowApproveModal(false);
                                     setApproveNote('');
+                                    setRequiresQcOverride(false);
                                     setSubmitError(null);
                                 }}
                                 disabled={isSubmitting}
