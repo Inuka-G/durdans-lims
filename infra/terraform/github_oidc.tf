@@ -4,7 +4,14 @@
 locals {
   oidc_enabled = var.github_org != ""
   oidc_subjects = [
-    for repo in var.github_repos : "repo:${var.github_org}/${repo}:ref:refs/heads/${var.github_deploy_branch}"
+    for repo in var.github_repos : format(
+      "repo:%s%s/%s%s:ref:refs/heads/%s",
+      var.github_org,
+      var.github_owner_id == "" ? "" : "@${var.github_owner_id}",
+      repo,
+      lookup(var.github_repo_ids, repo, "") == "" ? "" : "@${lookup(var.github_repo_ids, repo, "")}",
+      var.github_deploy_branch,
+    )
   ]
 }
 
@@ -17,6 +24,7 @@ resource "aws_iam_openid_connect_provider" "github" {
   # cannot validate the discovery/JWKS endpoint directly.
   thumbprint_list = [
     "6938fd4d98bab03faadb97b34396831e3780aea1",
+    "2d74d6dfd96eea55ad7baafa0d3c6552b2dadc37",
     "ab9d0263244dd0326eb67015705a667e79cfe998",
     "cabd2a79a1076a31f21d253635cb039d4329a5e8",
   ]
