@@ -157,3 +157,22 @@ resource "aws_s3_object" "deploy_service_script" {
 
   cache_control = "no-cache"
 }
+
+resource "aws_s3_object" "keycloak_theme_login_ftl" {
+  bucket = aws_s3_bucket.patient_docs.id
+  key    = "bootstrap/keycloak-themes/lims-theme/login/login.ftl"
+  source = "${path.module}/../keycloak-themes/lims-theme/login/login.ftl"
+  etag   = filemd5("${path.module}/../keycloak-themes/lims-theme/login/login.ftl")
+
+  cache_control = "no-cache"
+}
+
+resource "aws_s3_object" "keycloak_theme_properties" {
+  bucket = aws_s3_bucket.patient_docs.id
+  key    = "bootstrap/keycloak-themes/lims-theme/login/theme.properties"
+  source = "${path.module}/../keycloak-themes/lims-theme/login/theme.properties"
+  etag   = filemd5("${path.module}/../keycloak-themes/lims-theme/login/theme.properties")
+
+  cache_control = "no-cache"
+}
+

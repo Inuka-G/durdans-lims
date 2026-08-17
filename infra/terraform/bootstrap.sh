@@ -82,6 +82,10 @@ mkdir -p /opt/lims/keycloak-imports
 aws s3 cp "s3://${S3_BUCKET}/bootstrap/lims-dev-seed.json" \
   /opt/lims/keycloak-imports/lims-dev-seed.json --region "${AWS_REGION}"
 
+mkdir -p /opt/lims/keycloak-themes/lims-theme/login
+aws s3 cp "s3://${S3_BUCKET}/bootstrap/keycloak-themes/lims-theme/login/" \
+  /opt/lims/keycloak-themes/lims-theme/login/ --recursive --region "${AWS_REGION}"
+
 # The committed demo realm only trusts localhost. Patch its public client to the
 # Terraform-computed live origin before the first (and only) realm import.
 export FRONTEND_ORIGIN
@@ -172,7 +176,9 @@ services:
     ports: [ "8081:8080" ]
     # --import-realm above is a no-op without this mount. Mirrors the same mount
     # in infra/docker-compose.yml.
-    volumes: [ "/opt/lims/keycloak-imports:/opt/keycloak/data/import:ro" ]
+    volumes:
+      - "/opt/lims/keycloak-imports:/opt/keycloak/data/import:ro"
+      - "/opt/lims/keycloak-themes:/opt/keycloak/themes"
     networks: [lims-net]
     depends_on: { kc-db: { condition: service_healthy } }
     restart: always
@@ -224,6 +230,13 @@ services:
       AWS_REGION: ${AWS_REGION}
       MAIL_USERNAME: ${MAIL_USERNAME}
       MAIL_PASSWORD: ${MAIL_PASSWORD}
+      SMS_PROVIDER: ${SMS_PROVIDER:-mock}
+      SMS_API_URL: ${SMS_API_URL:-http://sms.ozonedesk.com/api/v1/send.php}
+      SMS_USER_ID: ${SMS_USER_ID:-}
+      SMS_API_KEY: ${SMS_API_KEY:-}
+      SMS_SENDER_ID: ${SMS_SENDER_ID:-}
+      APP_VERIFICATION_BASE_URL: ${API_ORIGIN}
+      APP_SERVICES_PATIENT_BASE_URL: ${API_ORIGIN}
     ports: [ "11000:11000" ]
     networks: [lims-net]
     depends_on: { kafka: { condition: service_healthy }, keycloak: { condition: service_started } }

@@ -110,15 +110,15 @@ export default function LabelReprintPage() {
     return (
         <div>
             <div className="mb-6">
-                <h1 className="text-2xl font-bold text-slate-800">Label Reprint</h1>
-                <p className="text-sm text-slate-500 mt-1">Search and reprint sample barcode labels. Each print is recorded for audit.</p>
+                <h1 className="text-2xl font-bold text-slate-800">Label Print</h1>
+                <p className="text-sm text-slate-500 mt-1">Search and print sample barcode labels. Each print is recorded for audit.</p>
             </div>
 
             {/* Search */}
             <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-4 mb-6">
                 <div className="relative">
                     <span className="material-icons absolute left-3 top-1/2 -translate-y-1/2 text-lg text-slate-400">search</span>
-                    <input type="text" placeholder="Search by Sample ID, Patient ID, or Pateint Name" className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+                    <input type="text" placeholder="Search by Sample ID, Patient ID, or Patient Name" className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
                 </div>
             </div>
 
@@ -164,7 +164,7 @@ export default function LabelReprintPage() {
                             </div>
                             <button disabled={loadingSampleId === label.sampleUuid} onClick={() => void handlePrint(label)} className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-xs font-bold rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
                                 <span className="material-icons text-sm">{loadingSampleId === label.sampleUuid ? 'hourglass_top' : 'print'}</span>
-                                {loadingSampleId === label.sampleUuid ? 'Printing...' : 'Reprint Label'}
+                                {loadingSampleId === label.sampleUuid ? 'Printing...' : 'Print Label'}
                             </button>
                         </div>
                     </div>

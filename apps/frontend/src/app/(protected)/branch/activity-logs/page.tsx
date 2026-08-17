@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import * as XLSX from "xlsx";
 import { getAuditLogs, getMetadata, type AuditLog } from "@/lib/api";
 
 type LogStatus = "SUCCESS" | "FAILED" | "WARNING";
@@ -175,9 +176,7 @@ function isWithinDateRange(log: ActivityLogRow, startDate: string, endDate: stri
     return true;
 }
 
-function escapeCsv(value: string) {
-    return `"${value.replace(/"/g, '""')}"`;
-}
+
 
 export default function ActivityLogsPage() {
     const [branchName, setBranchName] = useState("Durdans Branch");
@@ -260,7 +259,7 @@ export default function ActivityLogsPage() {
     const criticalActions = logs.filter((log) => log.status === "FAILED" || log.status === "WARNING").length;
     const activeUsers = new Set(logs.map((log) => log.user).filter((user) => user && user.toUpperCase() !== "SYSTEM")).size;
 
-    const handleExportCSV = () => {
+    const handleExportExcel = () => {
         if (filteredLogs.length === 0) {
             toast.message("No logs to export based on current filters.");
             return;
@@ -278,18 +277,15 @@ export default function ActivityLogsPage() {
             log.ipAddress,
         ]);
 
-        const csvContent = [headers, ...rows]
-            .map((row) => row.map((value) => escapeCsv(String(value))).join(","))
-            .join("\n");
-        const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.setAttribute("download", `Activity_Logs_${new Date().toISOString().slice(0, 10)}.csv`);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
+        const worksheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+        const colWidths = headers.map((h, i) => ({
+            wch: Math.min(Math.max(h.length, ...rows.map((r) => String(r[i] ?? "").length)) + 2, 50),
+        }));
+        worksheet["!cols"] = colWidths;
+
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Activity Logs");
+        XLSX.writeFile(workbook, `Activity_Logs_${new Date().toISOString().slice(0, 10)}.xlsx`);
     };
 
     return (
@@ -388,11 +384,11 @@ export default function ActivityLogsPage() {
                             Refresh
                         </button>
                         <button
-                            onClick={handleExportCSV}
-                            className="flex items-center justify-center border border-slate-200 rounded-lg w-10 h-10 hover:bg-slate-50 transition-colors text-slate-500"
-                            title="Download CSV"
+                            onClick={handleExportExcel}
+                            className="flex items-center justify-center border border-emerald-200 bg-emerald-50 rounded-lg w-10 h-10 hover:bg-emerald-100 transition-colors text-emerald-600"
+                            title="Download Excel"
                         >
-                            <span className="material-icons text-[20px]">download</span>
+                            <span className="material-icons text-[20px]">table_view</span>
                         </button>
                     </div>
                 </div>
@@ -409,11 +405,11 @@ export default function ActivityLogsPage() {
                         />
                     </div>
                     <button
-                        onClick={handleExportCSV}
-                        className="flex items-center gap-2 border border-green-200 bg-green-50 text-green-700 hover:bg-green-100 rounded-lg px-4 py-2.5 font-bold text-sm transition-colors whitespace-nowrap"
+                        onClick={handleExportExcel}
+                        className="flex items-center gap-2 border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-lg px-4 py-2.5 font-bold text-sm transition-colors whitespace-nowrap"
                     >
-                        <span className="material-icons text-[18px]">sim_card_download</span>
-                        Export Logs (CSV)
+                        <span className="material-icons text-[18px]">table_view</span>
+                        Export Excel
                     </button>
                 </div>
             </div>
