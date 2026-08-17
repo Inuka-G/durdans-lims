@@ -74,7 +74,7 @@ export default function BarcodeReprintPage() {
 
             if (data.length === 0) {
                 setSelectedResult(null);
-                setError('No matching samples were found for barcode reprint.');
+                setError('No matching samples were found for barcode print.');
                 return;
             }
 
@@ -199,7 +199,7 @@ export default function BarcodeReprintPage() {
 
                 if (data.length === 0) {
                     setSelectedResult(null);
-                    setError('No matching samples were found for barcode reprint.');
+                    setError('No matching samples were found for barcode print.');
                     return;
                 }
 
@@ -240,8 +240,8 @@ export default function BarcodeReprintPage() {
                         Back to Quality Verification
                     </Link>
                 )}
-                <h1 className="text-2xl font-bold text-slate-800">Barcode Reprint</h1>
-                <p className="text-sm text-slate-500 mt-1">Search real samples and reprint accession barcode labels.</p>
+                <h1 className="text-2xl font-bold text-slate-800">Barcode Print</h1>
+                <p className="text-sm text-slate-500 mt-1">Search real samples and print accession barcode labels.</p>
             </div>
 
             {error && (
@@ -451,7 +451,7 @@ export default function BarcodeReprintPage() {
             ) : (
                 <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-12 text-center">
                     <span className="material-icons text-5xl text-slate-200 mb-3">qr_code_scanner</span>
-                    <p className="text-slate-400">Search for a real sample to view and reprint its barcode label.</p>
+                    <p className="text-slate-400">Search for a real sample to view and print its barcode label.</p>
                 </div>
             )}
 

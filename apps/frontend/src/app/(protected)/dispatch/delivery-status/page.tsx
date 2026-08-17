@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import * as XLSX from "xlsx";
 import {
     listDeliveryRecords,
     type DeliveryRecordRow,
@@ -119,27 +120,28 @@ export default function DeliveryStatusPage() {
 
     const handleExportAuditLog = () => {
         const data = rows.length ? rows : overview;
-        const exportRows = [
-            ["Report ID", "Patient", "Test", "Methods", "Status", "Dispatched", "Delivered", "Tracking"],
-            ...data.map((r) => [
-                r.reportId,
-                r.patientName,
-                r.testName,
-                r.methods.join(", "),
-                r.status,
-                r.dispatchedTime,
-                r.deliveredTime ?? "—",
-                r.trackingNumber ?? "",
-            ]),
-        ];
-        const csv = exportRows.map((row) => row.join(",")).join("\n");
-        const blob = new Blob([csv], { type: "text/csv" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = "delivery_audit_log.csv";
-        a.click();
-        URL.revokeObjectURL(url);
+        const headers = ["Report ID", "Patient", "Test", "Methods", "Status", "Dispatched", "Delivered", "Tracking"];
+        const exportRows = data.map((r) => [
+            r.reportId,
+            r.patientName,
+            r.testName,
+            r.methods.join(", "),
+            r.status,
+            r.dispatchedTime,
+            r.deliveredTime ?? "—",
+            r.trackingNumber ?? "",
+        ]);
+
+        const worksheet = XLSX.utils.aoa_to_sheet([headers, ...exportRows]);
+        const colWidths = headers.map((h, i) => ({
+            wch: Math.min(Math.max(h.length, ...exportRows.map((r) => String(r[i] ?? "").length)) + 2, 50),
+        }));
+        worksheet["!cols"] = colWidths;
+
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Delivery Audit Log");
+        const date = new Date().toISOString().slice(0, 10);
+        XLSX.writeFile(workbook, `delivery_audit_log_${date}.xlsx`);
     };
 
     const getStatusBadge = (status: string) => {
@@ -176,10 +178,10 @@ export default function DeliveryStatusPage() {
                     <button
                         type="button"
                         onClick={handleExportAuditLog}
-                        className="flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold border border-slate-200 rounded-lg bg-white text-slate-600 hover:bg-slate-50 transition-colors w-full sm:w-auto"
+                        className="flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold border border-emerald-200 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors w-full sm:w-auto"
                     >
-                        <span className="material-icons text-[18px]">download</span>
-                        Export Log
+                        <span className="material-icons text-[18px]">table_view</span>
+                        Export Excel
                     </button>
                 </div>
             </div>

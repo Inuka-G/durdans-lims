@@ -185,7 +185,7 @@ export default function ReceptionSampleDetailPage() {
                                     href={`/reception/barcode-reprint?query=${encodeURIComponent(detail.sampleId)}&returnTo=/reception/samples/${sampleUuid}`}
                                     className="font-semibold text-primary hover:underline"
                                 >
-                                    Barcode reprint
+                                    Barcode print
                                 </Link>
                                 .
                             </div>

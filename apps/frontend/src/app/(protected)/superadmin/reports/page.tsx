@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
+import * as XLSX from 'xlsx';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
 const initialBarData = [
@@ -131,50 +132,41 @@ export default function SuperadminReportsPage() {
         }
     };
 
-    // Export CSV function
-    const handleExportCSV = () => {
-        const csvRows = [];
+    // Export Excel function
+    const handleExportExcel = () => {
+        // Sheet 1: KPIs
+        const kpiSheet = XLSX.utils.aoa_to_sheet([
+            ["System Report", "Cross-Branch Performance"],
+            ["Branch Filter", selectedBranch],
+            ["Date Range", `${startDate} to ${endDate}`],
+            [],
+            ["Key Performance Indicators"],
+            ["Metric", "Value", "Change %"],
+            ["Total Patients", kpis.patients.replace(/,/g, ''), kpis.pChange],
+            ["Test Orders", kpis.orders.replace(/,/g, ''), kpis.oChange],
+            ["Revenue (LKR M)", kpis.revenue, kpis.rChange],
+            ["Pending Reports", kpis.pending, kpis.peChange],
+        ]);
 
-        // 1. Headers
-        csvRows.push(["System Report", "Cross-Branch Performance"]);
-        csvRows.push(["Branch Filter", selectedBranch]);
-        csvRows.push(["Date Range", `${startDate} to ${endDate}`]);
-        csvRows.push([]);
+        // Sheet 2: Category Breakdown
+        const catSheet = XLSX.utils.aoa_to_sheet([
+            ["Revenue by Category"],
+            ["Category", "Percentage (%)"],
+            ...pieData.map((item) => [item.name, item.value]),
+        ]);
 
-        // 2. KPIs
-        csvRows.push(["Key Performance Indicators"]);
-        csvRows.push(["Metric", "Value", "Change %"]);
-        csvRows.push(["Total Patients", kpis.patients.replace(/,/g, ''), kpis.pChange]);
-        csvRows.push(["Test Orders", kpis.orders.replace(/,/g, ''), kpis.oChange]);
-        csvRows.push(["Revenue (LKR M)", kpis.revenue, kpis.rChange]);
-        csvRows.push(["Pending Reports", kpis.pending, kpis.peChange]);
-        csvRows.push([]);
+        // Sheet 3: Revenue Trend
+        const trendSheet = XLSX.utils.aoa_to_sheet([
+            ["Revenue Trend"],
+            ["Date", "Revenue"],
+            ...barData.map((item) => [item.name || "N/A", item.revenue]),
+        ]);
 
-        // 3. Category Breakdown (Pie Data)
-        csvRows.push(["Revenue by Category"]);
-        csvRows.push(["Category", "Percentage (%)"]);
-        pieData.forEach(item => {
-            csvRows.push([item.name, item.value]);
-        });
-        csvRows.push([]);
-
-        // 4. Revenue Trend (Bar Data)
-        csvRows.push(["Revenue Trend"]);
-        csvRows.push(["Date", "Revenue"]);
-        barData.forEach(item => {
-            csvRows.push([item.name || "N/A", item.revenue]);
-        });
-
-        const csvContent = csvRows.map(row => row.join(",")).join("\n");
-
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.setAttribute("download", `Cross_Branch_Report_${startDate}_to_${endDate}.csv`);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, kpiSheet, "KPIs");
+        XLSX.utils.book_append_sheet(workbook, catSheet, "Revenue by Category");
+        XLSX.utils.book_append_sheet(workbook, trendSheet, "Revenue Trend");
+        XLSX.writeFile(workbook, `Cross_Branch_Report_${startDate}_to_${endDate}.xlsx`);
     };
 
     return (
@@ -277,11 +269,11 @@ export default function SuperadminReportsPage() {
                         {isExporting ? 'Generating...' : 'PDF'}
                     </button>
                     <button
-                        onClick={handleExportCSV}
+                        onClick={handleExportExcel}
                         className="flex items-center justify-center gap-2 bg-white border border-[#ecf0f6] hover:bg-[#f8fafc] text-[#0f172a] px-5 py-2.5 rounded-xl font-bold transition-colors shadow-sm text-[13px]"
                     >
-                        <span className="material-icons text-[#22c55e] text-[18px]">table_chart</span>
-                        CSV
+                        <span className="material-icons text-[#22c55e] text-[18px]">table_view</span>
+                        Excel
                     </button>
                 </div>
             </div>

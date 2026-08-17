@@ -152,10 +152,11 @@ public class PatientService {
 
                 Pageable pageable = PageRequest.of(page, size, sort);
 
-                // Tenant isolation: restrict to the caller's branch (all branches
-                // only for SUPER_ADMIN). resolveBranchScope() fails closed.
+                // Cross-branch search: patients can be registered at any branch
+                // but served at any other branch. All authenticated users may
+                // search across all branches — no branch scope restriction.
                 Specification<PatientEntity> specification = PatientSpecification.keywordInBranch(
-                                keyword, SecurityUtils.resolveBranchScope());
+                                keyword, null);
 
                 Page<PatientEntity> patients = patientRepository.findAll(specification, pageable);
 
@@ -180,18 +181,16 @@ public class PatientService {
 
                 Pageable pageable = PageRequest.of(page, size, sort);
 
-                // Tenant isolation: non-super-admins are pinned to their own
-                // branch and any client-supplied branchCode is ignored; a
-                // SUPER_ADMIN may filter by the requested branchCode (or all).
-                String scope = SecurityUtils.resolveBranchScope();
-                String effectiveBranch = (scope == null) ? branchCode : scope;
-
+                // Cross-branch patient search: patients are hospital-wide entities
+                // that may be registered at one branch and served at any other.
+                // If branchCode is explicitly requested (e.g., from Dashboard),
+                // we filter by that branch; otherwise, search spans all branches.
                 Specification<PatientEntity> specification = PatientSpecification.filterPatients(
                                 fullName,
                                 phone,
                                 identityNumber,
                                 email,
-                                effectiveBranch,
+                                branchCode,
                                 phoneVerified,
                                 emailVerified);
 

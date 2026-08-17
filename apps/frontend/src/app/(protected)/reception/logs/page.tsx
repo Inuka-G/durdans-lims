@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { AxiosError } from 'axios';
+import * as XLSX from 'xlsx';
 import { getAuditLogs, type AuditLog } from '@/lib/api';
 import { PRIORITY_COLORS, SAMPLE_STATUS_COLORS, formatStatusLabel } from '@/constants/sample-lifecycle';
 
@@ -103,7 +104,7 @@ export default function AccessioningLogsPage() {
             return;
         }
 
-        const headers = ['Sample ID', 'Patient', 'PID', 'Test', 'Priority', 'Action', 'Status', 'Rejection reason', 'Performed By', 'Timestamp', 'Notes'];
+        const headers = ['Sample ID', 'Patient', 'PID', 'Test', 'Priority', 'Action', 'Status', 'Rejection Reason', 'Performed By', 'Timestamp', 'Notes'];
         const rows = filtered.map((log) => [
             log.sampleId,
             log.patientName,
@@ -118,21 +119,24 @@ export default function AccessioningLogsPage() {
             log.notes,
         ]);
 
-        const csvContent = [headers, ...rows]
-            .map((row) => row.map(escapeCsvValue).join(','))
-            .join('\r\n');
+        const worksheetData = [headers, ...rows];
+        const worksheet = XLSX.utils.aoa_to_sheet(worksheetData);
 
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const url = window.URL.createObjectURL(blob);
-        const link = document.createElement('a');
+        // Auto-fit column widths based on content
+        const colWidths = headers.map((header, colIdx) => {
+            const maxLen = Math.max(
+                header.length,
+                ...rows.map((row) => String(row[colIdx] ?? '').length),
+            );
+            return { wch: Math.min(maxLen + 2, 50) };
+        });
+        worksheet['!cols'] = colWidths;
+
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, 'Accessioning Logs');
+
         const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-
-        link.href = url;
-        link.download = `accessioning-logs-${timestamp}.csv`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        window.URL.revokeObjectURL(url);
+        XLSX.writeFile(workbook, `accessioning-logs-${timestamp}.xlsx`);
     };
 
     return (
@@ -182,9 +186,9 @@ export default function AccessioningLogsPage() {
                             type="button"
                             onClick={handleExport}
                             disabled={filtered.length === 0}
-                            className="flex items-center gap-1.5 px-3 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-600 hover:bg-slate-50 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                            className="flex items-center gap-1.5 px-3 py-2.5 border border-emerald-300 rounded-xl text-sm text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                         >
-                            <span className="material-icons text-base">download</span>Export
+                            <span className="material-icons text-base">table_view</span>Export Excel
                         </button>
                     </div>
                 </div>
@@ -330,7 +334,4 @@ function getApiErrorMessage(error: unknown): string {
     return 'Unable to load accessioning logs right now. Please try again.';
 }
 
-function escapeCsvValue(value: string): string {
-    const normalized = value.replace(/"/g, '""');
-    return `"${normalized}"`;
-}
+

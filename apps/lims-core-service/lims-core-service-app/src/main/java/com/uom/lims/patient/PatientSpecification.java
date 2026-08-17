@@ -23,31 +23,31 @@ public class PatientSpecification {
             if (fullName != null && !fullName.isBlank()) {
                 predicates.add(criteriaBuilder.like(
                         criteriaBuilder.lower(root.get("fullName")),
-                        "%" + fullName.toLowerCase() + "%"));
+                        "%" + fullName.toLowerCase().trim() + "%"));
             }
 
             if (phone != null && !phone.isBlank()) {
                 predicates.add(criteriaBuilder.like(
                         root.get("phone"),
-                        "%" + phone + "%"));
+                        "%" + phone.trim() + "%"));
             }
 
             if (identityNumber != null && !identityNumber.isBlank()) {
-                predicates.add(criteriaBuilder.equal(
-                        root.get("identityNumber"),
-                        identityNumber));
+                predicates.add(criteriaBuilder.like(
+                        criteriaBuilder.lower(root.get("identityNumber")),
+                        "%" + identityNumber.toLowerCase().trim() + "%"));
             }
 
             if (email != null && !email.isBlank()) {
-                predicates.add(criteriaBuilder.equal(
-                        root.get("email"),
-                        email));
+                predicates.add(criteriaBuilder.like(
+                        criteriaBuilder.lower(root.get("email")),
+                        "%" + email.toLowerCase().trim() + "%"));
             }
 
             if (branchCode != null && !branchCode.isBlank()) {
                 predicates.add(criteriaBuilder.equal(
                         root.get("branchCode"),
-                        branchCode));
+                        branchCode.trim()));
             }
 
             if (phoneVerified != null) {
@@ -67,28 +67,37 @@ public class PatientSpecification {
     }
 
     /**
-     * Keyword search (name OR phone) restricted to a branch.
+     * Keyword search (name, phone, patientCode, identityNumber, email) optionally restricted to a branch.
      *
      * @param branchScope branch to restrict to; {@code null} means no restriction
-     *                    (granted only to SUPER_ADMIN — callers must derive this
-     *                    from {@code SecurityUtils.resolveBranchScope()}).
+     *                    (enabling universal cross-branch patient search).
      */
     public static Specification<PatientEntity> keywordInBranch(String keyword, String branchScope) {
         return (root, query, criteriaBuilder) -> {
             List<Predicate> predicates = new ArrayList<>();
 
             if (keyword != null && !keyword.isBlank()) {
+                String pattern = "%" + keyword.toLowerCase().trim() + "%";
                 predicates.add(criteriaBuilder.or(
                         criteriaBuilder.like(
                                 criteriaBuilder.lower(root.get("fullName")),
-                                "%" + keyword.toLowerCase() + "%"),
+                                pattern),
                         criteriaBuilder.like(
                                 root.get("phone"),
-                                "%" + keyword + "%")));
+                                "%" + keyword.trim() + "%"),
+                        criteriaBuilder.like(
+                                criteriaBuilder.lower(root.get("patientCode")),
+                                pattern),
+                        criteriaBuilder.like(
+                                criteriaBuilder.lower(root.get("identityNumber")),
+                                pattern),
+                        criteriaBuilder.like(
+                                criteriaBuilder.lower(root.get("email")),
+                                pattern)));
             }
 
-            if (branchScope != null) {
-                predicates.add(criteriaBuilder.equal(root.get("branchCode"), branchScope));
+            if (branchScope != null && !branchScope.isBlank()) {
+                predicates.add(criteriaBuilder.equal(root.get("branchCode"), branchScope.trim()));
             }
 
             return criteriaBuilder.and(predicates.toArray(new Predicate[0]));

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
+import * as XLSX from 'xlsx';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
 const initialBarData = [
@@ -134,54 +135,40 @@ export default function BranchReportsPage() {
         }
     };
 
-    // Export CSV function
-    const handleExportCSV = () => {
-        // Prepare data structure
-        const csvRows = [];
+    // Export Excel function
+    const handleExportExcel = () => {
+        // Sheet 1: KPIs
+        const kpiSheet = XLSX.utils.aoa_to_sheet([
+            ["Branch Report", "Colombo Branch"],
+            ["Date Range", `${startDate} to ${endDate}`],
+            [],
+            ["Key Performance Indicators"],
+            ["Metric", "Value", "Change %"],
+            ["Total Patients", kpis.patients.replace(',', ''), kpis.pChange],
+            ["Test Orders", kpis.orders.replace(',', ''), kpis.oChange],
+            ["Revenue (LKR M)", kpis.revenue, kpis.rChange],
+            ["Pending Reports", kpis.pending, kpis.peChange],
+        ]);
 
-        // 1. Headers
-        csvRows.push(["Branch Report", "Colombo Branch"]);
-        csvRows.push(["Date Range", `${startDate} to ${endDate}`]);
-        csvRows.push([]); // empty line
+        // Sheet 2: Category Breakdown
+        const catSheet = XLSX.utils.aoa_to_sheet([
+            ["Revenue by Category"],
+            ["Category", "Percentage (%)"],
+            ...pieData.map((item) => [item.name, item.value]),
+        ]);
 
-        // 2. KPIs
-        csvRows.push(["Key Performance Indicators"]);
-        csvRows.push(["Metric", "Value", "Change %"]);
-        csvRows.push(["Total Patients", kpis.patients.replace(',', ''), kpis.pChange]);
-        csvRows.push(["Test Orders", kpis.orders.replace(',', ''), kpis.oChange]);
-        csvRows.push(["Revenue (LKR M)", kpis.revenue, kpis.rChange]);
-        csvRows.push(["Pending Reports", kpis.pending, kpis.peChange]);
-        csvRows.push([]);
+        // Sheet 3: Revenue Trend
+        const trendSheet = XLSX.utils.aoa_to_sheet([
+            ["Revenue Trend"],
+            ["Date", "Revenue"],
+            ...barData.map((item) => [item.name || "N/A", item.revenue]),
+        ]);
 
-        // 3. Category Breakdown (Pie Data)
-        csvRows.push(["Revenue by Category"]);
-        csvRows.push(["Category", "Percentage (%)"]);
-        pieData.forEach(item => {
-            csvRows.push([item.name, item.value]);
-        });
-        csvRows.push([]);
-
-        // 4. Revenue Trend (Bar Data)
-        csvRows.push(["Revenue Trend"]);
-        csvRows.push(["Date", "Revenue"]);
-        barData.forEach(item => {
-            // Keep actual label if exists, else estimate day progression or just leave empty depending on need
-            // For this mock, we'll just dump whatever is in the 'name' column plus the raw revenue
-            csvRows.push([item.name || "N/A", item.revenue]);
-        });
-
-        // Convert array of arrays to CSV string
-        const csvContent = csvRows.map(row => row.join(",")).join("\n");
-
-        // Create Blob and download link
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.setAttribute("download", `Branch_Report_Data_${startDate}_to_${endDate}.csv`);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, kpiSheet, "KPIs");
+        XLSX.utils.book_append_sheet(workbook, catSheet, "Revenue by Category");
+        XLSX.utils.book_append_sheet(workbook, trendSheet, "Revenue Trend");
+        XLSX.writeFile(workbook, `Branch_Report_Data_${startDate}_to_${endDate}.xlsx`);
     };
 
     return (
@@ -265,11 +252,11 @@ export default function BranchReportsPage() {
                         {isExporting ? 'Generating...' : 'PDF'}
                     </button>
                     <button
-                        onClick={handleExportCSV}
+                        onClick={handleExportExcel}
                         className="flex items-center justify-center gap-2 bg-white border border-[#ecf0f6] hover:bg-[#f8fafc] text-[#0f172a] px-5 py-2.5 rounded-xl font-bold transition-colors shadow-sm text-[13px]"
                     >
-                        <span className="material-icons text-[#22c55e] text-[18px]">table_chart</span>
-                        CSV
+                        <span className="material-icons text-[#22c55e] text-[18px]">table_view</span>
+                        Excel
                     </button>
                 </div>
             </div>
