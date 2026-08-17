@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 const navItems = [
     { name: "Sample Worklist", icon: "assignment", href: "/phlebotomy/worklist", iconColor: "text-blue-600", iconBg: "bg-blue-100" },
     { name: "Collection History", icon: "history", href: "/phlebotomy/collection-history", iconColor: "text-emerald-600", iconBg: "bg-emerald-100" },
-    { name: "Label Reprint", icon: "print", href: "/phlebotomy/label-reprint", iconColor: "text-violet-600", iconBg: "bg-violet-100" },
+    { name: "Label Print", icon: "print", href: "/phlebotomy/label-reprint", iconColor: "text-violet-600", iconBg: "bg-violet-100" },
     { name: "Supplies Inventory", icon: "inventory_2", href: "/phlebotomy/supplies", iconColor: "text-amber-600", iconBg: "bg-amber-100" },
 ];
 

@@ -156,7 +156,7 @@ export default function QualityVerificationPage() {
         const storedChecks = readStoredChecks(selectedSample.sampleId);
         clearStoredChecks(selectedSample.sampleId);
         setChecks({ window: true, ...storedChecks, barcode: true });
-        setSuccessMessage('Barcode reprint recorded. Barcode integrity has been marked as complete.');
+        setSuccessMessage('Barcode print recorded. Barcode integrity has been marked as complete.');
         router.replace(`/reception/quality-verification?sampleId=${selectedSample.sampleId}`, { scroll: false });
     }, [barcodeReprinted, router, selectedSample]);
 
@@ -552,7 +552,7 @@ export default function QualityVerificationPage() {
                                                         </p>
                                                         {isBarcodeCheck && !checked && (
                                                             <p className="text-[11px] text-amber-600 mt-2 font-medium">
-                                                                If the barcode is damaged but the specimen is otherwise acceptable, reprint the label before continuing.
+                                                                If the barcode is damaged but the specimen is otherwise acceptable, print the label before continuing.
                                                             </p>
                                                         )}
                                                     </div>
@@ -564,7 +564,7 @@ export default function QualityVerificationPage() {
                                                         className="flex items-center gap-1.5 px-3 py-2 border border-primary/20 text-primary text-xs font-bold rounded-xl hover:bg-primary/5 transition-colors flex-shrink-0"
                                                     >
                                                         <span className="material-icons text-sm">qr_code_2</span>
-                                                        Reprint Barcode
+                                                        Print Barcode
                                                     </button>
                                                 )}
                                                 {checked && (

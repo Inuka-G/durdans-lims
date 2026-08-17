@@ -108,7 +108,7 @@ app:
     overdue-threshold-hours: 24
 
   services:
-    patient-base-url: http://localhost:11000
+    patient-base-url: ${APP_SERVICES_PATIENT_BASE_URL:http://localhost:11000}
 
   kafka:
     lab-report-listener-enabled: false
@@ -128,7 +128,7 @@ app:
       - jpeg
 
   verification:
-    base-url: http://localhost:11000
+    base-url: ${APP_VERIFICATION_BASE_URL:http://localhost:11000}
 
   # Use `mock` for local/test runs. Set SMS_PROVIDER=ozonedesk and supply the
   # remaining values to send report-ready notifications and patient OTPs.

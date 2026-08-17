@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 const navItems = [
     { name: "Reception Worklist", icon: "assignment", href: "/reception/accessioning", iconColor: "text-blue-600", iconBg: "bg-blue-100" },
     { name: "Quality Verification", icon: "verified", href: "/reception/quality-verification", iconColor: "text-emerald-600", iconBg: "bg-emerald-100" },
-    { name: "Barcode Reprint", icon: "qr_code_scanner", href: "/reception/barcode-reprint", iconColor: "text-violet-600", iconBg: "bg-violet-100" },
+    { name: "Barcode Print", icon: "qr_code_scanner", href: "/reception/barcode-reprint", iconColor: "text-violet-600", iconBg: "bg-violet-100" },
     { name: "Accessioning Logs", icon: "history", href: "/reception/logs", iconColor: "text-amber-600", iconBg: "bg-amber-100" },
 ];
 

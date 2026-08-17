@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
+import * as XLSX from "xlsx";
 
 // Mock Data for Global Audit Trail
 const MOCK_LOGS = [
@@ -129,15 +130,15 @@ export default function GlobalAuditTrailsPage() {
     const uniqueModules = ["All Modules", ...Array.from(new Set(MOCK_LOGS.map(log => log.module)))];
     const uniqueActions = ["All Actions", ...Array.from(new Set(MOCK_LOGS.map(log => log.action)))];
 
-    const handleExportCSV = () => {
+    const handleExportExcel = () => {
         if (filteredLogs.length === 0) {
             toast.message("No logs to export based on current filters.");
             return;
         }
 
         const headers = ["Timestamp", "User", "Role", "Branch", "Module", "Action", "Entity ID", "Status", "IP Address"];
-        const rows = filteredLogs.map(log => [
-            log.timestamp.replace(/,/g, ''),
+        const rows = filteredLogs.map((log) => [
+            log.timestamp,
             log.user,
             log.role,
             log.branch,
@@ -145,18 +146,18 @@ export default function GlobalAuditTrailsPage() {
             log.action,
             log.entityId,
             log.status,
-            log.ipAddress
+            log.ipAddress,
         ]);
 
-        const csvContent = [headers.join(","), ...rows.map(row => row.join(","))].join("\\n");
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.setAttribute("download", `Global_Audit_Logs_${new Date().toISOString().split('T')[0]}.csv`);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        const worksheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+        const colWidths = headers.map((h, i) => ({
+            wch: Math.min(Math.max(h.length, ...rows.map((r) => String(r[i] ?? "").length)) + 2, 50),
+        }));
+        worksheet["!cols"] = colWidths;
+
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Global Audit Logs");
+        XLSX.writeFile(workbook, `Global_Audit_Logs_${new Date().toISOString().split('T')[0]}.xlsx`);
     };
 
     return (
@@ -278,11 +279,11 @@ export default function GlobalAuditTrailsPage() {
                             Apply Filters
                         </button>
                         <button
-                            onClick={handleExportCSV}
-                            className="flex items-center gap-2 border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:text-slate-900 rounded-xl px-5 py-2.5 font-bold transition-colors whitespace-nowrap shadow-sm"
+                            onClick={handleExportExcel}
+                            className="flex items-center gap-2 border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-xl px-5 py-2.5 font-bold transition-colors whitespace-nowrap shadow-sm"
                         >
-                            <span className="material-icons text-[18px]">sim_card_download</span>
-                            Export (CSV)
+                            <span className="material-icons text-[18px]">table_view</span>
+                            Export Excel
                         </button>
                     </div>
                 </div>

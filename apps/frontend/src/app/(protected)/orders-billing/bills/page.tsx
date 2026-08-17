@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
+import * as XLSX from 'xlsx';
 import type { Bill } from '@/types/orders-billing';
 import { formatCurrency, PAYMENT_STATUS_COLORS, formatDate, formatDateTime } from '@/constants/orders-billing';
 import { getOrdersBillingStats, getOrders, getBillByOrderId } from '@/lib/api';
@@ -121,52 +122,37 @@ export default function BillsPaymentsPage() {
     const handleExport = () => {
         const exportData = filtered.map((b) => {
             const dateObj = new Date(getBillDateTime(b));
-
             return {
                 billId: b.billId,
                 orderId: b.orderId,
                 patientId: b.patientId,
                 patientName: b.patientName,
                 date: dateObj.toLocaleDateString(),
-                time: dateObj.toLocaleTimeString(), // ✔ now correct
+                time: dateObj.toLocaleTimeString(),
                 totalAmount: b.totalAmount,
             };
         });
 
-        const headers = [
-            "Bill ID",
-            "Order ID",
-            "Patient ID",
-            "Patient Name",
-            "Date",
-            "Time",
-            "Total Amount"
-        ];
+        const headers = ["Bill ID", "Order ID", "Patient ID", "Patient Name", "Date", "Time", "Total Amount"];
+        const rows = exportData.map((row) => [
+            row.billId,
+            row.orderId,
+            row.patientId,
+            row.patientName,
+            row.date,
+            row.time,
+            row.totalAmount,
+        ]);
 
-        const csvRows = [
-            headers.join(","),
-            ...exportData.map(row =>
-                [
-                    row.billId,
-                    row.orderId,
-                    row.patientId,
-                    `"${row.patientName}"`,
-                    row.date,
-                    row.time,
-                    row.totalAmount
-                ].join(",")
-            )
-        ];
+        const worksheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+        const colWidths = headers.map((h, i) => ({
+            wch: Math.min(Math.max(h.length, ...rows.map((r) => String(r[i] ?? '').length)) + 2, 50),
+        }));
+        worksheet['!cols'] = colWidths;
 
-        const blob = new Blob([csvRows.join("\n")], { type: "text/csv" });
-        const url = URL.createObjectURL(blob);
-
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `bills_export_${new Date().toISOString().split("T")[0]}.csv`;
-        a.click();
-
-        URL.revokeObjectURL(url);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, 'Bills');
+        XLSX.writeFile(workbook, `bills_export_${new Date().toISOString().split('T')[0]}.xlsx`);
     };
 
     const totalCollected = bills.reduce(
@@ -235,10 +221,10 @@ export default function BillsPaymentsPage() {
                     </button>
                     <button
                         onClick={handleExport}
-                        className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-slate-600 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors"
+                        className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl hover:bg-emerald-100 transition-colors"
                     >
-                        <span className="material-icons text-lg">download</span>
-                        Export
+                        <span className="material-icons text-lg">table_view</span>
+                        Export Excel
                     </button>
                 </div>
             </div>
