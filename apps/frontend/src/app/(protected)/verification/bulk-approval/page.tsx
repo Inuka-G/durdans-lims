@@ -39,6 +39,8 @@ export default function BulkApprovalPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [isConfirming, setIsConfirming] = useState(false);
+    const [supervisorNote, setSupervisorNote] = useState("");
 
     useEffect(() => {
         const loadBulkWorklist = async () => {
@@ -123,8 +125,11 @@ export default function BulkApprovalPage() {
                 resultIds: selectedResultIds,
                 status: "TECHNICALLY_VERIFIED",
                 mltNotes: "Bulk technically verified by lab supervisor.",
+                supervisorNote: supervisorNote.trim() || undefined,
             });
 
+            setIsConfirming(false);
+            setSupervisorNote("");
             router.push("/verification/pending");
         } catch (submitError) {
             console.error("Failed to bulk approve results", submitError);
@@ -422,13 +427,71 @@ export default function BulkApprovalPage() {
                         Clear Selection
                     </button>
                     <button
-                        onClick={handleApprove}
+                        onClick={() => setIsConfirming(true)}
                         disabled={isSubmitting || selectedResultIds.length === 0}
                         className="px-5 py-2.5 text-sm font-bold border-none rounded-lg bg-primary text-white hover:bg-primary/90 transition-colors flex items-center gap-2 shadow-sm shadow-primary/30 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                         <span className="material-icons text-[18px]">check_circle</span>
                         Approve Safe Results
                     </button>
+                </div>
+            )}
+
+            {isConfirming && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+                    <div
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="bulk-approve-title"
+                        className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl"
+                    >
+                        <h2 id="bulk-approve-title" className="text-lg font-bold text-slate-900">
+                            Approve {selectedResultIds.length} safe{" "}
+                            {selectedResultIds.length === 1 ? "case" : "cases"}?
+                        </h2>
+                        <p className="mt-2 text-sm text-slate-500">
+                            Every parameter on these specimens is within its reference range. Each
+                            case will be marked technically verified under your name and released to
+                            the pathologist worklist.
+                        </p>
+
+                        <label
+                            htmlFor="supervisor-note"
+                            className="mt-5 block text-xs font-bold uppercase tracking-wider text-slate-500"
+                        >
+                            Supervisor remark <span className="font-medium normal-case">(optional)</span>
+                        </label>
+                        <textarea
+                            id="supervisor-note"
+                            rows={3}
+                            value={supervisorNote}
+                            onChange={(event) => setSupervisorNote(event.target.value)}
+                            placeholder="Recorded against every case in this batch, e.g. run and controls reviewed."
+                            className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20"
+                        />
+
+                        <div className="mt-6 flex justify-end gap-3">
+                            <button
+                                type="button"
+                                onClick={() => setIsConfirming(false)}
+                                disabled={isSubmitting}
+                                className="rounded-lg border border-slate-200 bg-white px-5 py-2.5 text-sm font-bold text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleApprove}
+                                disabled={isSubmitting}
+                                className="flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-bold text-white shadow-sm shadow-primary/30 transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                                <span className="material-icons text-[18px]">
+                                    {isSubmitting ? "hourglass_top" : "check_circle"}
+                                </span>
+                                {isSubmitting ? "Approving..." : "Confirm Approval"}
+                            </button>
+                        </div>
+                    </div>
                 </div>
             )}
         </div>

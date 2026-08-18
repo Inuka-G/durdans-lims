@@ -29,6 +29,8 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, UUID> {
                         FROM audit_log a
                         WHERE a.entity_type = :entityType
                           AND a.action IN (:actions)
+                          AND (CAST(:fromTimestamp AS TIMESTAMP) IS NULL
+                                OR a.timestamp >= CAST(:fromTimestamp AS TIMESTAMP))
                           AND (
                                 :search IS NULL
                                 OR LOWER(COALESCE(CAST(a.entity_id AS TEXT), '')) LIKE LOWER(CONCAT('%%', CAST(:search AS TEXT), '%%'))
@@ -41,6 +43,8 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, UUID> {
                         FROM audit_log a
                         WHERE a.entity_type = :entityType
                           AND a.action IN (:actions)
+                          AND (CAST(:fromTimestamp AS TIMESTAMP) IS NULL
+                                OR a.timestamp >= CAST(:fromTimestamp AS TIMESTAMP))
                           AND (
                                 :search IS NULL
                                 OR LOWER(COALESCE(CAST(a.entity_id AS TEXT), '')) LIKE LOWER(CONCAT('%%', CAST(:search AS TEXT), '%%'))
@@ -48,10 +52,17 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, UUID> {
                                 OR LOWER(COALESCE(CAST(a.details AS TEXT), '')) LIKE LOWER(CONCAT('%%', CAST(:search AS TEXT), '%%'))
                               )
                         """, nativeQuery = true)
+        /**
+         * @param fromTimestamp inclusive lower bound for the audit timestamp, or
+         *                      {@code null} for "all time". Lets the history screens
+         *                      offer Today / Last 7 days / Last 30 days without
+         *                      pulling the whole trail back and filtering in the UI.
+         */
         Page<AuditLog> findHistoryByEntityTypeAndActions(
                         @Param("entityType") String entityType,
                         @Param("actions") java.util.List<String> actions,
                         @Param("search") String search,
+                        @Param("fromTimestamp") java.time.LocalDateTime fromTimestamp,
                         Pageable pageable);
 
         Page<AuditLog> findByEntityTypeAndActionInOrderByTimestampDesc(

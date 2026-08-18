@@ -8,6 +8,11 @@ import {
 } from "@/lib/api";
 import { PRIORITY_COLORS, formatStatusLabel } from "@/constants/sample-lifecycle";
 import { formatDisplayId } from "@/lib/format-id";
+import {
+    HISTORY_DATE_RANGES,
+    resolveFromTimestamp,
+    type HistoryDateRange,
+} from "@/lib/history-date-range";
 
 const PAGE_SIZE = 10;
 
@@ -72,13 +77,14 @@ export default function VerificationHistoryPage() {
     const [error, setError] = useState<string | null>(null);
     const [page, setPage] = useState(0);
     const [statusFilter, setStatusFilter] = useState("ALL");
+    const [dateRange, setDateRange] = useState<HistoryDateRange>("ALL");
     const [search, setSearch] = useState("");
     const [totalPages, setTotalPages] = useState(1);
     const [totalElements, setTotalElements] = useState(0);
 
     useEffect(() => {
         setPage(0);
-    }, [search, statusFilter]);
+    }, [search, statusFilter, dateRange]);
 
     useEffect(() => {
         const loadHistory = async () => {
@@ -89,6 +95,7 @@ export default function VerificationHistoryPage() {
                 const historyPage = await getVerificationHistory(page, PAGE_SIZE, {
                     actionType: statusFilter === "ALL" ? undefined : statusFilter,
                     search: search.trim() || undefined,
+                    fromTimestamp: resolveFromTimestamp(dateRange),
                 });
 
                 setHistoryItems(historyPage.content);
@@ -106,9 +113,10 @@ export default function VerificationHistoryPage() {
         };
 
         void loadHistory();
-    }, [page, search, statusFilter]);
+    }, [page, search, statusFilter, dateRange]);
 
-    const hasActiveFilters = search.trim().length > 0 || statusFilter !== "ALL";
+    const hasActiveFilters =
+        search.trim().length > 0 || statusFilter !== "ALL" || dateRange !== "ALL";
 
     return (
         <div className="max-w-[1400px] mx-auto">
@@ -141,7 +149,7 @@ export default function VerificationHistoryPage() {
                         </span>
                         <input
                             type="text"
-                            placeholder="Search by result ID, test group, or user..."
+                            placeholder="Search by patient name, patient code, result ID, test group, or user..."
                             value={search}
                             onChange={(event) => setSearch(event.target.value)}
                             className="w-full pl-10 pr-4 py-2.5 text-sm font-medium border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
@@ -159,6 +167,29 @@ export default function VerificationHistoryPage() {
                         <option value="VERIFICATION_RETURNED_TO_MLT">Returned to MLT</option>
                     </select>
                 </div>
+                <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                        Period
+                    </span>
+                    {HISTORY_DATE_RANGES.map((range) => {
+                        const isActive = dateRange === range.key;
+                        return (
+                            <button
+                                key={range.key}
+                                type="button"
+                                onClick={() => setDateRange(range.key)}
+                                aria-pressed={isActive}
+                                className={`rounded-lg px-3 py-1.5 text-xs font-bold transition-colors ${
+                                    isActive
+                                        ? "bg-primary text-white"
+                                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                                }`}
+                            >
+                                {range.label}
+                            </button>
+                        );
+                    })}
+                </div>
             </div>
 
             <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm overflow-hidden">
@@ -168,6 +199,7 @@ export default function VerificationHistoryPage() {
                             <tr>
                                 <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Timestamp</th>
                                 <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Priority</th>
+                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Patient</th>
                                 <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Result ID</th>
                                 <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Test Group</th>
                                 <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Action</th>
@@ -179,7 +211,7 @@ export default function VerificationHistoryPage() {
                         <tbody className="divide-y divide-slate-50">
                             {loading ? (
                                 <tr>
-                                    <td colSpan={8} className="px-4 py-16 text-center text-slate-500">
+                                    <td colSpan={9} className="px-4 py-16 text-center text-slate-500">
                                         <div className="flex flex-col items-center gap-3">
                                             <span className="material-icons animate-spin text-primary text-3xl">
                                                 sync
@@ -192,7 +224,7 @@ export default function VerificationHistoryPage() {
                                 </tr>
                             ) : error ? (
                                 <tr>
-                                    <td colSpan={8} className="px-4 py-16 text-center text-slate-500">
+                                    <td colSpan={9} className="px-4 py-16 text-center text-slate-500">
                                         <div className="flex flex-col items-center gap-3">
                                             <span className="material-icons text-4xl text-red-200">
                                                 error
@@ -203,7 +235,7 @@ export default function VerificationHistoryPage() {
                                 </tr>
                             ) : historyItems.length === 0 ? (
                                 <tr>
-                                    <td colSpan={8} className="px-4 py-16 text-center text-slate-500">
+                                    <td colSpan={9} className="px-4 py-16 text-center text-slate-500">
                                         <div className="flex flex-col items-center gap-3">
                                             <span className="material-icons text-4xl text-slate-200">
                                                 history
@@ -243,6 +275,16 @@ export default function VerificationHistoryPage() {
                                                     </span>
                                                 ) : (
                                                     <span className="text-sm text-slate-400">—</span>
+                                                )}
+                                            </td>
+                                            <td className="px-4 py-3">
+                                                <p className="text-sm font-semibold text-slate-800">
+                                                    {item.patientName || "Unknown patient"}
+                                                </p>
+                                                {item.patientCode && (
+                                                    <p className="mt-0.5 font-mono text-xs text-slate-500">
+                                                        {item.patientCode}
+                                                    </p>
                                                 )}
                                             </td>
                                             <td className="px-4 py-3">
