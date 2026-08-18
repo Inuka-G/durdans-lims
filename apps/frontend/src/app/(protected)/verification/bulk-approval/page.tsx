@@ -98,6 +98,8 @@ export default function BulkApprovalPage() {
         );
     };
 
+    // Deliberately replaces the selection rather than adding to it: a supervisor
+    // must never approve a batch that the current filters have scrolled off screen.
     const selectAll = () => {
         setBatches((previous) =>
             previous.map((batch) => ({
@@ -403,7 +405,7 @@ export default function BulkApprovalPage() {
             </div>
 
             {selectedBatches.length > 0 && (
-                <div className="fixed bottom-6 left-[280px] right-8 bg-white border border-slate-200 rounded-xl p-4 flex items-center shadow-[0_10px_30px_-10px_rgba(0,0,0,0.1)] z-40 gap-8">
+                <div className="fixed bottom-6 left-0 lg:left-64 right-8 bg-white border border-slate-200 rounded-xl p-4 flex flex-wrap items-center shadow-[0_10px_30px_-10px_rgba(0,0,0,0.1)] z-40 gap-x-8 gap-y-3">
                     <div>
                         <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Selected Groups</div>
                         <div className="text-base font-bold text-slate-800 mt-0.5">{selectedBatches.length} Groups Selected</div>

@@ -29,6 +29,14 @@ const RESULT_FLAG_CONFIG: Record<string, { label: string; className: string }> =
     CRITICAL_HIGH: { label: 'CRITICAL HIGH', className: 'bg-red-100 text-red-700' },
 };
 
+const SUPERVISOR_APPROVE_CHECKS = [
+    { id: 'approve-check-patient-test-match', label: 'Patient & Test group match confirmed' },
+    { id: 'approve-check-required-parameters', label: 'All required parameters entered' },
+    { id: 'approve-check-abnormal-flags', label: 'Abnormal/critical flags reviewed' },
+    { id: 'approve-check-qc-status', label: 'QC status reviewed' },
+    { id: 'approve-check-mlt-notes', label: 'MLT notes reviewed' },
+];
+
 const getFlagDisplay = (flag?: string | null) => {
     if (!flag) {
         return '-';
@@ -106,6 +114,7 @@ export default function ReviewCasePage() {
     const [returnReason, setReturnReason] = useState('');
     const [returnError, setReturnError] = useState<string | null>(null);
     const [approveNote, setApproveNote] = useState('');
+    const [approveChecks, setApproveChecks] = useState<string[]>([]);
     const [submitError, setSubmitError] = useState<string | null>(null);
     const [requiresQcOverride, setRequiresQcOverride] = useState(false);
 
@@ -187,6 +196,18 @@ export default function ReviewCasePage() {
     const reviewerRole = 'Lab Supervisor';
     const canReviewActions =
         resultDetail?.status === 'ENTERED' || resultDetail?.status === 'RETURNED_FOR_RECHECK';
+    const allApproveChecksConfirmed = approveChecks.length === SUPERVISOR_APPROVE_CHECKS.length;
+
+    const toggleApproveCheck = (checkId: string) => {
+        setApproveChecks((current) =>
+            current.includes(checkId)
+                ? current.filter((entry) => entry !== checkId)
+                : [...current, checkId]
+        );
+        if (submitError) {
+            setSubmitError(null);
+        }
+    };
 
     const resolveSubmitErrorMessage = (
         action: 'approve' | 'return',
@@ -221,6 +242,10 @@ export default function ReviewCasePage() {
             setSubmitError('This case has already been processed. Actions reopen only after a clinical return for recheck.');
             return;
         }
+        if (!allApproveChecksConfirmed) {
+            setSubmitError('Confirm all 5 supervisor approve checks before approving this result.');
+            return;
+        }
         const trimmedSupervisorNote = approveNote.trim();
 
         if (requiresQcOverride && trimmedSupervisorNote.length < 20) {
@@ -243,6 +268,7 @@ export default function ReviewCasePage() {
             });
             setShowApproveModal(false);
             setApproveNote('');
+            setApproveChecks([]);
             setRequiresQcOverride(false);
             router.push('/verification/pending');
         } catch (submitError) {
@@ -420,6 +446,7 @@ export default function ReviewCasePage() {
                                     }
                                     setShowApproveModal(false);
                                     setApproveNote('');
+                                    setApproveChecks([]);
                                     setRequiresQcOverride(false);
                                     setSubmitError(null);
                                 }}
@@ -429,8 +456,44 @@ export default function ReviewCasePage() {
                             </button>
                         </div>
 
-                        <div className="px-6 py-5">
-                            <label className="block text-sm font-semibold text-slate-700" htmlFor="approve-note">
+                        <div className="max-h-[80vh] overflow-y-auto px-6 py-5">
+                            <div className="rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3">
+                                <div className="flex items-center justify-between gap-3">
+                                    <span className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                                        Supervisor Approve Checks
+                                    </span>
+                                    <span
+                                        className={`rounded-md px-2 py-0.5 text-[11px] font-bold ${
+                                            allApproveChecksConfirmed
+                                                ? 'bg-emerald-100 text-emerald-700'
+                                                : 'bg-amber-100 text-amber-700'
+                                        }`}
+                                    >
+                                        {approveChecks.length}/{SUPERVISOR_APPROVE_CHECKS.length} confirmed
+                                    </span>
+                                </div>
+                                <ul className="mt-2.5 space-y-1.5">
+                                    {SUPERVISOR_APPROVE_CHECKS.map((check) => (
+                                        <li key={check.id} className="flex items-start gap-2.5">
+                                            <input
+                                                id={check.id}
+                                                type="checkbox"
+                                                checked={approveChecks.includes(check.id)}
+                                                onChange={() => toggleApproveCheck(check.id)}
+                                                className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                                            />
+                                            <label
+                                                htmlFor={check.id}
+                                                className="cursor-pointer text-[13px] font-medium leading-5 text-slate-600"
+                                            >
+                                                {check.label}
+                                            </label>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+
+                            <label className="mt-5 block text-sm font-semibold text-slate-700" htmlFor="approve-note">
                                 Lab Supervisor Note{requiresQcOverride ? ' (Required)' : ''}
                             </label>
                             <textarea
@@ -468,6 +531,7 @@ export default function ReviewCasePage() {
                                 onClick={() => {
                                     setShowApproveModal(false);
                                     setApproveNote('');
+                                    setApproveChecks([]);
                                     setRequiresQcOverride(false);
                                     setSubmitError(null);
                                 }}
@@ -479,7 +543,7 @@ export default function ReviewCasePage() {
                             <button
                                 type="button"
                                 onClick={handleApprove}
-                                disabled={isSubmitting}
+                                disabled={isSubmitting || !allApproveChecksConfirmed}
                                 className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
                             >
                                 Confirm Approval

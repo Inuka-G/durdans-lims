@@ -13,6 +13,7 @@ import {
     TestResultDetail,
 } from '@/lib/api';
 import type { PatientDocument } from '@/lib/api';
+import { formatDisplayId } from '@/lib/format-id';
 
 const getInitials = (value: string) =>
     value
@@ -464,8 +465,11 @@ export default function ClinicalReviewPage() {
                     <div className="hidden lg:block w-px h-6 bg-slate-200" />
                     <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                         <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Reviewing Case</span>
-                        <span className="px-2.5 py-1 bg-slate-100/80 rounded-md text-xs font-bold text-slate-600 font-mono border border-slate-200">
-                            {sampleId}
+                        <span
+                            title={sampleId}
+                            className="px-2.5 py-1 bg-slate-100/80 rounded-md text-xs font-bold text-slate-600 font-mono border border-slate-200"
+                        >
+                            {formatDisplayId(sampleId, 'RES')}
                         </span>
                         <span className="text-base font-bold text-slate-800">{data.patientName ?? 'Unknown patient'}</span>
                     </div>
