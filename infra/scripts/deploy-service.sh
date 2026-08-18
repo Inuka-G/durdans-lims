@@ -46,6 +46,23 @@ set_tag() {
   sed -i "s/^${TAG_VARIABLE}=.*/${TAG_VARIABLE}=${tag}/" .env
 }
 
+# An ECR authorization token is valid for 12 hours. bootstrap.sh logs in once, at
+# first boot, and nothing renewed it — so every deploy from about half a day after
+# the host was built died on `docker compose pull` with "Your authorization token
+# has expired", the image never landed, and CI reported a failed deploy for a build
+# that was perfectly good. Re-authenticate on each deploy; the token is short-lived
+# by design, so treat the login as part of the deploy rather than part of the boot.
+ecr_login() {
+  local region account
+  region="$(sed -n 's/^AWS_REGION=//p' .env | tail -n 1)"
+  region="${region:-us-east-1}"
+  account="$(aws sts get-caller-identity --region "${region}" --query Account --output text)"
+
+  aws ecr get-login-password --region "${region}" \
+    | docker login --username AWS --password-stdin \
+        "${account}.dkr.ecr.${region}.amazonaws.com"
+}
+
 wait_until_healthy() {
   local deadline=$((SECONDS + HEALTH_TIMEOUT_SECONDS))
   local container_id status
@@ -69,6 +86,12 @@ wait_until_healthy() {
 }
 
 echo "Deploying ${SERVICE}:${IMAGE_TAG}"
+
+if ! ecr_login; then
+  echo "Could not authenticate to ECR; refusing to deploy ${SERVICE}:${IMAGE_TAG}" >&2
+  exit 1
+fi
+
 set_tag "${IMAGE_TAG}"
 
 if docker compose pull "${SERVICE}" \
