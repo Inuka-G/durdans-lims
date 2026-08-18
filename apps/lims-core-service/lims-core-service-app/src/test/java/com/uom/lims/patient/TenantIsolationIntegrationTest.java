@@ -18,13 +18,18 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Proves multi-tenant (branch) isolation end-to-end against a real database: a user
- * scoped to branch B001 can read their own patient, a user scoped to branch B002
- * cannot (and gets 404 so existence is not even leaked), a SUPER_ADMIN can read any
- * branch, and an unauthenticated caller is rejected.
+ * Proves multi-tenant (branch) isolation end-to-end against a real database.
+ *
+ * <p>The boundary is drawn between <b>reading</b> a patient and <b>owning</b> one.
+ * A patient is a hospital-wide record: someone registered at B001 has to be
+ * findable and servable at B002 without being registered twice, so reads and
+ * keyword searches deliberately cross branches. Ownership does not: another
+ * branch cannot rename a patient, and no branch user can move a patient out of
+ * their branch. Roles and authentication gate everything as before.
  *
  * <p>This is the single most important control to demonstrate for a multi-branch
  * hospital system — and the one the audit found had ZERO automated coverage.
@@ -38,22 +43,32 @@ class TenantIsolationIntegrationTest extends AbstractIntegrationTest {
     private PatientRepository patientRepository;
 
     private static final String PATIENT_CODE = "P-TEN-001";
+    private static final String OTHER_BRANCH_PATIENT_CODE = "P-TEN-002";
 
     @BeforeEach
-    void seedPatientInBranchB001() {
+    void seedOnePatientPerBranch() {
         patientRepository.deleteAll();
+        patientRepository.save(patient(PATIENT_CODE, "Tenant Test Patient", "901234567V",
+                "+94770000001", "B001"));
+        // A second patient in B002 so the search tests can tell "my branch only"
+        // apart from "every branch" instead of both returning the same one row.
+        patientRepository.save(patient(OTHER_BRANCH_PATIENT_CODE, "Kandy Branch Patient", "902234567V",
+                "+94770000002", "B002"));
+    }
+
+    private static PatientEntity patient(String code, String name, String nic, String phone, String branch) {
         PatientEntity patient = new PatientEntity();
-        patient.setPatientCode(PATIENT_CODE);
-        patient.setFullName("Tenant Test Patient");
+        patient.setPatientCode(code);
+        patient.setFullName(name);
         patient.setDob(LocalDate.of(1990, 1, 1));
         patient.setGender(Gender.MALE);
         patient.setIdentityType(IdentityType.NIC);
-        patient.setIdentityNumber("901234567V");
-        patient.setPhone("+94770000001");
+        patient.setIdentityNumber(nic);
+        patient.setPhone(phone);
         patient.setAddress("123 Test Road, Colombo");
-        patient.setBranchCode("B001");
+        patient.setBranchCode(branch);
         patient.setCreatedBy("test-seed");
-        patientRepository.save(patient);
+        return patient;
     }
 
     private static RequestPostProcessor branchUser(String branch, String role) {
@@ -70,10 +85,15 @@ class TenantIsolationIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    void otherBranchUser_cannotReadPatient_andExistenceIsNotLeaked() throws Exception {
+    void otherBranchUser_canReadPatient_soTheyCanBeServedAtAnyBranch() throws Exception {
+        // A patient walking into B002 having registered at B001 must be found and
+        // served there, not registered a second time. Reads therefore cross branches
+        // (the access is audited); ownership still does not — see the write tests.
         mockMvc.perform(get("/api/v1/patients/{code}", PATIENT_CODE)
                 .with(branchUser("B002", "MLT")))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.patientCode").value(PATIENT_CODE))
+                .andExpect(jsonPath("$.branchCode").value("B001"));
     }
 
     @Test
@@ -96,6 +116,73 @@ class TenantIsolationIntegrationTest extends AbstractIntegrationTest {
         mockMvc.perform(get("/api/v1/patients/{code}", PATIENT_CODE)
                 .with(branchUser("B001", "DISPATCH_OFFICER")))
                 .andExpect(status().isForbidden());
+    }
+
+    // ------------------------------------------------------------------
+    // Search paths.
+    //
+    // Browsing and looking someone up are scoped differently on purpose: a bare
+    // listing is the branch's own register, a keyword is a search for one named
+    // person and has to reach every branch or the front desk cannot serve them.
+    // ------------------------------------------------------------------
+
+    @Test
+    void keywordSearch_findsPatientRegisteredAtAnotherBranch() throws Exception {
+        mockMvc.perform(get("/api/v1/patients")
+                .param("keyword", "Kandy Branch")
+                .with(branchUser("B001", "FRONT_DESK")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].patientCode").value(OTHER_BRANCH_PATIENT_CODE))
+                .andExpect(jsonPath("$.content[0].branchCode").value("B002"));
+    }
+
+    @Test
+    void keywordSearch_matchesOnPatientCodeAndNic_acrossBranches() throws Exception {
+        mockMvc.perform(get("/api/v1/patients")
+                .param("keyword", OTHER_BRANCH_PATIENT_CODE)
+                .with(branchUser("B001", "FRONT_DESK")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].patientCode").value(OTHER_BRANCH_PATIENT_CODE));
+
+        mockMvc.perform(get("/api/v1/patients")
+                .param("keyword", "902234567V")
+                .with(branchUser("B001", "FRONT_DESK")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].patientCode").value(OTHER_BRANCH_PATIENT_CODE));
+    }
+
+    @Test
+    void blankSearch_listsOwnBranchOnly() throws Exception {
+        // No keyword is a browse, not a lookup — it must not dump every branch's
+        // register, and it is what the branch dashboard counts.
+        mockMvc.perform(get("/api/v1/patients")
+                .with(branchUser("B001", "FRONT_DESK")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].patientCode").value(PATIENT_CODE));
+    }
+
+    @Test
+    void bareBranchCodeFilter_cannotEnumerateAnotherBranchsRegister() throws Exception {
+        // ?branchCode=B002 with no identifying filter is enumeration, not a patient
+        // lookup: the caller stays pinned to their own branch.
+        mockMvc.perform(get("/api/v1/patients")
+                .param("branchCode", "B002")
+                .with(branchUser("B001", "FRONT_DESK")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].patientCode").value(PATIENT_CODE));
+    }
+
+    @Test
+    void identifyingFilter_reachesAcrossBranches() throws Exception {
+        mockMvc.perform(get("/api/v1/patients")
+                .param("fullName", "Kandy Branch Patient")
+                .with(branchUser("B001", "FRONT_DESK")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].patientCode").value(OTHER_BRANCH_PATIENT_CODE));
     }
 
     // ------------------------------------------------------------------

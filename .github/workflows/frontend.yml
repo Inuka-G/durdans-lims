@@ -18,6 +18,15 @@ permissions:
   id-token: write
   security-events: write
 
+# One run per ref at a time. Two pushes landing on main seconds apart used to
+# start two identical runs, which then raced each other: both uploaded a SARIF
+# for the same commit (one lost) and both ran `deploy-service.sh frontend`
+# against the same host (one lost). Queue instead — and on a PR, where only the
+# newest commit matters, cancel the superseded run rather than queue it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
   AWS_INSTANCE_ID: ${{ vars.AWS_INSTANCE_ID }}
@@ -92,11 +101,21 @@ jobs:
 
       # trivy-action is a `uses:` step, so it ignores defaults.run.working-directory
       # and writes to the workspace root. Both paths below must stay root-relative.
+      #
+      # continue-on-error because this step only files a report: the HIGH/CRITICAL
+      # release gate already ran and passed above. It was blocking, and when the
+      # code-scanning API rejected a concurrent upload the job failed here — taking
+      # the ECR push and the SSM deploy (both `if:`-gated on the job) down with it,
+      # so a green build silently never reached the host. A reporting step must not
+      # be able to do that. `category` keeps this SARIF in its own code-scanning
+      # lane so it never overwrites another workflow's results for the same commit.
       - name: Upload Trivy SARIF
         if: always()
+        continue-on-error: true
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: trivy-frontend.sarif
+          category: trivy-frontend
 
       - name: Configure AWS credentials (OIDC)
         if: ${{ github.ref == 'refs/heads/main' && vars.AWS_DEPLOY_ROLE_ARN != '' && vars.AWS_INSTANCE_ID != '' }}

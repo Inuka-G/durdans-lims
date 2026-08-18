@@ -129,15 +129,48 @@ public class PatientService {
                                 .orElseThrow(() -> new ResourceNotFoundException(
                                                 "Patient not found with code: " + patientCode));
 
-                // Tenant isolation: a branch user must not read another branch's
-                // patient. Return not-found (not 403) so cross-branch existence is
-                // not revealed by enumeration.
+                // A patient is a hospital-wide record, not a branch-owned one: someone
+                // registered at Colombo must be servable at Kandy without re-registering.
+                // Reading demographics is therefore allowed from any branch — but the
+                // access is recorded, because a cross-branch read is a PHI access the
+                // patient's home branch has no other way to see.
+                //
+                // Branch isolation still holds everywhere it matters: writes go through
+                // assertCanAccessBranch (see updatePatientProfile), and orders, samples,
+                // results and dashboards remain scoped to the branch that created them.
                 if (SecurityUtils.isAuthenticated()
                                 && !SecurityUtils.canAccessBranch(patient.getBranchCode())) {
-                        throw new ResourceNotFoundException("Patient not found with code: " + patientCode);
+                        recordCrossBranchAccess(patient);
                 }
 
                 return mapToPatientResponse(patient);
+        }
+
+        /**
+         * Audit a read of a patient owned by another branch. Kept separate from the
+         * read itself so the audit write cannot change what the caller sees: an audit
+         * outage must not deny clinical staff access to a patient in front of them.
+         */
+        private void recordCrossBranchAccess(PatientEntity patient) {
+                String callerBranch = SecurityUtils.getCurrentBranchId();
+                log.info("Cross-branch patient read: user '{}' (branch {}) read patient {} owned by branch {}",
+                                SecurityUtils.getCurrentUsername(), callerBranch, patient.getPatientCode(),
+                                patient.getBranchCode());
+                try {
+                        // writeStandalone (REQUIRES_NEW), not log (MANDATORY): a failed
+                        // audit insert must not mark the caller's transaction rollback-only.
+                        auditService.writeStandalone(
+                                        "PATIENT_CROSS_BRANCH_ACCESS",
+                                        "PATIENT",
+                                        patient.getId(),
+                                        patient.getPatientCode(),
+                                        String.format("{\"homeBranch\":\"%s\",\"accessedFromBranch\":\"%s\"}",
+                                                        patient.getBranchCode(), callerBranch),
+                                        null);
+                } catch (RuntimeException e) {
+                        log.warn("Failed to audit cross-branch read of patient {}: {}",
+                                        patient.getPatientCode(), e.toString());
+                }
         }
 
         public Page<PatientResponse> searchPatients(
@@ -152,11 +185,21 @@ public class PatientService {
 
                 Pageable pageable = PageRequest.of(page, size, sort);
 
-                // Cross-branch search: patients can be registered at any branch
-                // but served at any other branch. All authenticated users may
-                // search across all branches — no branch scope restriction.
+                // Browsing and searching are deliberately scoped differently.
+                //
+                // No keyword is a browse of "my branch's patients" — the register the
+                // front desk expects to see, and what the branch dashboard counts. Left
+                // unscoped it would instead dump every branch's patient list, which is
+                // both useless at the desk and a needless PHI exposure.
+                //
+                // A keyword is a deliberate lookup of a named person, which is exactly
+                // the case the branches need: a patient registered at one branch must be
+                // findable — and servable — at any other without re-registration.
+                boolean isKeywordSearch = keyword != null && !keyword.isBlank();
+                String branchScope = isKeywordSearch ? null : SecurityUtils.resolveBranchScope();
+
                 Specification<PatientEntity> specification = PatientSpecification.keywordInBranch(
-                                keyword, null);
+                                keyword, branchScope);
 
                 Page<PatientEntity> patients = patientRepository.findAll(specification, pageable);
 
@@ -181,22 +224,44 @@ public class PatientService {
 
                 Pageable pageable = PageRequest.of(page, size, sort);
 
-                // Cross-branch patient search: patients are hospital-wide entities
-                // that may be registered at one branch and served at any other.
-                // If branchCode is explicitly requested (e.g., from Dashboard),
-                // we filter by that branch; otherwise, search spans all branches.
+                // Same rule as the keyword search, applied to the structured filters:
+                // an identifying filter means the caller is looking for a specific
+                // person, so the search spans all branches and any supplied branchCode
+                // only narrows it further.
+                //
+                // Without one of those filters this is a bulk listing, so it stays
+                // pinned to the caller's own branch. Otherwise `?branchCode=B002` with
+                // no other filter would hand any branch user another branch's entire
+                // patient register — enumeration, not a patient lookup.
+                boolean isIdentifyingSearch = isNotBlank(fullName)
+                                || isNotBlank(phone)
+                                || isNotBlank(identityNumber)
+                                || isNotBlank(email);
+
+                String effectiveBranch;
+                if (isIdentifyingSearch) {
+                        effectiveBranch = branchCode;
+                } else {
+                        String scope = SecurityUtils.resolveBranchScope(); // null => SUPER_ADMIN
+                        effectiveBranch = (scope == null) ? branchCode : scope;
+                }
+
                 Specification<PatientEntity> specification = PatientSpecification.filterPatients(
                                 fullName,
                                 phone,
                                 identityNumber,
                                 email,
-                                branchCode,
+                                effectiveBranch,
                                 phoneVerified,
                                 emailVerified);
 
                 Page<PatientEntity> patients = patientRepository.findAll(specification, pageable);
 
                 return patients.map(this::mapToPatientResponse);
+        }
+
+        private static boolean isNotBlank(String value) {
+                return value != null && !value.isBlank();
         }
 
         @Transactional

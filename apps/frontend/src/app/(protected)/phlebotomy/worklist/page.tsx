@@ -173,7 +173,7 @@ export default function PhlebotomyWorklistPage() {
             setActionLoadingId(sampleUuid);
             await collectSample(sampleUuid, {});
             await loadWorklist();
-            router.push(`/phlebotomy/label-reprint?sampleId=${encodeURIComponent(sampleLabel)}`);
+            router.push(`/phlebotomy/label-print?sampleId=${encodeURIComponent(sampleLabel)}`);
         } catch (error) {
             console.error(`Failed to collect sample ${sampleLabel}:`, error);
             toast.error('Failed to start collection. Please try again.');
