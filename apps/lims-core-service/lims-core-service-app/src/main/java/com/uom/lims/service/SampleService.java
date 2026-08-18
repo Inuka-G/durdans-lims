@@ -73,14 +73,14 @@ public class SampleService {
     }
 
     @Transactional(readOnly = true)
-    public List<SampleResponse> searchSamplesForReprint(String query) {
+    public List<SampleResponse> searchSamplesForPrint(String query) {
         String normalizedQuery = query == null ? "" : query.trim().toLowerCase();
 
         if (normalizedQuery.isBlank()) {
             return List.of();
         }
 
-        final String reprintBranchScope = com.uom.lims.security.SecurityUtils.resolveBranchScope();
+        final String printBranchScope = com.uom.lims.security.SecurityUtils.resolveBranchScope();
         Pageable pageable = PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "createdAt"));
         Specification<SampleEntity> specification = (root, criteriaQuery, criteriaBuilder) -> {
             var orderItemJoin = root.join("orderItem", JoinType.INNER);
@@ -101,9 +101,9 @@ public class SampleService {
 
             criteriaQuery.distinct(true);
 
-            var branchPredicate = reprintBranchScope == null
+            var branchPredicate = printBranchScope == null
                     ? criteriaBuilder.conjunction()
-                    : criteriaBuilder.equal(orderJoin.get("branchCode"), reprintBranchScope);
+                    : criteriaBuilder.equal(orderJoin.get("branchCode"), printBranchScope);
 
             return criteriaBuilder.and(
                     notDeletedPredicate,

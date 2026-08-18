@@ -811,8 +811,8 @@ export interface MltAllWorklistItem {
     collectedAt: string | null;
 }
 
-/** Search/reprint row: `id` is the specimen UUID; `sampleId` is the human-readable barcode. */
-export interface SampleReprintItem {
+/** Search/print row: `id` is the specimen UUID; `sampleId` is the human-readable barcode. */
+export interface SamplePrintItem {
     id: string;
     sampleId: string;
     orderId: string | null;
@@ -869,11 +869,11 @@ export const getReceptionSamples = async () => {
     return response.data as MltWorklistItem[];
 };
 
-export const searchSamplesForReprint = async (query: string) => {
+export const searchSamplesForPrint = async (query: string) => {
     const response = await axiosInstance.get('/api/v1/reception/samples/search', {
         params: { query },
     });
-    return response.data as SampleReprintItem[];
+    return response.data as SamplePrintItem[];
 };
 
 export const acceptSample = async (id: string) => {

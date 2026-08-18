@@ -182,7 +182,7 @@ export default function ReceptionSampleDetailPage() {
                                 to complete checks before accepting or rejecting.
                                 {' '}Damaged labels can be addressed from{' '}
                                 <Link
-                                    href={`/reception/barcode-reprint?query=${encodeURIComponent(detail.sampleId)}&returnTo=/reception/samples/${sampleUuid}`}
+                                    href={`/reception/barcode-print?query=${encodeURIComponent(detail.sampleId)}&returnTo=/reception/samples/${sampleUuid}`}
                                     className="font-semibold text-primary hover:underline"
                                 >
                                     Barcode print

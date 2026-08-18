@@ -69,8 +69,13 @@ public class PatientSpecification {
     /**
      * Keyword search (name, phone, patientCode, identityNumber, email) optionally restricted to a branch.
      *
-     * @param branchScope branch to restrict to; {@code null} means no restriction
-     *                    (enabling universal cross-branch patient search).
+     * @param branchScope branch to restrict to; {@code null} means every branch.
+     *                    Callers decide which applies: a keyword lookup of a named
+     *                    patient passes {@code null} so the patient is findable from
+     *                    any branch, while a bare listing passes
+     *                    {@code SecurityUtils.resolveBranchScope()} so browsing stays
+     *                    inside the caller's own branch. See
+     *                    {@code PatientService.searchPatients}.
      */
     public static Specification<PatientEntity> keywordInBranch(String keyword, String branchScope) {
         return (root, query, criteriaBuilder) -> {

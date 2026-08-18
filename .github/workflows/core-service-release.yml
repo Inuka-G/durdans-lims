@@ -17,6 +17,13 @@ permissions:
   id-token: write # OIDC -> AWS
   security-events: write # Trivy SARIF upload
 
+# Never two rollouts of the same service to the same host at once, and never two
+# SARIF uploads racing for the same commit. Deploys queue rather than cancel —
+# a half-finished `deploy-service.sh app` is worse than a slow one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
   AWS_INSTANCE_ID: ${{ vars.AWS_INSTANCE_ID }}
@@ -69,11 +76,20 @@ jobs:
 
       # trivy-action is a `uses:` step, so it ignores defaults.run.working-directory
       # and writes to the workspace root. Both paths below must stay root-relative.
+      #
+      # continue-on-error because this step only files a report: the HIGH/CRITICAL
+      # release gate already ran and passed above. It was blocking, and on
+      # 2026-08-17 the code-scanning API rejected the upload while a duplicate run
+      # held the same commit — so this job failed, every step below it was skipped,
+      # and the cross-branch patient fix was built and scanned but never pushed to
+      # ECR or rolled out. `category` keeps this SARIF in its own code-scanning lane.
       - name: Upload Trivy SARIF
         if: always()
+        continue-on-error: true
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: trivy-backend.sarif
+          category: trivy-backend
 
       - name: Configure AWS credentials (OIDC)
         if: ${{ github.ref == 'refs/heads/main' && vars.AWS_DEPLOY_ROLE_ARN != '' && vars.AWS_INSTANCE_ID != '' }}

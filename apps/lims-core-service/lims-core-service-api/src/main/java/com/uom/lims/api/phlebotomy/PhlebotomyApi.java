@@ -59,7 +59,7 @@ public interface PhlebotomyApi {
     @ResponseStatus(HttpStatus.OK)
     ResponseEntity<ApiResponse<SampleResponse>> getSampleDetail(@PathVariable("sampleId") UUID sampleId);
 
-    @Operation(summary = "Record specimen label print", description = "Increments persisted barcode label print count after user confirms print/reprint")
+    @Operation(summary = "Record specimen label print", description = "Increments persisted barcode label print count after the user confirms the print")
     @PostMapping("/samples/{sampleId}/print-label")
     @ResponseStatus(HttpStatus.OK)
     ResponseEntity<ApiResponse<SampleResponse>> recordLabelPrint(@PathVariable("sampleId") UUID sampleId);
