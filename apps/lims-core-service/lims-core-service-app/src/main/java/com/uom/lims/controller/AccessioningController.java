@@ -28,9 +28,9 @@ public class AccessioningController {
     }
 
     @GetMapping("/search")
-    public ResponseEntity<List<com.uom.lims.api.dto.response.SampleResponse>> searchSamplesForReprint(
+    public ResponseEntity<List<com.uom.lims.api.dto.response.SampleResponse>> searchSamplesForPrint(
             @RequestParam("query") String query) {
-        return ResponseEntity.ok(sampleService.searchSamplesForReprint(query));
+        return ResponseEntity.ok(sampleService.searchSamplesForPrint(query));
     }
 
     @PostMapping("/{id}/accept")

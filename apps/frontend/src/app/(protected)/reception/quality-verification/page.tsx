@@ -46,7 +46,7 @@ export default function QualityVerificationPage() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const selectedSampleId = searchParams.get('sampleId');
-    const barcodeReprinted = searchParams.get('barcodeReprinted') === 'true';
+    const barcodePrinted = searchParams.get('barcodePrinted') === 'true';
 
     const [samples, setSamples] = useState<MltWorklistItem[]>([]);
     const [selectedSample, setSelectedSample] = useState<MltWorklistItem | null>(null);
@@ -149,7 +149,7 @@ export default function QualityVerificationPage() {
     }, [selectedSample?.sampleId]);
 
     useEffect(() => {
-        if (!selectedSample || !barcodeReprinted) {
+        if (!selectedSample || !barcodePrinted) {
             return;
         }
 
@@ -158,7 +158,7 @@ export default function QualityVerificationPage() {
         setChecks({ window: true, ...storedChecks, barcode: true });
         setSuccessMessage('Barcode print recorded. Barcode integrity has been marked as complete.');
         router.replace(`/reception/quality-verification?sampleId=${selectedSample.sampleId}`, { scroll: false });
-    }, [barcodeReprinted, router, selectedSample]);
+    }, [barcodePrinted, router, selectedSample]);
 
     const filteredSamples = useMemo(() => {
         const query = searchQuery.trim().toLowerCase();
@@ -231,7 +231,7 @@ export default function QualityVerificationPage() {
         router.replace(`/reception/quality-verification?sampleId=${sample.sampleId}`);
     };
 
-    const handleBarcodeReprint = () => {
+    const handleBarcodePrint = () => {
         if (!selectedSample) {
             return;
         }
@@ -242,7 +242,7 @@ export default function QualityVerificationPage() {
         });
 
         storeChecks(selectedSample.sampleId, checks);
-        router.push(`/reception/barcode-reprint?${params.toString()}`);
+        router.push(`/reception/barcode-print?${params.toString()}`);
     };
 
     const handleAccept = async () => {
@@ -560,7 +560,7 @@ export default function QualityVerificationPage() {
                                                 {isBarcodeCheck && !checked && (
                                                     <button
                                                         type="button"
-                                                        onClick={handleBarcodeReprint}
+                                                        onClick={handleBarcodePrint}
                                                         className="flex items-center gap-1.5 px-3 py-2 border border-primary/20 text-primary text-xs font-bold rounded-xl hover:bg-primary/5 transition-colors flex-shrink-0"
                                                     >
                                                         <span className="material-icons text-sm">qr_code_2</span>
