@@ -14,6 +14,8 @@ import java.time.Instant;
 public class TestResultSummaryResponse {
     private String resultId;
     private String status;
+    /** Patient code, shown beside the name so staff can search the queue by ID. */
+    private String patientCode;
     private String patientName;
     private String testType;
     private String mltName;

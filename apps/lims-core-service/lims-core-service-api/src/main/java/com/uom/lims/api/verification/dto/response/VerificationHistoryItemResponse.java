@@ -14,6 +14,9 @@ import java.time.Instant;
 public class VerificationHistoryItemResponse {
     private String resultId;
     private String actionType;
+    /** Patient the audited action was performed on; resolved from the result's sample. */
+    private String patientCode;
+    private String patientName;
     private String testName;
     /** Specimen priority captured at audit time (STAT, URGENT, NORMAL). */
     private String specimenPriority;
