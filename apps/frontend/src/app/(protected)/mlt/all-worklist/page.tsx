@@ -3,14 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AxiosError } from 'axios';
+import { getMltAllWorklist, type MltAllWorklistItem } from '@/lib/api';
 import {
-    getInstruments,
-    getMltAllWorklist,
-    type InstrumentStatusItem,
-    type MltAllWorklistItem,
-} from '@/lib/api';
-import {
-    INSTRUMENT_STATUS_CONFIG,
     PRIORITY_COLORS,
     SAMPLE_STATUS_COLORS,
     formatStatusLabel,
@@ -21,7 +15,6 @@ const PAGE_SIZE = 8;
 export default function MLTAllWorklistPage() {
     const router = useRouter();
     const [samples, setSamples] = useState<MltAllWorklistItem[]>([]);
-    const [instruments, setInstruments] = useState<InstrumentStatusItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
@@ -34,20 +27,7 @@ export default function MLTAllWorklistPage() {
         setError(null);
 
         try {
-            const [samplesResult, instrumentsResult] = await Promise.allSettled([
-                getMltAllWorklist(),
-                getInstruments(),
-            ]);
-
-            if (samplesResult.status === 'rejected') {
-                throw samplesResult.reason;
-            }
-
-            setSamples(samplesResult.value);
-
-            if (instrumentsResult.status === 'fulfilled') {
-                setInstruments(instrumentsResult.value);
-            }
+            setSamples(await getMltAllWorklist());
         } catch (err) {
             console.error('Failed to load all MLT worklist items', err);
             setError(getApiErrorMessage(err, 'Failed to load the all-worklist view. Please try again.'));
@@ -122,8 +102,7 @@ export default function MLTAllWorklistPage() {
                 <p className="text-xs text-blue-500">Cross-department view — read-only</p>
             </div>
 
-            <div className="flex gap-5">
-                <div className="flex-1 min-w-0 bg-white rounded-2xl shadow-sm border border-slate-200/60">
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60">
                     <div className="p-4 border-b border-slate-100">
                         <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
                             <div className="relative flex-1">
@@ -294,29 +273,6 @@ export default function MLTAllWorklistPage() {
                             </div>
                         </>
                     )}
-                </div>
-
-                <div className="w-48 flex-shrink-0 space-y-3 hidden xl:block">
-                    <p className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider px-1">Instruments</p>
-                    {instruments.length === 0 && (
-                        <div className="bg-white rounded-xl border border-slate-200/60 p-3 shadow-sm">
-                            <p className="text-xs font-semibold text-slate-500">No instruments available</p>
-                        </div>
-                    )}
-                    {instruments.map((instrument) => {
-                        const config = INSTRUMENT_STATUS_CONFIG[instrument.status];
-                        return (
-                            <div key={instrument.id} className="bg-white rounded-xl border border-slate-200/60 p-3 shadow-sm">
-                                <div className="flex items-center gap-2 mb-1.5">
-                                    <span className={`w-2 h-2 rounded-full ${config.dot}`} />
-                                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${config.badge}`}>{config.label}</span>
-                                </div>
-                                <p className="text-xs font-semibold text-slate-700 truncate">{instrument.name}</p>
-                                <p className="text-[10px] text-slate-400">{instrument.testsToday} tests today</p>
-                            </div>
-                        );
-                    })}
-                </div>
             </div>
         </div>
     );
