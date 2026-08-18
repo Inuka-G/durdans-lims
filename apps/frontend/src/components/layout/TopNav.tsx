@@ -20,7 +20,8 @@ const NAV_ORDER: Record<string, number> = {
 
 const sortNavItems = (items: NavItem[]) =>
     [...new Map(items.map((item) => [item.linkUrl, item])).values()]
-        // Critical Values is a Lab Supervisor workflow page, not a top-level role/module.
+        // The /critical-values route is gone, but the backend still serves its
+        // header_mapping row — without this the supervisor nav renders a 404 link.
         .filter((item) => item.linkUrl !== "/critical-values")
         .sort((a, b) => {
         const aOrder = NAV_ORDER[a.linkUrl] ?? Number.MAX_SAFE_INTEGER;
@@ -80,7 +81,7 @@ export default function TopNav() {
     };
 
     const getRoleTitle = () => {
-        if (pathname.startsWith("/verification") || pathname.startsWith("/critical-values")) {
+        if (pathname.startsWith("/verification")) {
             return "Lab Supervisor";
         }
 
@@ -100,7 +101,7 @@ export default function TopNav() {
     };
 
     const getRoleSubtitle = () => {
-        if (pathname.startsWith("/verification") || pathname.startsWith("/critical-values")) {
+        if (pathname.startsWith("/verification")) {
             return "Verification";
         }
 
@@ -120,10 +121,6 @@ export default function TopNav() {
     };
 
     const isActive = (url: string) => {
-        if (url === "/lab-supervision" && pathname.startsWith("/critical-values")) {
-            return true;
-        }
-
         const resolved = resolveUrl(url);
         // Find the module prefix for this link
         const prefix = Object.values(PREFIX_MAP).find((p) => resolved.startsWith(p));

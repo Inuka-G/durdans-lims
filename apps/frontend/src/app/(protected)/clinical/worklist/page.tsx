@@ -72,6 +72,85 @@ const getFlagBadge = (flag?: string | null) => {
 
 type FlagFilter = "ALL" | "FLAGGED" | "CRITICAL" | "HIGH" | "LOW" | "NORMAL";
 type PriorityFilter = "ALL" | "STAT" | "URGENT" | "NORMAL";
+type StatusFilter = "ALL" | "PENDING";
+
+type FilterOption<TValue extends string> = {
+    value: TValue;
+    label: string;
+};
+
+const STATUS_OPTIONS: readonly FilterOption<StatusFilter>[] = [
+    { value: "ALL", label: "All Statuses" },
+    { value: "PENDING", label: "Pending Review" },
+];
+
+const PRIORITY_OPTIONS: readonly FilterOption<PriorityFilter>[] = [
+    { value: "ALL", label: "All Priorities" },
+    { value: "STAT", label: "STAT" },
+    { value: "URGENT", label: "Urgent" },
+    { value: "NORMAL", label: "Normal" },
+];
+
+const FLAG_OPTIONS: readonly FilterOption<FlagFilter>[] = [
+    { value: "ALL", label: "All Flags" },
+    { value: "FLAGGED", label: "Flagged" },
+    { value: "CRITICAL", label: "Critical" },
+    { value: "HIGH", label: "High" },
+    { value: "LOW", label: "Low" },
+    { value: "NORMAL", label: "Normal" },
+];
+
+const FILTER_SELECT_CLASS =
+    "rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/20";
+
+const isCriticalFlag = (flag?: string | null) =>
+    flag === "CRITICAL_HIGH" || flag === "CRITICAL_LOW";
+
+const matchesStatus = (result: TestResultSummary, filter: StatusFilter) =>
+    filter === "ALL" || result.status === "TECHNICALLY_VERIFIED";
+
+const matchesPriority = (result: TestResultSummary, filter: PriorityFilter) =>
+    filter === "ALL" || result.priorityLevel === filter;
+
+const matchesFlag = (result: TestResultSummary, filter: FlagFilter) => {
+    const resultFlag = result.flag ?? "NORMAL";
+
+    return (
+        filter === "ALL" ||
+        (filter === "NORMAL" && resultFlag === "NORMAL") ||
+        (filter === "FLAGGED" && resultFlag !== "NORMAL") ||
+        (filter === "CRITICAL" && isCriticalFlag(resultFlag)) ||
+        (filter === "HIGH" && (resultFlag === "HIGH" || resultFlag === "CRITICAL_HIGH")) ||
+        (filter === "LOW" && (resultFlag === "LOW" || resultFlag === "CRITICAL_LOW"))
+    );
+};
+
+const matchesSearch = (result: TestResultSummary, query: string) => {
+    if (query.length === 0) {
+        return true;
+    }
+
+    const displayResultId = formatDisplayId(result.resultId, "RES").toLowerCase();
+
+    return (
+        result.resultId.toLowerCase().includes(query) ||
+        displayResultId.includes(query) ||
+        (result.patientName ?? "").toLowerCase().includes(query) ||
+        (result.testType ?? "").toLowerCase().includes(query) ||
+        (result.technicianName ?? "").toLowerCase().includes(query) ||
+        (result.priorityLevel ?? "").toLowerCase().includes(query)
+    );
+};
+
+const buildFilterOptions = <TValue extends string>(
+    rows: TestResultSummary[],
+    options: readonly FilterOption<TValue>[],
+    matches: (result: TestResultSummary, value: TValue) => boolean
+) =>
+    options.map((option) => ({
+        ...option,
+        count: rows.filter((row) => matches(row, option.value)).length,
+    }));
 
 export default function ClinicalWorklistPage() {
     const router = useRouter();
@@ -80,6 +159,7 @@ export default function ClinicalWorklistPage() {
     const [error, setError] = useState<string | null>(null);
     const [flagFilter, setFlagFilter] = useState<FlagFilter>("ALL");
     const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>("ALL");
+    const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
     const [search, setSearch] = useState("");
     const [page, setPage] = useState(0);
 
@@ -120,46 +200,79 @@ export default function ClinicalWorklistPage() {
 
     const pendingCount = results.filter((result) => result.status === "TECHNICALLY_VERIFIED").length;
     const flaggedCount = results.filter((result) => result.flag && result.flag !== "NORMAL").length;
-    const criticalCount = results.filter(
-        (result) => result.flag === "CRITICAL_HIGH" || result.flag === "CRITICAL_LOW"
-    ).length;
-    const priorityCounts = {
-        STAT: results.filter((result) => result.priorityLevel === "STAT").length,
-        URGENT: results.filter((result) => result.priorityLevel === "URGENT").length,
-        NORMAL: results.filter((result) => result.priorityLevel === "NORMAL").length,
-    };
+    const criticalCount = results.filter((result) => isCriticalFlag(result.flag)).length;
 
-    const filteredResults = useMemo(() => {
+    const searchedResults = useMemo(() => {
         const query = search.trim().toLowerCase();
 
-        return results.filter((result) => {
-            const resultFlag = result.flag ?? "NORMAL";
-            const matchesFlag =
-                flagFilter === "ALL" ||
-                (flagFilter === "NORMAL" && resultFlag === "NORMAL") ||
-                (flagFilter === "FLAGGED" && resultFlag !== "NORMAL") ||
-                (flagFilter === "CRITICAL" &&
-                    (resultFlag === "CRITICAL_HIGH" || resultFlag === "CRITICAL_LOW")) ||
-                (flagFilter === "HIGH" && (resultFlag === "HIGH" || resultFlag === "CRITICAL_HIGH")) ||
-                (flagFilter === "LOW" && (resultFlag === "LOW" || resultFlag === "CRITICAL_LOW"));
+        return results.filter((result) => matchesSearch(result, query));
+    }, [results, search]);
 
-            const matchesPriority =
-                priorityFilter === "ALL" || result.priorityLevel === priorityFilter;
+    // Each dropdown counts the rows left by the other two dropdowns, so a number
+    // always previews how many rows picking that option would actually show.
+    const statusOptions = useMemo(
+        () =>
+            buildFilterOptions(
+                searchedResults.filter(
+                    (result) =>
+                        matchesPriority(result, priorityFilter) && matchesFlag(result, flagFilter)
+                ),
+                STATUS_OPTIONS,
+                matchesStatus
+            ),
+        [flagFilter, priorityFilter, searchedResults]
+    );
 
-            const displayResultId = formatDisplayId(result.resultId, "RES").toLowerCase();
+    const priorityOptions = useMemo(
+        () =>
+            buildFilterOptions(
+                searchedResults.filter(
+                    (result) =>
+                        matchesStatus(result, statusFilter) && matchesFlag(result, flagFilter)
+                ),
+                PRIORITY_OPTIONS,
+                matchesPriority
+            ),
+        [flagFilter, searchedResults, statusFilter]
+    );
 
-            const matchesSearch =
-                query.length === 0 ||
-                result.resultId.toLowerCase().includes(query) ||
-                displayResultId.includes(query) ||
-                (result.patientName ?? "").toLowerCase().includes(query) ||
-                (result.testType ?? "").toLowerCase().includes(query) ||
-                (result.technicianName ?? "").toLowerCase().includes(query) ||
-                (result.priorityLevel ?? "").toLowerCase().includes(query);
+    const flagOptions = useMemo(
+        () =>
+            buildFilterOptions(
+                searchedResults.filter(
+                    (result) =>
+                        matchesStatus(result, statusFilter) &&
+                        matchesPriority(result, priorityFilter)
+                ),
+                FLAG_OPTIONS,
+                matchesFlag
+            ),
+        [priorityFilter, searchedResults, statusFilter]
+    );
 
-            return matchesFlag && matchesPriority && matchesSearch;
-        });
-    }, [flagFilter, priorityFilter, results, search]);
+    const filteredResults = useMemo(
+        () =>
+            searchedResults.filter(
+                (result) =>
+                    matchesStatus(result, statusFilter) &&
+                    matchesPriority(result, priorityFilter) &&
+                    matchesFlag(result, flagFilter)
+            ),
+        [flagFilter, priorityFilter, searchedResults, statusFilter]
+    );
+
+    const isFiltering =
+        statusFilter !== "ALL" ||
+        priorityFilter !== "ALL" ||
+        flagFilter !== "ALL" ||
+        search.trim().length > 0;
+
+    const handleClearFilters = () => {
+        setStatusFilter("ALL");
+        setPriorityFilter("ALL");
+        setFlagFilter("ALL");
+        setSearch("");
+    };
 
     const totalPages = Math.max(1, Math.ceil(filteredResults.length / PAGE_SIZE));
     const paginatedResults = useMemo(() => {
@@ -169,7 +282,7 @@ export default function ClinicalWorklistPage() {
 
     useEffect(() => {
         setPage(0);
-    }, [flagFilter, priorityFilter, search]);
+    }, [flagFilter, priorityFilter, search, statusFilter]);
 
     useEffect(() => {
         if (page > totalPages - 1) {
@@ -229,45 +342,55 @@ export default function ClinicalWorklistPage() {
             <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm p-4 mb-6">
                 <div className="flex flex-col xl:flex-row xl:items-center gap-3">
                     <div className="flex flex-wrap items-center gap-2">
-                        {[
-                            { id: "ALL" as const, label: "All", count: results.length },
-                            { id: "FLAGGED" as const, label: "Flagged", count: flaggedCount },
-                            { id: "CRITICAL" as const, label: "Critical Cases", count: criticalCount },
-                            { id: "HIGH" as const, label: "High", count: results.filter((result) => result.flag === "HIGH" || result.flag === "CRITICAL_HIGH").length },
-                            { id: "LOW" as const, label: "Low", count: results.filter((result) => result.flag === "LOW" || result.flag === "CRITICAL_LOW").length },
-                            { id: "NORMAL" as const, label: "Normal", count: results.filter((result) => !result.flag || result.flag === "NORMAL").length },
-                        ].map((item) => (
-                            <button
-                                key={item.id}
-                                onClick={() => setFlagFilter(item.id)}
-                                className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors border ${flagFilter === item.id
-                                    ? "bg-primary text-white border-primary"
-                                    : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
-                                    }`}
-                            >
-                                {item.label}
-                                <span
-                                    className={`ml-2 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${flagFilter === item.id
-                                        ? "bg-white/20 text-white"
-                                        : "bg-slate-100 text-slate-500"
-                                        }`}
-                                >
-                                    {item.count}
-                                </span>
-                            </button>
-                        ))}
-                    </div>
+                        <select
+                            aria-label="Filter by status"
+                            value={statusFilter}
+                            onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}
+                            className={FILTER_SELECT_CLASS}
+                        >
+                            {statusOptions.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                    {option.label} ({option.count})
+                                </option>
+                            ))}
+                        </select>
 
-                    <select
-                        value={priorityFilter}
-                        onChange={(event) => setPriorityFilter(event.target.value as PriorityFilter)}
-                        className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/20"
-                    >
-                        <option value="ALL">All priorities ({results.length})</option>
-                        <option value="STAT">STAT ({priorityCounts.STAT})</option>
-                        <option value="URGENT">Urgent ({priorityCounts.URGENT})</option>
-                        <option value="NORMAL">Normal ({priorityCounts.NORMAL})</option>
-                    </select>
+                        <select
+                            aria-label="Filter by priority"
+                            value={priorityFilter}
+                            onChange={(event) => setPriorityFilter(event.target.value as PriorityFilter)}
+                            className={FILTER_SELECT_CLASS}
+                        >
+                            {priorityOptions.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                    {option.label} ({option.count})
+                                </option>
+                            ))}
+                        </select>
+
+                        <select
+                            aria-label="Filter by flag state"
+                            value={flagFilter}
+                            onChange={(event) => setFlagFilter(event.target.value as FlagFilter)}
+                            className={FILTER_SELECT_CLASS}
+                        >
+                            {flagOptions.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                    {option.label} ({option.count})
+                                </option>
+                            ))}
+                        </select>
+
+                        {isFiltering && (
+                            <button
+                                type="button"
+                                onClick={handleClearFilters}
+                                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
+                            >
+                                Clear all
+                            </button>
+                        )}
+                    </div>
 
                     <div className="relative xl:ml-auto flex-1 xl:max-w-[420px]">
                         <span className="material-icons absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">
@@ -331,7 +454,10 @@ export default function ClinicalWorklistPage() {
                                 paginatedResults.map((result) => (
                                     <tr
                                         key={result.resultId}
-                                        className="border-b border-slate-50 last:border-0 hover:bg-slate-50/50 transition-colors"
+                                        className={`border-b border-slate-50 last:border-0 transition-colors ${isCriticalFlag(result.flag)
+                                            ? "bg-rose-50/40 hover:bg-rose-100/50"
+                                            : "hover:bg-slate-50/50"
+                                            }`}
                                     >
                                         <td className="px-6 py-4">
                                             <div>
