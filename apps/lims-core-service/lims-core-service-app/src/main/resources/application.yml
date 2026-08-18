@@ -52,6 +52,10 @@ spring:
     consumer:
       group-id: lims-dispatch-ingress
       auto-offset-reset: earliest
+      # Commit per successfully-processed record instead of on a timer. Pairs with
+      # AckMode.RECORD in KafkaConfig: a failing record can neither have its offset
+      # silently advanced (message loss) nor be redelivered forever.
+      enable-auto-commit: false
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
@@ -64,7 +68,15 @@ spring:
       properties:
         enable.idempotence: true
         max.in.flight.requests.per.connection: 5
-        delivery.timeout.ms: 120000
+        # Fail fast instead of blocking the relay. Every publish goes through
+        # OutboxRelay, which allows a send 5s and then leaves the row for the next
+        # poll, retrying up to 10 times before dead-lettering it. A producer-level
+        # timeout longer than the relay's own would never be reached, so these are
+        # tuned to it: durability comes from the outbox table surviving the commit,
+        # not from a long in-flight retry inside the producer.
+        max.block.ms: 1000
+        request.timeout.ms: 3000
+        delivery.timeout.ms: 5000
     properties:
       spring.json.add.type.headers: false
 
