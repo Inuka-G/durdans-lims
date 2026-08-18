@@ -18,17 +18,29 @@ public class TestResultMapper {
     private static final String SUPERVISOR_NOTE_MARKER = "[SUPERVISOR_NOTE]";
 
     public TestResultSummaryResponse toSummaryResponse(TestResultEntity entity) {
-        return toSummaryResponse(entity, null, null);
+        return toSummaryResponse(entity, null, null, null);
     }
 
     public TestResultSummaryResponse toSummaryResponse(TestResultEntity entity, String testType) {
-        return toSummaryResponse(entity, testType, null);
+        return toSummaryResponse(entity, testType, null, null);
     }
 
     public TestResultSummaryResponse toSummaryResponse(
             TestResultEntity entity,
             String testType,
             String patientName) {
+        return toSummaryResponse(entity, testType, patientName, null);
+    }
+
+    /**
+     * @param patientCode shown beside the name in the supervisor and pathologist
+     *                    queues so a case can be found by ID as well as by name.
+     */
+    public TestResultSummaryResponse toSummaryResponse(
+            TestResultEntity entity,
+            String testType,
+            String patientName,
+            String patientCode) {
         String pathologistName = entity.getClinicallyAuthorizedBy() != null && !entity.getClinicallyAuthorizedBy().isBlank()
                 ? entity.getClinicallyAuthorizedBy()
                 : entity.getReturnedBy();
@@ -36,6 +48,7 @@ public class TestResultMapper {
         return TestResultSummaryResponse.builder()
                 .resultId(entity.getId().toString())
                 .status(entity.getStatus() == null ? null : entity.getStatus().name())
+                .patientCode(patientCode)
                 .patientName(patientName)
                 .testType(testType)
                 .mltName(entity.getCreatedBy())

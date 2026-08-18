@@ -157,7 +157,9 @@ export default function PendingVerificationPage() {
                 query.length === 0 ||
                 result.resultId.toLowerCase().includes(query) ||
                 displayResultId.includes(query) ||
+                (result.patientCode ?? '').toLowerCase().includes(query) ||
                 (result.patientName ?? '').toLowerCase().includes(query) ||
+                (result.testType ?? '').toLowerCase().includes(query) ||
                 (result.mltName ?? result.technicianName ?? '').toLowerCase().includes(query) ||
                 (result.priorityLevel ?? '').toLowerCase().includes(query) ||
                 (result.flag ?? '').toLowerCase().includes(query);
@@ -318,7 +320,7 @@ export default function PendingVerificationPage() {
                             type="text"
                             value={searchQuery}
                             onChange={(event) => setSearchQuery(event.target.value)}
-                            placeholder="Search by result ID, patient, technician, or priority"
+                            placeholder="Search by patient name, patient code, test, result ID, or technician"
                             className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-sky-400 focus:bg-white"
                         />
                     </div>
@@ -459,6 +461,11 @@ export default function PendingVerificationPage() {
                                                         <p className="text-sm font-semibold text-slate-900">
                                                             {result.patientName || 'Unknown patient'}
                                                         </p>
+                                                        {result.patientCode && (
+                                                            <p className="mt-0.5 font-mono text-xs text-slate-500">
+                                                                {result.patientCode}
+                                                            </p>
+                                                        )}
                                                     </td>
 
                                                     <td className="px-4 py-4 align-top">

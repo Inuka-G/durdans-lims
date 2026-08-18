@@ -17,4 +17,6 @@ public class BulkVerificationRequest {
     private List<String> resultIds;
     private String status;
     private String mltNotes;
+    /** Supervisor's remark for the whole batch, captured in the approval modal. */
+    private String supervisorNote;
 }

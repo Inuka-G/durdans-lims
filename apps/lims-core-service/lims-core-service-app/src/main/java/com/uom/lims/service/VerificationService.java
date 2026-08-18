@@ -215,7 +215,8 @@ public class VerificationService {
             TestResultSummaryResponse base = testResultMapper.toSummaryResponse(
                     fallback,
                     testNamesById.getOrDefault(testId, "UNKNOWN_TEST"),
-                    patientNamesById.getOrDefault(patientId, "UNKNOWN_PATIENT"));
+                    patientNamesById.getOrDefault(patientId, "UNKNOWN_PATIENT"),
+                    patientId);
             List<TestResultEntity> submittedResults = testResultRepository.findBySampleId(sample.getId()).stream()
                     .filter(tr -> !tr.isDeleted())
                     .filter(tr -> !Boolean.TRUE.equals(tr.getDraft()))
@@ -225,6 +226,7 @@ public class VerificationService {
             return TestResultSummaryResponse.builder()
                     .resultId(base.getResultId())
                     .status(base.getStatus())
+                    .patientCode(base.getPatientCode())
                     .patientName(base.getPatientName())
                     .testType(base.getTestType())
                     .mltName(base.getMltName())
@@ -260,10 +262,12 @@ public class VerificationService {
         String testName = testNamesById.getOrDefault(testId, "UNKNOWN_TEST");
         String patientName = patientNamesById.getOrDefault(patientId, "UNKNOWN_PATIENT");
 
-        TestResultSummaryResponse base = testResultMapper.toSummaryResponse(primary, testName, patientName);
+        TestResultSummaryResponse base =
+                testResultMapper.toSummaryResponse(primary, testName, patientName, patientId);
         return TestResultSummaryResponse.builder()
                 .resultId(base.getResultId())
                 .status(aggregateStatus)
+                .patientCode(base.getPatientCode())
                 .patientName(base.getPatientName())
                 .testType(base.getTestType())
                 .mltName(base.getMltName())
@@ -319,21 +323,74 @@ public class VerificationService {
             int page,
             int size,
             String actionType,
-            String search
+            String search,
+            java.time.LocalDateTime fromTimestamp
     ) {
         List<String> actions = resolveHistoryActions(actionType, VERIFICATION_HISTORY_ACTIONS);
         if (actions.isEmpty()) {
             return Page.empty(PageRequest.of(page, size));
         }
 
-        return auditLogRepository
+        Page<AuditLog> auditPage = auditLogRepository
                 .findHistoryByEntityTypeAndActions(
                         VERIFICATION_ENTITY_TYPE,
                         actions,
                         normalizeSearch(search),
+                        fromTimestamp,
                         PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "timestamp"))
-                )
-                .map(this::toHistoryItemResponse);
+                );
+
+        Map<UUID, HistoryPatient> patients = resolveHistoryPatients(auditPage.getContent());
+        return auditPage.map(auditLog -> toHistoryItemResponse(auditLog, patients));
+    }
+
+    /** Patient identity for one audited action, resolved for display in the history table. */
+    private record HistoryPatient(String code, String name) {
+    }
+
+    /**
+     * Resolve the patient behind each audit row for a whole page at once.
+     *
+     * <p>The audit row itself cannot be trusted for this: the verification writes
+     * put the specimen barcode in the patient_code column, so the identity has to
+     * come from the result the row points at — result -> sample -> order -> patient.
+     *
+     * <p>Batched deliberately. Resolving per row turned a 25-row page into 50
+     * queries; this is two regardless of page size.
+     */
+    private Map<UUID, HistoryPatient> resolveHistoryPatients(List<AuditLog> auditLogs) {
+        List<UUID> resultIds = auditLogs.stream()
+                .map(AuditLog::getEntityId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (resultIds.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<UUID, String> codeByResultId = new HashMap<>();
+        for (TestResultEntity result : testResultRepository.findAllById(resultIds)) {
+            String code = patientCodeOf(result);
+            if (code != null && !code.isBlank()) {
+                codeByResultId.put(result.getId(), code.trim());
+            }
+        }
+        if (codeByResultId.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<String, String> nameByCode = patientRepository
+                .findByPatientCodeIn(new java.util.HashSet<>(codeByResultId.values()))
+                .stream()
+                .collect(Collectors.toMap(
+                        PatientEntity::getPatientCode,
+                        PatientEntity::getFullName,
+                        (first, second) -> first));
+
+        Map<UUID, HistoryPatient> resolved = new HashMap<>();
+        codeByResultId.forEach((resultId, code) ->
+                resolved.put(resultId, new HistoryPatient(code, nameByCode.get(code))));
+        return resolved;
     }
 
     @Transactional(readOnly = true)
@@ -385,6 +442,7 @@ public class VerificationService {
         }
 
         String username = SecurityUtils.getCurrentUsername();
+        String actorName = currentActorName();
         Instant now = Instant.now();
         String storedNotes = composeStoredNotes(request.getMltNotes(), request.getSupervisorNote());
         String historyNotes = resolveApprovalHistoryNotes(request.getSupervisorNote());
@@ -418,7 +476,7 @@ public class VerificationService {
         for (TestResultEntity result : targets) {
             result.setStatus(ResultStatus.TECHNICALLY_VERIFIED);
             result.setMltNotes(storedNotes);
-            result.setTechnicallyVerifiedBy(username);
+            result.setTechnicallyVerifiedBy(actorName);
             result.setTechnicallyVerifiedAt(now);
             result.setLastModifiedBy(username);
             result.setLastModifiedAt(now);
@@ -490,6 +548,10 @@ public class VerificationService {
                 UUID resultId = UUID.fromString(resultIdValue);
                 VerificationRequest verificationRequest = VerificationRequest.builder()
                         .mltNotes(request.getMltNotes())
+                        // The remark the supervisor typed in the batch confirmation
+                        // modal; without this every bulk approval landed on the
+                        // audit trail with no reason attached.
+                        .supervisorNote(request.getSupervisorNote())
                         .build();
 
                 self.verifyResult(resultId, verificationRequest);
@@ -571,6 +633,19 @@ public class VerificationService {
         log.warn("QC override by {}: released {} result(s) over QC — {}", username, blocked.size(), summary);
     }
 
+    /**
+     * Human-facing actor for the fields a report shows: the token's display name
+     * when it carries one, else the login id. A verified-by line reading
+     * "Dr N. Perera" is what a clinician can act on; "nperera" is not.
+     */
+    private static String currentActorName() {
+        String displayName = SecurityUtils.getCurrentDisplayName();
+        if (displayName != null && !displayName.isBlank()) {
+            return displayName;
+        }
+        return SecurityUtils.getCurrentUsername();
+    }
+
     private static String patientCodeOf(TestResultEntity result) {
         SampleEntity sample = result.getSample();
         if (sample == null || sample.getOrderItem() == null || sample.getOrderItem().getOrder() == null) {
@@ -640,12 +715,31 @@ public class VerificationService {
             List<TestResultEntity> results,
             TestCatalogEntity catalog
     ) {
-        List<TestResultEntity> safeResults = results.stream()
-                .filter(this::isSafeForBulkApproval)
-                .toList();
-        List<TestResultEntity> reviewResults = results.stream()
-                .filter(result -> !isSafeForBulkApproval(result))
-                .toList();
+        // Bulk approval operates on cases (one specimen), not on individual analyte
+        // rows. Approving an anchor verifies every pending parameter on its sample,
+        // so counting parameters both overstated the queue and let a case count as
+        // safe on the strength of one normal analyte while another was critical.
+        Map<UUID, List<TestResultEntity>> resultsBySample = results.stream()
+                .filter(result -> result.getSample() != null)
+                .collect(Collectors.groupingBy(
+                        result -> result.getSample().getId(),
+                        LinkedHashMap::new,
+                        Collectors.toList()));
+
+        List<String> safeCaseIds = new ArrayList<>();
+        List<String> reviewCaseIds = new ArrayList<>();
+        resultsBySample.forEach((sampleId, caseResults) -> {
+            String anchorResultId = resolveCaseAnchorResultId(caseResults);
+            if (anchorResultId == null) {
+                return;
+            }
+            if (isCaseSafeForBulkApproval(caseResults)) {
+                safeCaseIds.add(anchorResultId);
+            } else {
+                reviewCaseIds.add(anchorResultId);
+            }
+        });
+        int totalCases = safeCaseIds.size() + reviewCaseIds.size();
 
         Instant updatedAt = results.stream()
                 .map(TestResultEntity::getLastModifiedAt)
@@ -662,17 +756,38 @@ public class VerificationService {
                 .batchName(catalog == null ? "Unknown Test Group" : catalog.getTestName())
                 .batchCode(catalog == null ? testId.toString() : catalog.getTestCode())
                 .department(catalog == null ? "Unknown Department" : catalog.getCategory())
-                .totalResults(results.size())
-                .safeForApproval(safeResults.size())
-                .exceptions(results.size() - safeResults.size())
+                .totalResults(totalCases)
+                .safeForApproval(safeCaseIds.size())
+                .exceptions(reviewCaseIds.size())
                 .updatedAt(updatedAt)
-                .resultIds(safeResults.stream()
-                        .map(result -> result.getId().toString())
-                        .toList())
-                .reviewResultIds(reviewResults.stream()
-                        .map(result -> result.getId().toString())
-                        .toList())
+                .resultIds(safeCaseIds)
+                .reviewResultIds(reviewCaseIds)
                 .build();
+    }
+
+    /** A case is safe only when every parameter on the specimen is safe. */
+    private boolean isCaseSafeForBulkApproval(List<TestResultEntity> caseResults) {
+        return !caseResults.isEmpty() && caseResults.stream().allMatch(this::isSafeForBulkApproval);
+    }
+
+    /**
+     * The parameter a case is approved through. Ordered by the panel's own display
+     * order so the anchor is stable across calls — the same case must not present a
+     * different result id each time the worklist is refreshed.
+     */
+    private String resolveCaseAnchorResultId(List<TestResultEntity> caseResults) {
+        return caseResults.stream()
+                .min(Comparator
+                        .comparing(
+                                (TestResultEntity tr) -> tr.getParameter() == null
+                                        ? null
+                                        : tr.getParameter().getDisplayOrder(),
+                                Comparator.nullsLast(Comparator.naturalOrder()))
+                        .thenComparing(
+                                tr -> tr.getParameter() == null ? "" : tr.getParameter().getName(),
+                                String.CASE_INSENSITIVE_ORDER))
+                .map(result -> result.getId().toString())
+                .orElse(null);
     }
 
     private boolean isSafeForBulkApproval(TestResultEntity result) {
@@ -702,11 +817,18 @@ public class VerificationService {
                         || result.getFlag() == ResultFlag.CRITICAL_LOW);
     }
 
-    private VerificationHistoryItemResponse toHistoryItemResponse(AuditLog auditLog) {
+    private VerificationHistoryItemResponse toHistoryItemResponse(
+            AuditLog auditLog,
+            Map<UUID, HistoryPatient> patients) {
         Map<String, String> details = parseDetails(auditLog.getDetails());
+        HistoryPatient patient = auditLog.getEntityId() == null
+                ? null
+                : patients.get(auditLog.getEntityId());
         return VerificationHistoryItemResponse.builder()
                 .resultId(auditLog.getEntityId() == null ? "" : auditLog.getEntityId().toString())
                 .actionType(auditLog.getAction())
+                .patientCode(patient == null ? null : patient.code())
+                .patientName(patient == null ? null : patient.name())
                 .testName(details.getOrDefault("testName", "Unknown Test Group"))
                 .specimenPriority(details.get("specimenPriority"))
                 .actionSummary(getActionSummary(auditLog.getAction()))

@@ -495,6 +495,8 @@ export interface PreviousVisitSummary {
 export interface TestResultSummary {
     resultId: string;
     status?: string | null;
+    /** Patient code, so the queue can be searched by ID as well as by name */
+    patientCode?: string | null;
     patientName?: string | null;
     testType?: string | null;
     mltName?: string | null;
@@ -555,6 +557,8 @@ export interface BulkVerificationPayload {
     resultIds: string[];
     status?: string;
     mltNotes?: string;
+    /** Supervisor's remark for the whole batch, from the confirmation modal */
+    supervisorNote?: string;
 }
 
 export interface BulkVerificationBatch {
@@ -573,6 +577,8 @@ export interface BulkVerificationBatch {
 export interface VerificationHistoryItem {
     resultId: string;
     actionType?: string | null;
+    patientCode?: string | null;
+    patientName?: string | null;
     testName?: string | null;
     specimenPriority?: string | null;
     actionSummary?: string | null;
@@ -594,6 +600,8 @@ export interface VerificationHistoryPage {
 export interface HistoryQueryParams {
     actionType?: string;
     search?: string;
+    /** ISO date-time lower bound; omit for all time. Drives the Today / 7d / 30d filters. */
+    fromTimestamp?: string;
 }
 
 export interface ClinicalAuthorizationPayload {
@@ -651,7 +659,8 @@ export const getVerificationHistory = async (
             page,
             size,
             actionType: filters.actionType,
-            search: filters.search
+            search: filters.search,
+            fromTimestamp: filters.fromTimestamp
         }
     });
     return response.data as VerificationHistoryPage;
@@ -679,7 +688,8 @@ export const getClinicalHistory = async (
             page,
             size,
             actionType: filters.actionType,
-            search: filters.search
+            search: filters.search,
+            fromTimestamp: filters.fromTimestamp
         }
     });
     return response.data as VerificationHistoryPage;
