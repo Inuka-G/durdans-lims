@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { PRIORITY_COLORS, QC_STATUS_CONFIG, formatStatusLabel } from '@/constants/sample-lifecycle';
 import { getPendingVerificationResults, type TestResultSummary } from '@/lib/api';
@@ -16,6 +17,118 @@ const hasCriticalTriage = (result: TestResultSummary) => {
     const flag = result.flag?.toUpperCase();
     return Boolean(flag && flag !== 'NORMAL');
 };
+
+/** Panic-range findings only, so "Critical" stays a strict subset of "Flagged". */
+const hasCriticalRange = (result: TestResultSummary) => {
+    if (result.hasCriticalFinding === true) {
+        return true;
+    }
+    const flag = result.flag?.toUpperCase();
+    return flag === 'CRITICAL_HIGH' || flag === 'CRITICAL_LOW';
+};
+
+type StatusFilter = 'ALL' | 'PENDING' | 'RETURNED_TO_SUPERVISOR';
+type PriorityFilter = 'ALL' | 'STAT' | 'URGENT' | 'NORMAL';
+type FlagFilter = 'ALL' | 'CRITICAL' | 'FLAGGED' | 'NORMAL';
+
+interface FilterCriteria {
+    search: string;
+    status: StatusFilter;
+    priority: PriorityFilter;
+    flag: FlagFilter;
+}
+
+const matchesSearchQuery = (result: TestResultSummary, query: string) => {
+    if (query.length === 0) {
+        return true;
+    }
+
+    const displayResultId = formatDisplayId(result.resultId, 'RES').toLowerCase();
+
+    return (
+        result.resultId.toLowerCase().includes(query) ||
+        displayResultId.includes(query) ||
+        (result.patientCode ?? '').toLowerCase().includes(query) ||
+        (result.patientName ?? '').toLowerCase().includes(query) ||
+        (result.testType ?? '').toLowerCase().includes(query) ||
+        (result.mltName ?? result.technicianName ?? '').toLowerCase().includes(query) ||
+        (result.priorityLevel ?? '').toLowerCase().includes(query) ||
+        (result.flag ?? '').toLowerCase().includes(query)
+    );
+};
+
+const matchesStatusFilter = (result: TestResultSummary, status: StatusFilter) => {
+    if (status === 'ALL') {
+        return true;
+    }
+
+    if (status === 'PENDING') {
+        return result.status === 'ENTERED';
+    }
+
+    return result.status === 'RETURNED_FOR_RECHECK';
+};
+
+const matchesPriorityFilter = (result: TestResultSummary, priority: PriorityFilter) =>
+    priority === 'ALL' || (result.priorityLevel ?? '').toUpperCase() === priority;
+
+const matchesFlagFilter = (result: TestResultSummary, flag: FlagFilter) => {
+    if (flag === 'ALL') {
+        return true;
+    }
+
+    if (flag === 'CRITICAL') {
+        return hasCriticalRange(result);
+    }
+
+    if (flag === 'FLAGGED') {
+        return hasCriticalTriage(result);
+    }
+
+    return !hasCriticalTriage(result);
+};
+
+const filterResults = (results: TestResultSummary[], criteria: FilterCriteria) =>
+    results.filter(
+        (result) =>
+            matchesSearchQuery(result, criteria.search) &&
+            matchesStatusFilter(result, criteria.status) &&
+            matchesPriorityFilter(result, criteria.priority) &&
+            matchesFlagFilter(result, criteria.flag)
+    );
+
+const buildFilterOptions = <T extends string>(
+    scope: TestResultSummary[],
+    options: ReadonlyArray<{ value: T; label: string }>,
+    matches: (result: TestResultSummary, value: T) => boolean
+) =>
+    options.map((option) => ({
+        value: option.value,
+        label: `${option.label} (${scope.filter((result) => matches(result, option.value)).length})`
+    }));
+
+const STATUS_FILTER_OPTIONS: ReadonlyArray<{ value: StatusFilter; label: string }> = [
+    { value: 'ALL', label: 'All Statuses' },
+    { value: 'PENDING', label: 'Pending Verification' },
+    { value: 'RETURNED_TO_SUPERVISOR', label: 'Returned to Supervisor' }
+];
+
+const PRIORITY_FILTER_OPTIONS: ReadonlyArray<{ value: PriorityFilter; label: string }> = [
+    { value: 'ALL', label: 'All Priorities' },
+    { value: 'STAT', label: 'STAT' },
+    { value: 'URGENT', label: 'Urgent' },
+    { value: 'NORMAL', label: 'Normal' }
+];
+
+const FLAG_FILTER_OPTIONS: ReadonlyArray<{ value: FlagFilter; label: string }> = [
+    { value: 'ALL', label: 'All Flags' },
+    { value: 'CRITICAL', label: 'Critical' },
+    { value: 'FLAGGED', label: 'Flagged' },
+    { value: 'NORMAL', label: 'Normal' }
+];
+
+const FILTER_SELECT_CLASS =
+    'rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/20';
 
 const RESULT_FLAG_CONFIG: Record<string, { label: string; className: string }> = {
     NORMAL: { label: 'NORMAL', className: 'bg-slate-100 text-slate-600' },
@@ -108,8 +221,9 @@ export default function PendingVerificationPage() {
     const pathname = usePathname();
     const [results, setResults] = useState<TestResultSummary[]>([]);
     const [searchQuery, setSearchQuery] = useState('');
-    const [statusFilter, setStatusFilter] = useState('ALL');
-    const [selectedIds, setSelectedIds] = useState<string[]>([]);
+    const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
+    const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>('ALL');
+    const [flagFilter, setFlagFilter] = useState<FlagFilter>('ALL');
     const [expandedReason, setExpandedReason] = useState<string | null>(null);
     const [currentPage, setCurrentPage] = useState(1);
     const [totalElements, setTotalElements] = useState(0);
@@ -129,7 +243,6 @@ export default function PendingVerificationPage() {
             setTotalElements(response.totalElements ?? 0);
             setTotalPages(Math.max(response.totalPages ?? 1, 1));
             setIsLastPage(response.last ?? true);
-            setSelectedIds([]);
             setExpandedReason(null);
         } catch (loadError) {
             console.error('Failed to load pending verification results', loadError);
@@ -138,7 +251,6 @@ export default function PendingVerificationPage() {
             setTotalElements(0);
             setTotalPages(1);
             setIsLastPage(true);
-            setSelectedIds([]);
         } finally {
             setLoading(false);
         }
@@ -148,58 +260,66 @@ export default function PendingVerificationPage() {
         void loadPendingResults();
     }, [loadPendingResults, pathname]);
 
-    const filteredResults = useMemo(() => {
-        const query = searchQuery.trim().toLowerCase();
+    const criteria = useMemo<FilterCriteria>(
+        () => ({
+            search: searchQuery.trim().toLowerCase(),
+            status: statusFilter,
+            priority: priorityFilter,
+            flag: flagFilter
+        }),
+        [searchQuery, statusFilter, priorityFilter, flagFilter]
+    );
 
-        return results.filter((result) => {
-            const displayResultId = formatDisplayId(result.resultId, 'RES').toLowerCase();
-            const matchesSearch =
-                query.length === 0 ||
-                result.resultId.toLowerCase().includes(query) ||
-                displayResultId.includes(query) ||
-                (result.patientCode ?? '').toLowerCase().includes(query) ||
-                (result.patientName ?? '').toLowerCase().includes(query) ||
-                (result.testType ?? '').toLowerCase().includes(query) ||
-                (result.mltName ?? result.technicianName ?? '').toLowerCase().includes(query) ||
-                (result.priorityLevel ?? '').toLowerCase().includes(query) ||
-                (result.flag ?? '').toLowerCase().includes(query);
+    const filteredResults = useMemo(() => filterResults(results, criteria), [results, criteria]);
 
-            const matchesStatus =
-                statusFilter === 'ALL' ||
-                (statusFilter === 'PENDING' && result.status === 'ENTERED') ||
-                (statusFilter === 'RETURNED_TO_SUPERVISOR' &&
-                    result.status === 'RETURNED_FOR_RECHECK') ||
-                (statusFilter === 'CRITICAL' && hasCriticalTriage(result));
+    // Each dropdown counts against the rows the other two dropdowns and the search already allow,
+    // so an option's number is what picking it would actually show.
+    const statusOptions = useMemo(
+        () =>
+            buildFilterOptions(
+                filterResults(results, { ...criteria, status: 'ALL' }),
+                STATUS_FILTER_OPTIONS,
+                matchesStatusFilter
+            ),
+        [results, criteria]
+    );
 
-            return matchesSearch && matchesStatus;
-        });
-    }, [results, searchQuery, statusFilter]);
+    const priorityOptions = useMemo(
+        () =>
+            buildFilterOptions(
+                filterResults(results, { ...criteria, priority: 'ALL' }),
+                PRIORITY_FILTER_OPTIONS,
+                matchesPriorityFilter
+            ),
+        [results, criteria]
+    );
+
+    const flagOptions = useMemo(
+        () =>
+            buildFilterOptions(
+                filterResults(results, { ...criteria, flag: 'ALL' }),
+                FLAG_FILTER_OPTIONS,
+                matchesFlagFilter
+            ),
+        [results, criteria]
+    );
 
     const totalPending = results.filter((result) => result.status === 'ENTERED').length;
     const returnedToSupervisorCount = results.filter(
         (result) => result.status === 'RETURNED_FOR_RECHECK'
     ).length;
-    const criticalPending = results.filter((result) => hasCriticalTriage(result)).length;
-    const isFiltering = searchQuery.trim().length > 0 || statusFilter !== 'ALL';
+    const criticalPending = results.filter((result) => hasCriticalRange(result)).length;
+    const isFiltering =
+        searchQuery.trim().length > 0 ||
+        statusFilter !== 'ALL' ||
+        priorityFilter !== 'ALL' ||
+        flagFilter !== 'ALL';
 
-    const allVisibleSelected =
-        filteredResults.length > 0 && filteredResults.every((result) => selectedIds.includes(result.resultId));
-
-    const handleToggleSelectAll = () => {
-        if (allVisibleSelected) {
-            setSelectedIds([]);
-            return;
-        }
-
-        setSelectedIds(filteredResults.map((result) => result.resultId));
-    };
-
-    const handleToggleSelectOne = (resultId: string) => {
-        setSelectedIds((previous) =>
-            previous.includes(resultId)
-                ? previous.filter((id) => id !== resultId)
-                : [...previous, resultId]
-        );
+    const handleClearFilters = () => {
+        setSearchQuery('');
+        setStatusFilter('ALL');
+        setPriorityFilter('ALL');
+        setFlagFilter('ALL');
     };
 
     const handleReview = (resultId: string) => {
@@ -209,7 +329,7 @@ export default function PendingVerificationPage() {
     return (
         <div className="min-h-screen bg-slate-50">
             <div className="mx-auto max-w-7xl px-6 py-8">
-                <div className="mb-8">
+                <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                         <p className="text-sm font-semibold uppercase tracking-[0.24em] text-sky-700">
                             Technical Verification
@@ -218,6 +338,13 @@ export default function PendingVerificationPage() {
                             Verification Dashboard
                         </h1>
                     </div>
+
+                    <Link
+                        href="/verification/bulk-approval"
+                        className="self-start rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 sm:self-auto"
+                    >
+                        Bulk Approval
+                    </Link>
                 </div>
 
                 <div className="mb-8 grid gap-4 md:grid-cols-3">
@@ -271,48 +398,55 @@ export default function PendingVerificationPage() {
                 </div>
 
                 <div className="mb-6 flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:flex-row lg:items-center lg:justify-between">
-                    <div className="flex flex-wrap gap-2">
-                        {[
-                            { key: 'ALL', label: 'All', count: results.length },
-                            { key: 'PENDING', label: 'Pending', count: totalPending },
-                            {
-                                key: 'RETURNED_TO_SUPERVISOR',
-                                label: 'Returned to Supervisor',
-                                count: returnedToSupervisorCount
-                            },
-                            {
-                                key: 'CRITICAL',
-                                label: 'Critical Cases',
-                                count: criticalPending
-                            }
-                        ].map((filter) => {
-                            const isActive = statusFilter === filter.key;
+                    <div className="flex flex-wrap items-center gap-2">
+                        <select
+                            value={statusFilter}
+                            onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}
+                            aria-label="Filter by verification status"
+                            className={FILTER_SELECT_CLASS}
+                        >
+                            {statusOptions.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                    {option.label}
+                                </option>
+                            ))}
+                        </select>
 
-                            return (
-                                <button
-                                    key={filter.key}
-                                    type="button"
-                                    onClick={() => {
-                                        setStatusFilter(filter.key);
-                                        setSelectedIds([]);
-                                    }}
-                                    className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
-                                        isActive
-                                            ? 'bg-sky-600 text-white shadow-sm'
-                                            : 'bg-sky-50 text-sky-800 hover:bg-sky-100'
-                                    }`}
-                                >
-                                    {filter.label}
-                                    <span
-                                        className={`ml-2 rounded-full px-2 py-0.5 text-xs ${
-                                            isActive ? 'bg-white/20 text-white' : 'bg-white text-sky-700'
-                                        }`}
-                                    >
-                                        {filter.count}
-                                    </span>
-                                </button>
-                            );
-                        })}
+                        <select
+                            value={priorityFilter}
+                            onChange={(event) => setPriorityFilter(event.target.value as PriorityFilter)}
+                            aria-label="Filter by priority"
+                            className={FILTER_SELECT_CLASS}
+                        >
+                            {priorityOptions.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                    {option.label}
+                                </option>
+                            ))}
+                        </select>
+
+                        <select
+                            value={flagFilter}
+                            onChange={(event) => setFlagFilter(event.target.value as FlagFilter)}
+                            aria-label="Filter by result flag"
+                            className={FILTER_SELECT_CLASS}
+                        >
+                            {flagOptions.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                    {option.label}
+                                </option>
+                            ))}
+                        </select>
+
+                        {isFiltering && (
+                            <button
+                                type="button"
+                                onClick={handleClearFilters}
+                                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
+                            >
+                                Clear
+                            </button>
+                        )}
                     </div>
 
                     <div className="w-full max-w-md">
@@ -331,15 +465,6 @@ export default function PendingVerificationPage() {
                         <table className="min-w-full divide-y divide-slate-200">
                             <thead className="bg-slate-50">
                                 <tr>
-                                    <th className="px-4 py-3 text-left">
-                                        <input
-                                            type="checkbox"
-                                            checked={allVisibleSelected}
-                                            onChange={handleToggleSelectAll}
-                                            disabled={filteredResults.length === 0}
-                                            className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-500"
-                                        />
-                                    </th>
                                     <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                                         Result ID
                                     </th>
@@ -373,7 +498,7 @@ export default function PendingVerificationPage() {
                             <tbody className="divide-y divide-slate-100 bg-white">
                                 {loading ? (
                                     <tr>
-                                        <td colSpan={10} className="px-6 py-14 text-center">
+                                        <td colSpan={9} className="px-6 py-14 text-center">
                                             <div className="mx-auto flex max-w-md flex-col items-center gap-3">
                                                 <div className="h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-slate-800" />
                                                 <p className="text-sm font-medium text-slate-700">
@@ -384,7 +509,7 @@ export default function PendingVerificationPage() {
                                     </tr>
                                 ) : error ? (
                                     <tr>
-                                        <td colSpan={10} className="px-6 py-14 text-center">
+                                        <td colSpan={9} className="px-6 py-14 text-center">
                                             <div className="mx-auto flex max-w-lg flex-col items-center gap-3">
                                                 <p className="text-base font-semibold text-slate-900">{error}</p>
                                                 <button
@@ -401,7 +526,7 @@ export default function PendingVerificationPage() {
                                     </tr>
                                 ) : filteredResults.length === 0 ? (
                                     <tr>
-                                        <td colSpan={10} className="px-6 py-14 text-center">
+                                        <td colSpan={9} className="px-6 py-14 text-center">
                                             <div className="mx-auto max-w-md">
                                                 <p className="text-base font-semibold text-slate-900">
                                                     {isFiltering
@@ -420,29 +545,21 @@ export default function PendingVerificationPage() {
                                     filteredResults.map((result) => {
                                         const isReturned = result.status === 'RETURNED_FOR_RECHECK';
                                         const isExpanded = expandedReason === result.resultId;
-                                        const hasCritical = hasCriticalTriage(result);
+                                        const hasCritical = hasCriticalRange(result);
+                                        const returnReasonId = `return-reason-${result.resultId}`;
 
                                         return (
                                             <React.Fragment key={result.resultId}>
                                                 <tr
-                                                    className={`cursor-pointer transition hover:bg-slate-50 ${hasCritical ? 'bg-red-50/40' : ''}`}
+                                                    className={`cursor-pointer transition ${hasCritical ? 'bg-red-50 hover:bg-red-100' : 'hover:bg-slate-50'}`}
                                                     onClick={(event) => {
                                                         const target = event.target as HTMLElement;
-                                                        if (target.closest('button, a, input, label')) {
+                                                        if (target.closest('button, a')) {
                                                             return;
                                                         }
                                                         handleReview(result.resultId);
                                                     }}
                                                 >
-                                                    <td className="px-4 py-4 align-top">
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={selectedIds.includes(result.resultId)}
-                                                            onChange={() => handleToggleSelectOne(result.resultId)}
-                                                            className="mt-1 h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-500"
-                                                        />
-                                                    </td>
-
                                                     <td className="px-4 py-4 align-top">
                                                         <button
                                                             type="button"
@@ -542,6 +659,8 @@ export default function PendingVerificationPage() {
                                                                                 : result.resultId
                                                                         )
                                                                     }
+                                                                    aria-expanded={isExpanded}
+                                                                    aria-controls={returnReasonId}
                                                                     className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
                                                                 >
                                                                     {isExpanded ? 'Hide Info' : 'View Info'}
@@ -560,8 +679,8 @@ export default function PendingVerificationPage() {
                                                 </tr>
 
                                                 {isReturned && isExpanded && (
-                                                    <tr className="bg-amber-50/60">
-                                                        <td colSpan={10} className="px-6 py-4">
+                                                    <tr id={returnReasonId} className="bg-amber-50/60">
+                                                        <td colSpan={9} className="px-6 py-4">
                                                             <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
                                                                 <p className="text-sm font-semibold text-amber-900">
                                                                     {getVerificationLabel(result.status)}
