@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { PRIORITY_COLORS } from '@/constants/sample-lifecycle';
+import { PRIORITY_COLORS, formatStatusLabel } from '@/constants/sample-lifecycle';
 import { getCollectionHistory } from '@/lib/api';
 import type { CollectionHistoryEntry } from '@/types/sample-lifecycle';
 
@@ -14,6 +14,7 @@ const STATUS_COLORS: Record<string, string> = {
     RECOLLECTION_REQUIRED: 'bg-orange-100 text-orange-700',
     IN_TRANSIT: 'bg-cyan-100 text-cyan-700'
 };
+type CollectionHistoryRow = CollectionHistoryEntry & { rejectionReason?: string };
 type RawCollectionHistoryItem = {
     id?: string | number;
     sampleId?: string | number;
@@ -26,6 +27,7 @@ type RawCollectionHistoryItem = {
     collectedAt?: string;
     collectedBy?: string;
     waitTime?: number | string;
+    rejectionReason?: string;
     rejectionNotes?: string;
     printCount?: number;
 };
@@ -66,15 +68,15 @@ export default function CollectionHistoryPage() {
     const [searchQuery, setSearchQuery] = useState('');
     const [statusFilter, setStatusFilter] = useState('All Status');
     const [currentPage, setCurrentPage] = useState(1);
-    const [collectionHistory, setCollectionHistory] = useState<CollectionHistoryEntry[]>([]);
-    const [selectedRejection, setSelectedRejection] = useState<CollectionHistoryEntry | null>(null);
+    const [collectionHistory, setCollectionHistory] = useState<CollectionHistoryRow[]>([]);
+    const [selectedRejection, setSelectedRejection] = useState<CollectionHistoryRow | null>(null);
 
     const loadCollectionHistory = useCallback(async () => {
         try {
             const data = await getCollectionHistory(0, 100);
             const rawItems = data as { content?: RawCollectionHistoryItem[] } | RawCollectionHistoryItem[] | null | undefined;
             const items: RawCollectionHistoryItem[] = Array.isArray(rawItems) ? rawItems : rawItems?.content ?? [];
-            const rows: CollectionHistoryEntry[] = [...items].map((item) => ({
+            const rows: CollectionHistoryRow[] = [...items].map((item) => ({
                 id: String(item?.id ?? item?.sampleId ?? ''),
                 sampleId: String(item?.sampleId ?? '-'),
                 patientName: item?.patientName ?? '-',
@@ -86,6 +88,7 @@ export default function CollectionHistoryPage() {
                 collectedAt: formatEventDateTime(item?.collectedAt),
                 collectedBy: item?.collectedBy ?? '-',
                 waitTime: Number(item?.waitTime ?? 0),
+                rejectionReason: item?.rejectionReason ? String(item.rejectionReason) : undefined,
                 rejectionNotes: item?.rejectionNotes,
                 printCount: Number(item?.printCount ?? 0),
             }));
@@ -115,6 +118,11 @@ export default function CollectionHistoryPage() {
     const collected = collectionHistory.filter(h => h.status === 'COLLECTED').length;
     const rejected = collectionHistory.filter(h => h.status === 'REJECTED').length;
 
+    // OTHER carries the phlebotomist's own wording in the notes; every other reason is the message itself.
+    const rejectionReasonLabel = selectedRejection?.rejectionReason && selectedRejection.rejectionReason !== 'OTHER'
+        ? formatStatusLabel(selectedRejection.rejectionReason)
+        : null;
+
     return (
         <div>
             <div className="mb-6">
@@ -141,7 +149,16 @@ export default function CollectionHistoryPage() {
                             </button>
                         </div>
                         <div className="rounded-xl bg-red-50 border border-red-100 p-4 text-sm text-red-700 whitespace-pre-wrap">
-                            {selectedRejection.rejectionNotes || 'No rejection message recorded.'}
+                            {rejectionReasonLabel ? (
+                                <>
+                                    <p className="font-semibold lowercase first-letter:uppercase">{rejectionReasonLabel}</p>
+                                    {selectedRejection.rejectionNotes ? (
+                                        <p className="mt-1 text-red-700/80">{selectedRejection.rejectionNotes}</p>
+                                    ) : null}
+                                </>
+                            ) : (
+                                selectedRejection.rejectionNotes || 'No rejection message recorded.'
+                            )}
                         </div>
                         <div className="flex justify-end mt-4">
                             <button

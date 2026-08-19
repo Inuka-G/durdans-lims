@@ -6,6 +6,7 @@ import {
     getPendingClinicalResults,
     TestResultSummary,
 } from "@/lib/api";
+import { PRIORITY_COLORS, formatStatusLabel } from "@/constants/sample-lifecycle";
 import { formatDisplayId } from "@/lib/format-id";
 
 const PAGE_SIZE = 10;
@@ -46,8 +47,11 @@ const getClinicalStatusBadge = (status?: string | null) => {
     );
 };
 
+const isFlaggedResult = (flag?: string | null): flag is string =>
+    Boolean(flag) && flag !== "NORMAL";
+
 const getFlagBadge = (flag?: string | null) => {
-    if (!flag || flag === "NORMAL") {
+    if (!isFlaggedResult(flag)) {
         return (
             <span className="px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700 border border-emerald-200">
                 Normal
@@ -66,6 +70,26 @@ const getFlagBadge = (flag?: string | null) => {
     return (
         <span className="px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-700 border border-amber-200">
             {flag.replaceAll("_", " ")}
+        </span>
+    );
+};
+
+const getPriorityBadge = (priority?: string | null) => {
+    if (!priority) {
+        return (
+            <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
+                -
+            </span>
+        );
+    }
+
+    const key = priority.toUpperCase() as keyof typeof PRIORITY_COLORS;
+
+    return (
+        <span
+            className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${PRIORITY_COLORS[key] ?? "bg-slate-100 text-slate-600"}`}
+        >
+            {formatStatusLabel(priority)}
         </span>
     );
 };
@@ -118,7 +142,7 @@ const matchesFlag = (result: TestResultSummary, filter: FlagFilter) => {
     return (
         filter === "ALL" ||
         (filter === "NORMAL" && resultFlag === "NORMAL") ||
-        (filter === "FLAGGED" && resultFlag !== "NORMAL") ||
+        (filter === "FLAGGED" && isFlaggedResult(resultFlag)) ||
         (filter === "CRITICAL" && isCriticalFlag(resultFlag)) ||
         (filter === "HIGH" && (resultFlag === "HIGH" || resultFlag === "CRITICAL_HIGH")) ||
         (filter === "LOW" && (resultFlag === "LOW" || resultFlag === "CRITICAL_LOW"))
@@ -199,7 +223,7 @@ export default function ClinicalWorklistPage() {
     }, []);
 
     const pendingCount = results.filter((result) => result.status === "TECHNICALLY_VERIFIED").length;
-    const flaggedCount = results.filter((result) => result.flag && result.flag !== "NORMAL").length;
+    const flaggedCount = results.filter((result) => isFlaggedResult(result.flag)).length;
     const criticalCount = results.filter((result) => isCriticalFlag(result.flag)).length;
 
     const searchedResults = useMemo(() => {
@@ -485,9 +509,7 @@ export default function ClinicalWorklistPage() {
                                             </span>
                                         </td>
                                         <td className="px-4 py-4">
-                                            <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
-                                                {result.priorityLevel || "-"}
-                                            </span>
+                                            {getPriorityBadge(result.priorityLevel)}
                                         </td>
                                         <td className="px-4 py-4">
                                             {getFlagBadge(result.flag)}

@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+
+    <!--
+        Consumables inventory becomes an inventory of tubes.
+
+        A test already declares the container it needs (test_catalog.tube_type), and a
+        sample copies it at collection time, but nothing connected that declaration to
+        the stock that gets consumed. Keying supplies on the same TubeType closes the
+        chain test_catalog.tube_type -> supplies.tube_type -> supplies.tube_color, so a
+        collection can deduct from real stock and the label can be printed in the colour
+        the lab actually stocks rather than one hardcoded in the UI.
+
+        Stock is pooled per tube, not per test: many tests share one tube type.
+    -->
+
+    <changeSet id="20260818120000-1-add-supplies-tube-type" author="kalana">
+        <comment>Key consumables stock on the tube a test asks for</comment>
+        <addColumn tableName="supplies">
+            <column name="tube_type" type="varchar(32)"/>
+        </addColumn>
+    </changeSet>
+
+    <!-- Partial so retired rows keep their history: only a live row occupies a tube
+         type, and a tube type has exactly one place its stock is counted. -->
+    <changeSet id="20260818120000-2-unique-live-supply-per-tube-type" author="kalana">
+        <comment>One live stock row per tube type</comment>
+        <sql dbms="postgresql"><![CDATA[
+CREATE UNIQUE INDEX uq_supplies_tube_type_live ON supplies (tube_type) WHERE is_deleted = false;
+        ]]></sql>
+        <rollback>
+            <sql dbms="postgresql"><![CDATA[
+DROP INDEX IF EXISTS uq_supplies_tube_type_live;
+            ]]></sql>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="20260818120000-3-backfill-supply-tube-type" author="kalana">
+        <comment>Map the seeded collection tubes and urine containers onto their TubeType</comment>
+        <sql dbms="postgresql"><![CDATA[
+UPDATE supplies SET tube_type = 'EDTA_PURPLE'   WHERE item_no = 'SUP-0001';
+UPDATE supplies SET tube_type = 'SST_GOLD'      WHERE item_no = 'SUP-0002';
+UPDATE supplies SET tube_type = 'CITRATE_BLUE'  WHERE item_no = 'SUP-0003';
+UPDATE supplies SET tube_type = 'HEPARIN_GREEN' WHERE item_no = 'SUP-0004';
+UPDATE supplies SET tube_type = 'URINE_YELLOW'  WHERE item_no = 'SUP-0005';
+        ]]></sql>
+        <rollback>
+            <sql dbms="postgresql"><![CDATA[
+UPDATE supplies SET tube_type = NULL
+ WHERE item_no IN ('SUP-0001', 'SUP-0002', 'SUP-0003', 'SUP-0004', 'SUP-0005');
+            ]]></sql>
+        </rollback>
+    </changeSet>
+
+    <!-- Soft, not hard: these rows are referenced by nothing today but they carry the
+         stock history somebody may still want to read. -->
+    <changeSet id="20260818120000-4-retire-non-tube-supplies" author="kalana">
+        <comment>Retire needles, labels and gloves — they have no tube type to be counted against</comment>
+        <sql dbms="postgresql"><![CDATA[
+UPDATE supplies
+   SET is_deleted = true,
+       updated_at = CURRENT_TIMESTAMP,
+       updated_by = 'system'
+ WHERE item_no IN ('SUP-0006', 'SUP-0007', 'SUP-0008');
+        ]]></sql>
+        <rollback>
+            <sql dbms="postgresql"><![CDATA[
+UPDATE supplies
+   SET is_deleted = false,
+       updated_at = CURRENT_TIMESTAMP,
+       updated_by = 'system'
+ WHERE item_no IN ('SUP-0006', 'SUP-0007', 'SUP-0008');
+            ]]></sql>
+        </rollback>
+    </changeSet>
+
+    <!-- Kept, not dropped: existing rows carry values other reads still surface, and a
+         dropped column cannot be rolled back with its data. -->
+    <changeSet id="20260818120000-5-relax-supply-category-and-unit" author="kalana">
+        <comment>Category and unit are no longer captured when a tube is added to stock</comment>
+        <dropNotNullConstraint tableName="supplies" columnName="category" columnDataType="varchar(100)"/>
+        <dropNotNullConstraint tableName="supplies" columnName="unit" columnDataType="varchar(50)"/>
+        <rollback>
+            <addNotNullConstraint tableName="supplies" columnName="category" columnDataType="varchar(100)"/>
+            <addNotNullConstraint tableName="supplies" columnName="unit" columnDataType="varchar(50)"/>
+        </rollback>
+    </changeSet>
+
+    <!--
+        Must land before RejectionReason loses WRONG_CONTAINER and UNLABELED:
+        samples.rejection_reason stores the constant name, so a surviving row would
+        blow up on read the moment the enum no longer has the constant. The meaning
+        moves into the notes so the collection history still says something; a note
+        the rejecting user wrote themselves is never overwritten.
+    -->
+    <changeSet id="20260818120000-6-remap-retired-rejection-reasons" author="kalana">
+        <comment>Fold WRONG_CONTAINER and UNLABELED into OTHER before the enum drops them</comment>
+        <sql dbms="postgresql"><![CDATA[
+UPDATE samples
+   SET rejection_reason = 'OTHER',
+       rejection_notes = COALESCE(NULLIF(rejection_notes, ''), 'Wrong container')
+ WHERE rejection_reason = 'WRONG_CONTAINER';
+
+UPDATE samples
+   SET rejection_reason = 'OTHER',
+       rejection_notes = COALESCE(NULLIF(rejection_notes, ''), 'Unlabeled')
+ WHERE rejection_reason = 'UNLABELED';
+        ]]></sql>
+        <!-- The original constant is not recoverable: 'OTHER' plus a free-text note is
+             indistinguishable from a rejection that was always 'OTHER'. -->
+        <rollback/>
+    </changeSet>
+
+    <!--
+        item_no was unique table-wide while every guard above it — the service duplicate
+        check and the next number the UI proposes — only ever looked at live rows. A retired
+        row therefore reserved its number invisibly: the next item added was handed the same
+        one, passed every check and died on the duplicate key. Scoping the index to live rows
+        and to lower(item_no) makes the database enforce exactly what the service checks with
+        existsByItemNoIgnoreCaseAndDeletedFalse, so a retired row keeping its number is
+        harmless and nothing has to be stamped out of the way to release it.
+
+        Nothing may give 20260505200000-3-seed-supplies a runAlways or runOnChange, and no new
+        statement may write a bare ON CONFLICT (item_no): a bare column target has to infer a
+        NON-partial unique index and after this changeSet there is none. Such a statement must
+        spell out the predicate — ON CONFLICT (lower(item_no)) WHERE is_deleted = false — or
+        name a constraint explicitly. The existing seed is safe only because it is included
+        earlier in master.xml, so on a fresh database it runs while the table-wide constraint
+        is still there, and on an existing one it has already run and never repeats.
+    -->
+    <changeSet id="20260818120000-7-scope-supply-item-no-unique-to-live" author="kalana">
+        <comment>Item numbers may only collide among live rows, as every guard already assumed</comment>
+        <dropUniqueConstraint tableName="supplies" constraintName="supplies_item_no_key"/>
+        <sql dbms="postgresql"><![CDATA[
+CREATE UNIQUE INDEX uq_supplies_item_no_live ON supplies (lower(item_no)) WHERE is_deleted = false;
+        ]]></sql>
+        <rollback>
+            <sql dbms="postgresql"><![CDATA[
+DROP INDEX IF EXISTS uq_supplies_item_no_live;
+            ]]></sql>
+            <addUniqueConstraint tableName="supplies" columnNames="item_no" constraintName="supplies_item_no_key"/>
+        </rollback>
+    </changeSet>
+</databaseChangeLog>

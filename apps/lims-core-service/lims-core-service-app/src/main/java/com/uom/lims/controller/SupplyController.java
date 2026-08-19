@@ -2,6 +2,7 @@ package com.uom.lims.controller;
 
 import com.uom.lims.api.dto.request.SupplyCreateRequest;
 import com.uom.lims.api.dto.request.SupplyPatchRequest;
+import com.uom.lims.api.dto.request.SupplyStockAdjustmentRequest;
 import com.uom.lims.api.dto.response.ApiResponse;
 import com.uom.lims.api.dto.response.SupplyResponse;
 import com.uom.lims.service.SupplyService;
@@ -46,6 +47,14 @@ public class SupplyController {
             @PathVariable UUID id,
             @Valid @RequestBody SupplyPatchRequest request) {
         return ResponseEntity.ok(ApiResponse.success(supplyService.patchSupply(id, request)));
+    }
+
+    @PreAuthorize("hasAnyRole('PHLEBOTOMIST','BRANCH_ADMIN','SUPER_ADMIN','FRONT_DESK')")
+    @PostMapping("/{id}/stock-adjustments")
+    public ResponseEntity<ApiResponse<SupplyResponse>> adjustStock(
+            @PathVariable UUID id,
+            @Valid @RequestBody SupplyStockAdjustmentRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(supplyService.adjustStock(id, request.getDelta())));
     }
 
     @PreAuthorize("hasAnyRole('BRANCH_ADMIN','SUPER_ADMIN')")

@@ -19,10 +19,8 @@ const DEFAULT_REASON: RejectionReason = 'HEMOLYZED';
 const REJECTION_REASONS: RejectionReason[] = [
     'HEMOLYZED',
     'INSUFFICIENT_VOLUME',
-    'WRONG_CONTAINER',
     'CLOTTED',
     'CONTAMINATED',
-    'UNLABELED',
     'OTHER',
 ];
 
@@ -216,6 +214,7 @@ export default function QualityVerificationPage() {
 
     const allRequiredPassed = REQUIRED_CHECKS.every((id) => checks[id]);
     const progress = Object.values(checks).filter(Boolean).length;
+    const requiresCustomMessage = rejectReason === 'OTHER';
 
     const patientDisplayName = patient?.fullName || patient?.firstName
         ? [patient?.title, patient?.firstName, patient?.lastName].filter(Boolean).join(' ').trim()
@@ -280,8 +279,8 @@ export default function QualityVerificationPage() {
             return;
         }
 
-        if (rejectReason === 'OTHER' && notes.trim().length === 0) {
-            setError('Add rejection notes when the reason is OTHER.');
+        if (requiresCustomMessage && notes.trim().length === 0) {
+            setError('A custom rejection message is required when the reason is Other.');
             return;
         }
 
@@ -586,7 +585,10 @@ export default function QualityVerificationPage() {
                                             </label>
                                             <select
                                                 value={rejectReason}
-                                                onChange={(event) => setRejectReason(event.target.value as RejectionReason)}
+                                                onChange={(event) => {
+                                                    setRejectReason(event.target.value as RejectionReason);
+                                                    setError(null);
+                                                }}
                                                 className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-red-200 focus:border-red-300"
                                             >
                                                 {REJECTION_REASONS.map((reason) => (
@@ -599,13 +601,16 @@ export default function QualityVerificationPage() {
 
                                         <div>
                                             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
-                                                Observations / Notes {rejectReason === 'OTHER' ? '(Required)' : '(Optional)'}
+                                                {requiresCustomMessage ? 'Custom message' : 'Message'}
+                                                {requiresCustomMessage && <span className="text-red-500 ml-1">*</span>}
                                             </p>
                                             <textarea
                                                 rows={3}
                                                 value={notes}
                                                 onChange={(event) => setNotes(event.target.value)}
-                                                placeholder="Enter rejection notes (required if reason is Other)..."
+                                                placeholder={requiresCustomMessage
+                                                    ? 'Describe why this sample is being rejected...'
+                                                    : 'Optional notes to record with this rejection...'}
                                                 className="w-full px-4 py-3 text-sm border border-slate-200 rounded-xl bg-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-red-200 focus:border-red-300 transition-all resize-none"
                                             />
                                         </div>
