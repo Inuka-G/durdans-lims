@@ -31,17 +31,6 @@ export const SAMPLE_STATUS_COLORS: Record<string, string> = {
     DISPATCHED: 'bg-emerald-100 text-emerald-700',
 };
 
-export const TUBE_COLOR_MAP: Record<string, string> = {
-    EDTA_PURPLE: 'bg-purple-500',
-    EDTA_LAVENDER: 'bg-purple-300',
-    SST_GOLD: 'bg-yellow-400',
-    SST_RED: 'bg-red-500',
-    CITRATE_BLUE: 'bg-blue-400',
-    HEPARIN_GREEN: 'bg-green-500',
-    URINE_YELLOW: 'bg-yellow-300',
-    OTHER: 'bg-gray-400',
-};
-
 export const FLAG_COLORS: Record<string, string> = {
     NORMAL: 'bg-emerald-100 text-emerald-700',
     LOW: 'bg-blue-100 text-blue-700',

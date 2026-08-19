@@ -5,6 +5,8 @@ export type PhlebotomyLabelPayload = {
     testCodes: string[];
     /** Tube enum code e.g. EDTA_PURPLE or humanized label text */
     tubeTypeLabel: string;
+    /** Hex colour carried on the sample payload, sourced from the stocked tube in supplies. */
+    tubeColor?: string | null;
 };
 
 export function getBarcodeBars(sampleId: string, count = 24): number[] {
@@ -14,20 +16,14 @@ export function getBarcodeBars(sampleId: string, count = 24): number[] {
     });
 }
 
-export function getTubeHexColor(tubeType: string): string {
-    const normalized = tubeType.replace(/\s/g, '_').toUpperCase();
-    const colors: Record<string, string> = {
-        EDTA_PURPLE: '#a855f7',
-        EDTA_LAVENDER: '#d8b4fe',
-        SST_GOLD: '#facc15',
-        SST_RED: '#ef4444',
-        CITRATE_BLUE: '#60a5fa',
-        HEPARIN_GREEN: '#22c55e',
-        URINE_YELLOW: '#fde047',
-        OTHER: '#9ca3af',
-    };
+const HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
 
-    return colors[normalized] ?? colors.OTHER;
+/** Grey is not a tube colour — it flags a tube type with no stocked container to read a colour from. */
+export function getTubeHexColor(tubeColor?: string | null): string {
+    // Operator-supplied inventory data that lands inside a style attribute, so the shape is
+    // checked here instead of trusted.
+    const trimmed = tubeColor?.trim() ?? '';
+    return HEX_COLOR_PATTERN.test(trimmed) ? trimmed : '#9ca3af';
 }
 
 /**
@@ -46,7 +42,7 @@ export function openPhlebotomySpecimenLabelPrint(payload: PhlebotomyLabelPayload
                 `<span style="display:inline-block;width:${width}px;height:42px;background:#111827;margin-right:1px"></span>`
         )
         .join('');
-    const tubeHexColor = getTubeHexColor(payload.tubeTypeLabel);
+    const tubeHexColor = getTubeHexColor(payload.tubeColor);
 
     printWindow.document.write(`
                 <!doctype html>

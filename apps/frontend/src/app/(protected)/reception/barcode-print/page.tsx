@@ -12,14 +12,7 @@ import {
     type SamplePrintItem,
 } from '@/lib/api';
 import { PRIORITY_COLORS, SAMPLE_STATUS_COLORS, formatStatusLabel } from '@/constants/sample-lifecycle';
-
-const TUBE_COLOR_CLASS: Record<string, string> = {
-    EDTA_PURPLE: 'bg-purple-500',
-    PLAIN_RED: 'bg-red-500',
-    SODIUM_CITRATE_BLUE: 'bg-blue-500',
-    SERUM_SEPARATOR_GOLD: 'bg-amber-400',
-    FLUORIDE_OXALATE_GRAY: 'bg-slate-500',
-};
+import { getTubeHexColor } from '@/lib/phlebotomy-label-print';
 
 export default function BarcodePrintPage() {
     const router = useRouter();
@@ -147,7 +140,7 @@ export default function BarcodePrintPage() {
                 testType: selectedResult.testType ?? 'Unknown test',
                 testCodes: selectedResult.testCodes ?? [],
                 tubeTypes: selectedResult.tubeTypes ?? [],
-                tubeColorClass,
+                tubeColor,
             });
 
             if (!opened) {
@@ -172,9 +165,7 @@ export default function BarcodePrintPage() {
         }
     };
 
-    const tubeColorClass = selectedResult?.tubeTypes?.[0]
-        ? TUBE_COLOR_CLASS[selectedResult.tubeTypes[0]] ?? 'bg-slate-400'
-        : 'bg-slate-400';
+    const tubeColor = getTubeHexColor(selectedResult?.tubeColor);
 
     useEffect(() => {
         if (!initialQuery) {
@@ -387,7 +378,7 @@ export default function BarcodePrintPage() {
                             <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">Label Preview</h3>
                             <div className="bg-slate-50 border border-dashed border-slate-300 rounded-xl p-5 mb-5">
                                 <div className="flex items-start gap-4">
-                                    <div className={`w-3 h-16 rounded-full ${tubeColorClass}`} />
+                                    <div className="w-3 h-16 rounded-full" style={{ backgroundColor: tubeColor }} />
                                     <div className="flex-1">
                                         <div className="flex items-center justify-between mb-2 gap-2">
                                             <p className="text-sm font-bold text-slate-800">{selectedResult.sampleId}</p>
@@ -502,7 +493,7 @@ type PrintWindowPayload = {
     testType: string;
     testCodes: string[];
     tubeTypes: string[];
-    tubeColorClass: string;
+    tubeColor: string;
 };
 
 function openPrintWindow(payload: PrintWindowPayload) {
@@ -511,7 +502,6 @@ function openPrintWindow(payload: PrintWindowPayload) {
         return false;
     }
 
-    const tubeColor = resolveTubeColor(payload.tubeColorClass);
     const barcodeBars = buildBarcodePattern(payload.sampleId)
         .map((width) => `<div style="width:${width}px;height:42px;background:#0f172a;border-radius:1px;"></div>`)
         .join('');
@@ -550,7 +540,7 @@ function openPrintWindow(payload: PrintWindowPayload) {
       width: 14px;
       height: 78px;
       border-radius: 999px;
-      background: ${tubeColor};
+      background: ${escapeHtml(payload.tubeColor)};
       flex-shrink: 0;
     }
     .top {
@@ -614,7 +604,7 @@ function openPrintWindow(payload: PrintWindowPayload) {
       <div style="flex:1;">
         <div class="top">
           <div class="title">${escapeHtml(payload.sampleId)}</div>
-          <div style="font-size:13px;color:#94a3b8;">${escapeHtml(payload.orderId)}</div>
+          <div style="font-size:13px;color:#64748b;">${escapeHtml(payload.orderId)}</div>
         </div>
         <p class="meta">${escapeHtml(payload.patientName)} • ${escapeHtml(payload.patientCode)}</p>
         <p class="sub">${escapeHtml(payload.testType)}</p>
@@ -636,23 +626,6 @@ function openPrintWindow(payload: PrintWindowPayload) {
     printWindow.document.write(html);
     printWindow.document.close();
     return true;
-}
-
-function resolveTubeColor(colorClass: string) {
-    switch (colorClass) {
-        case 'bg-purple-500':
-            return '#a855f7';
-        case 'bg-red-500':
-            return '#ef4444';
-        case 'bg-blue-500':
-            return '#3b82f6';
-        case 'bg-amber-400':
-            return '#fbbf24';
-        case 'bg-slate-500':
-            return '#64748b';
-        default:
-            return '#94a3b8';
-    }
 }
 
 function escapeHtml(value: string) {

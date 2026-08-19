@@ -1,37 +1,27 @@
 'use client';
 
-const TUBE_COLOR_MAP: Record<string, string> = {
-    EDTA:         'bg-purple-500',
-    SST:          'bg-yellow-400',
-    HEPARIN:      'bg-green-500',
-    CITRATE:      'bg-blue-400',
-    FLUORIDE:     'bg-gray-400',
-    PLAIN:        'bg-red-400',
-    URINE:        'bg-yellow-300',
-};
+/** Grey is not a tube colour — it flags a tube type with no stocked container to read a colour from. */
+const NEUTRAL_TUBE_COLOR = '#9ca3af';
 
-const TUBE_LABELS: Record<string, string> = {
-    EDTA:     'EDTA (Purple)',
-    SST:      'SST (Gold)',
-    HEPARIN:  'Heparin (Green)',
-    CITRATE:  'Citrate (Blue)',
-    FLUORIDE: 'Fluoride (Gray)',
-    PLAIN:    'Plain (Red)',
-    URINE:    'Urine (Yellow)',
-};
+export interface TubeIndicatorTube {
+    code: string;
+    color?: string | null;
+    label?: string;
+}
 
 interface TubeIndicatorProps {
-    tubes: string[];
+    tubes: TubeIndicatorTube[];
 }
 
 export default function TubeIndicator({ tubes }: TubeIndicatorProps) {
     return (
         <div className="flex gap-1">
-            {tubes.map((t) => (
+            {tubes.map((tube) => (
                 <div
-                    key={t}
-                    className={`w-4 h-4 rounded-full ${TUBE_COLOR_MAP[t] ?? 'bg-slate-400'} border border-white shadow-sm`}
-                    title={TUBE_LABELS[t] ?? t}
+                    key={tube.code}
+                    className="w-4 h-4 rounded-full border border-white shadow-sm"
+                    style={{ backgroundColor: tube.color?.trim() || NEUTRAL_TUBE_COLOR }}
+                    title={tube.label ?? tube.code.replace(/_/g, ' ')}
                 />
             ))}
         </div>

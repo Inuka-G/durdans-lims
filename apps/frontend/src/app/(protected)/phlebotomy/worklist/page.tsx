@@ -3,12 +3,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { usePathname, useRouter } from 'next/navigation';
-import { PRIORITY_COLORS, TUBE_COLOR_MAP, formatStatusLabel } from '@/constants/sample-lifecycle';
+import { PRIORITY_COLORS, formatStatusLabel } from '@/constants/sample-lifecycle';
 import { collectSample, getPhlebotomyStats, getPhlebotomyWorklist, rejectPhlebotomySample } from '@/lib/api';
+import { getTubeHexColor } from '@/lib/phlebotomy-label-print';
 import type { Sample, TubeType } from '@/types/sample-lifecycle';
 
 const PAGE_SIZE = 8;
-type RejectionReason = 'HEMOLYZED' | 'INSUFFICIENT_VOLUME' | 'WRONG_CONTAINER' | 'CLOTTED' | 'CONTAMINATED' | 'UNLABELED' | 'OTHER';
+type RejectionReason = 'HEMOLYZED' | 'INSUFFICIENT_VOLUME' | 'CLOTTED' | 'CONTAMINATED' | 'OTHER';
 type PhlebotomyStats = {
     pendingCollections: number;
     normalPriority: number;
@@ -38,9 +39,12 @@ type RawWorklistItem = {
     priority?: Sample['priority'];
     status?: Sample['status'];
     tubeTypes?: TubeType[];
+    tubeColor?: string | null;
     waitTimeMinutes?: number | string;
     waitTime?: number | string;
 };
+/** Tube colour is stocked data, not part of the shared Sample shape, so it rides alongside it. */
+type WorklistSample = Sample & { tubeColor: string };
 const PHLEBOTOMY_STAT_CARDS = {
     pending: {
         label: 'Pending Collections',
@@ -93,7 +97,7 @@ export default function PhlebotomyWorklistPage() {
     const [searchQuery, setSearchQuery] = useState('');
     const [priorityFilter, setPriorityFilter] = useState('ALL');
     const [currentPage, setCurrentPage] = useState(1);
-    const [worklist, setWorklist] = useState<Sample[]>([]);
+    const [worklist, setWorklist] = useState<WorklistSample[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [loadError, setLoadError] = useState('');
     const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
@@ -118,7 +122,7 @@ export default function PhlebotomyWorklistPage() {
             ]);
             const rawRows = data as { content?: RawWorklistItem[] } | RawWorklistItem[] | null | undefined;
             const rows: RawWorklistItem[] = Array.isArray(rawRows) ? rawRows : rawRows?.content ?? [];
-            const list: Sample[] = rows.map((item) => ({
+            const list: WorklistSample[] = rows.map((item) => ({
                 id: String(item?.id ?? item?.sampleId ?? ''),
                 sampleId: String(item?.sampleId ?? '-'),
                 orderId: item?.orderId ?? '-',
@@ -135,6 +139,7 @@ export default function PhlebotomyWorklistPage() {
                 priority: item?.priority ?? 'NORMAL',
                 status: item?.status ?? 'PENDING_COLLECTION',
                 tubeTypes: (Array.isArray(item?.tubeTypes) ? item.tubeTypes : ['OTHER']) as TubeType[],
+                tubeColor: getTubeHexColor(item?.tubeColor),
                 waitTimeMinutes: Number(item?.waitTimeMinutes ?? item?.waitTime ?? 0),
             }));
             setWorklist(list);
@@ -182,6 +187,8 @@ export default function PhlebotomyWorklistPage() {
         }
     };
 
+    const requiresCustomMessage = rejectionReason === 'OTHER';
+
     const openRejectForm = (sample: Sample) => {
         setRejectingSample(sample);
         setRejectionReason('HEMOLYZED');
@@ -192,8 +199,8 @@ export default function PhlebotomyWorklistPage() {
     const handleReject = async () => {
         if (!rejectingSample) return;
         const notes = rejectionNotes.trim();
-        if (!notes) {
-            setRejectionError('Please enter a rejection message.');
+        if (requiresCustomMessage && !notes) {
+            setRejectionError('A custom rejection message is required when the reason is Other.');
             return;
         }
 
@@ -202,7 +209,7 @@ export default function PhlebotomyWorklistPage() {
             setActionLoadingId(rejectingSample.id);
             await rejectPhlebotomySample(rejectingSample.id, {
                 rejectionReason,
-                rejectionNotes: notes,
+                rejectionNotes: notes || undefined,
             });
             await loadWorklist();
             setRejectingSample(null);
@@ -247,26 +254,32 @@ export default function PhlebotomyWorklistPage() {
                             <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Reason</label>
                             <select
                                 value={rejectionReason}
-                                onChange={(event) => setRejectionReason(event.target.value as RejectionReason)}
+                                onChange={(event) => {
+                                    setRejectionReason(event.target.value as RejectionReason);
+                                    setRejectionError('');
+                                }}
                                 className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
                             >
                                 <option value="HEMOLYZED">Hemolyzed</option>
                                 <option value="INSUFFICIENT_VOLUME">Insufficient volume</option>
-                                <option value="WRONG_CONTAINER">Wrong container</option>
                                 <option value="CLOTTED">Clotted</option>
                                 <option value="CONTAMINATED">Contaminated</option>
-                                <option value="UNLABELED">Unlabeled</option>
                                 <option value="OTHER">Other</option>
                             </select>
                         </div>
                         <div>
-                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Message</label>
+                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
+                                {requiresCustomMessage ? 'Custom message' : 'Message'}
+                                {requiresCustomMessage && <span className="text-red-500 ml-1">*</span>}
+                            </label>
                             <textarea
                                 value={rejectionNotes}
                                 onChange={(event) => setRejectionNotes(event.target.value)}
                                 rows={3}
                                 maxLength={500}
-                                placeholder="Type the rejection message to show in collection history..."
+                                placeholder={requiresCustomMessage
+                                    ? 'Describe why this sample is being rejected...'
+                                    : 'Optional message to show in collection history...'}
                                 className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
                             />
                         </div>
@@ -393,7 +406,7 @@ export default function PhlebotomyWorklistPage() {
                                     <td className="px-4 py-3">
                                         <div className="flex gap-1">
                                             {sample.tubeTypes.map((t) => (
-                                                <div key={t} className={`w-4 h-4 rounded-full ${TUBE_COLOR_MAP[t]} border border-white shadow-sm`} title={formatStatusLabel(t)} />
+                                                <div key={t} className="w-4 h-4 rounded-full border border-white shadow-sm" style={{ backgroundColor: sample.tubeColor }} title={formatStatusLabel(t)} />
                                             ))}
                                         </div>
                                     </td>
