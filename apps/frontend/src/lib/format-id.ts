@@ -10,5 +10,11 @@ export const formatDisplayId = (value?: string | null, prefix = 'ID') => {
         return trimmed.toUpperCase();
     }
 
-    return `${prefix}-${trimmed.replaceAll('-', '').slice(-8).toUpperCase()}`;
+    const hex = trimmed.replaceAll('-', '');
+    if (prefix === 'RES') {
+        const num = (parseInt(hex.slice(-7), 16) % 90000) + 10000;
+        return `RES2026-${num.toString().padStart(5, '0')}`;
+    }
+
+    return `${prefix}-${hex.slice(-8).toUpperCase()}`;
 };

@@ -236,172 +236,110 @@ export default function BulkApprovalPage() {
                 </span>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-[1fr_260px] gap-6 items-start pb-20">
-                <div>
-                    {loading ? (
-                        <div className="bg-white rounded-xl border border-slate-200/60 p-12 text-center text-slate-400 text-sm shadow-sm">
-                            Loading bulk verification worklist...
-                        </div>
-                    ) : error ? (
-                        <div className="bg-white rounded-xl border border-slate-200/60 p-12 text-center shadow-sm">
-                            <p className="text-sm text-slate-500">{error}</p>
-                        </div>
-                    ) : filteredBatches.length === 0 ? (
-                        <div className="bg-white rounded-xl border border-slate-200/60 p-12 text-center text-slate-400 text-sm shadow-sm">
-                            No test groups found matching your filters.
-                        </div>
-                    ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {filteredBatches.map((batch) => {
-                                const selectable = batch.safeForApproval > 0;
-                                const reviewable = (batch.reviewResultIds ?? []).length > 0;
+            <div className="pb-20">
+                {loading ? (
+                    <div className="bg-white rounded-xl border border-slate-200/60 p-12 text-center text-slate-400 text-sm shadow-sm">
+                        Loading bulk verification worklist...
+                    </div>
+                ) : error ? (
+                    <div className="bg-white rounded-xl border border-slate-200/60 p-12 text-center shadow-sm">
+                        <p className="text-sm text-slate-500">{error}</p>
+                    </div>
+                ) : filteredBatches.length === 0 ? (
+                    <div className="bg-white rounded-xl border border-slate-200/60 p-12 text-center text-slate-400 text-sm shadow-sm">
+                        No test groups found matching your filters.
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                        {filteredBatches.map((batch) => {
+                            const selectable = batch.safeForApproval > 0;
+                            const reviewable = (batch.reviewResultIds ?? []).length > 0;
 
-                                return (
-                                    <div
-                                        key={batch.batchId}
-                                        onClick={() => selectable && toggleBatch(batch.batchId)}
-                                        className={`bg-white rounded-xl p-4 relative transition-colors shadow-sm ${batch.isSelected ? "border-2 border-primary" : "border border-slate-200/60 hover:border-slate-300"} ${selectable ? "cursor-pointer" : reviewable ? "cursor-default" : "cursor-not-allowed opacity-70"}`}
-                                    >
-                                        <div className="absolute top-4 left-4">
-                                            <input
-                                                type="checkbox"
-                                                checked={batch.isSelected}
-                                                onChange={() => toggleBatch(batch.batchId)}
-                                                disabled={!selectable}
-                                                className="w-4 h-4 rounded text-primary focus:ring-primary border-slate-300 cursor-pointer"
-                                                onClick={(event) => event.stopPropagation()}
-                                            />
-                                        </div>
+                            return (
+                                <div
+                                    key={batch.batchId}
+                                    onClick={() => selectable && toggleBatch(batch.batchId)}
+                                    className={`bg-white rounded-xl p-4 relative transition-colors shadow-sm ${batch.isSelected ? "border-2 border-primary" : "border border-slate-200/60 hover:border-slate-300"} ${selectable ? "cursor-pointer" : reviewable ? "cursor-default" : "cursor-not-allowed opacity-70"}`}
+                                >
+                                    <div className="absolute top-4 left-4">
+                                        <input
+                                            type="checkbox"
+                                            checked={batch.isSelected}
+                                            disabled={!selectable}
+                                            onChange={() => selectable && toggleBatch(batch.batchId)}
+                                            className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary disabled:cursor-not-allowed"
+                                        />
+                                    </div>
 
-                                        <div className="flex items-start justify-between pl-8 mb-2">
-                                            <div>
-                                                <div className="text-sm font-bold text-slate-800">
-                                                    {batch.batchName}
-                                                </div>
-                                                <div className="text-[11px] text-slate-400 mt-0.5">
-                                                    Code: {batch.batchCode} - {batch.department}
-                                                </div>
+                                    <div className="pl-8">
+                                        <div className="flex items-start justify-between gap-2">
+                                            <div className="text-sm font-bold text-slate-800 leading-snug">
+                                                {batch.batchName}
                                             </div>
-                                            <span
-                                                className={`px-2 py-0.5 rounded-md text-[10px] font-bold shrink-0 ${batch.exceptions === 0 ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-800"}`}
-                                            >
+                                            <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold uppercase tracking-wider whitespace-nowrap ${batch.exceptions === 0 ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
                                                 {batch.exceptions === 0 ? "SAFE GROUP" : "REVIEW MIXED"}
                                             </span>
                                         </div>
+                                        <div className="text-[11px] text-slate-400 mt-1">
+                                            Code: {batch.batchCode} &bull; {batch.department}
+                                        </div>
+                                    </div>
 
-                                        <div className="grid grid-cols-2 gap-4 mt-5 pl-8">
-                                            <div>
-                                                <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                                                    Total Results
-                                                </div>
-                                                <div className="text-2xl font-bold text-slate-800 mt-0.5">
-                                                    {batch.totalResults}
-                                                </div>
+                                    <div className="grid grid-cols-2 gap-4 mt-4 pl-8">
+                                        <div>
+                                            <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                                                Total Results
                                             </div>
-                                            <div>
-                                                <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                                                    Safe for Approval
-                                                </div>
-                                                <div className="text-2xl font-bold text-primary mt-0.5">
-                                                    {batch.safeForApproval}
-                                                </div>
+                                            <div className="text-2xl font-bold text-slate-800 mt-0.5">
+                                                {batch.totalResults}
                                             </div>
                                         </div>
-
-                                        <div className="mt-4 pl-8 pt-4 border-t border-slate-100">
-                                            {batch.exceptions === 0 ? (
-                                                <div className="flex items-center gap-1.5">
-                                                    <span className="material-icons text-emerald-500 text-[16px]">check_circle</span>
-                                                    <span className="text-xs text-emerald-600 font-bold">No Manual Review Needed</span>
-                                                </div>
-                                            ) : (
-                                                <div className="flex items-center justify-between gap-3">
-                                                    <div className="flex items-center gap-1.5">
-                                                        <span className="material-icons text-amber-500 text-[16px]">warning</span>
-                                                        <span className="text-xs text-amber-600 font-bold">
-                                                            {batch.exceptions} Held for Review
-                                                        </span>
-                                                    </div>
-                                                    <button
-                                                        type="button"
-                                                        onClick={(event) => {
-                                                            event.stopPropagation();
-                                                            handleReviewCases(batch.reviewResultIds ?? []);
-                                                        }}
-                                                        disabled={!reviewable}
-                                                        className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                                                    >
-                                                        Review Cases
-                                                    </button>
-                                                </div>
-                                            )}
-                                            <div className="mt-2 text-[11px] text-slate-400">
-                                                Last updated: {formatTimestamp(batch.updatedAt)}
+                                        <div>
+                                            <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                                                Safe for Approval
+                                            </div>
+                                            <div className="text-2xl font-bold text-primary mt-0.5">
+                                                {batch.safeForApproval}
                                             </div>
                                         </div>
                                     </div>
-                                );
-                            })}
-                        </div>
-                    )}
-                </div>
 
-                <div className="bg-white/80 backdrop-blur-sm rounded-xl border border-slate-200/60 shadow-sm p-5 sticky top-24">
-                    <div className="flex items-center gap-2 mb-4 pb-3 border-b border-slate-100">
-                        <span className="material-icons text-primary text-[18px]">rule</span>
-                        <span className="text-xs font-bold text-slate-700 uppercase tracking-widest">
-                            Approval Rules
-                        </span>
+                                    <div className="mt-4 pl-8 pt-4 border-t border-slate-100">
+                                        {batch.exceptions === 0 ? (
+                                            <div className="flex items-center gap-1.5">
+                                                <span className="material-icons text-emerald-500 text-[16px]">check_circle</span>
+                                                <span className="text-xs text-emerald-600 font-bold">No Manual Review Needed</span>
+                                            </div>
+                                        ) : (
+                                            <div className="flex items-center justify-between gap-3">
+                                                <div className="flex items-center gap-1.5">
+                                                    <span className="material-icons text-amber-500 text-[16px]">warning</span>
+                                                    <span className="text-xs text-amber-600 font-bold">
+                                                        {batch.exceptions} Held for Review
+                                                    </span>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={(event) => {
+                                                        event.stopPropagation();
+                                                        handleReviewCases(batch.reviewResultIds ?? []);
+                                                    }}
+                                                    disabled={!reviewable}
+                                                    className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                                >
+                                                    Review Cases
+                                                </button>
+                                            </div>
+                                        )}
+                                        <div className="mt-2 text-[11px] text-slate-400">
+                                            Last updated: {formatTimestamp(batch.updatedAt)}
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
                     </div>
-
-                    <div className="space-y-5">
-                        <div>
-                            <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-700">
-                                Eligible for Bulk Approval
-                            </p>
-                            <ul className="mt-2 space-y-2 text-sm text-slate-600">
-                                <li className="flex items-start gap-2">
-                                    <span className="mt-1 h-2 w-2 rounded-full bg-emerald-500" />
-                                    <span>
-                                        Result status is <span className="font-semibold text-slate-800">ENTERED</span>
-                                    </span>
-                                </li>
-                                <li className="flex items-start gap-2">
-                                    <span className="mt-1 h-2 w-2 rounded-full bg-emerald-500" />
-                                    <span>
-                                        Flag is <span className="font-semibold text-slate-800">NORMAL</span> or not set
-                                    </span>
-                                </li>
-                            </ul>
-                        </div>
-
-                        <div>
-                            <p className="text-[11px] font-bold uppercase tracking-wider text-amber-700">
-                                Held for Manual Review
-                            </p>
-                            <ul className="mt-2 space-y-2 text-sm text-slate-600">
-                                <li className="flex items-start gap-2">
-                                    <span className="mt-1 h-2 w-2 rounded-full bg-amber-500" />
-                                    <span>Returned to Supervisor cases</span>
-                                </li>
-                                <li className="flex items-start gap-2">
-                                    <span className="mt-1 h-2 w-2 rounded-full bg-amber-500" />
-                                    <span>
-                                        <span className="font-semibold text-slate-800">HIGH</span> or{" "}
-                                        <span className="font-semibold text-slate-800">LOW</span> flagged results
-                                    </span>
-                                </li>
-                                <li className="flex items-start gap-2">
-                                    <span className="mt-1 h-2 w-2 rounded-full bg-amber-500" />
-                                    <span>
-                                        <span className="font-semibold text-slate-800">CRITICAL_HIGH</span> or{" "}
-                                        <span className="font-semibold text-slate-800">CRITICAL_LOW</span> flagged results
-                                    </span>
-                                </li>
-                            </ul>
-                        </div>
-                    </div>
-                </div>
+                )}
             </div>
 
             {selectedBatches.length > 0 && (

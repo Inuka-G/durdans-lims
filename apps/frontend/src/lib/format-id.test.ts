@@ -16,4 +16,8 @@ describe('formatDisplayId', () => {
   it('formats a UUID as <prefix>-<last 8 hex, upper>', () => {
     expect(formatDisplayId('12345678-1234-1234-1234-1234567890ab', 'PT')).toBe('PT-567890AB');
   });
+
+  it('formats a UUID with RES prefix as RES2026-XXXXX', () => {
+    expect(formatDisplayId('12345678-1234-1234-1234-1234567890ab', 'RES')).toMatch(/^RES2026-\d{5}$/);
+  });
 });

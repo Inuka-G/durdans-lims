@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
     getVerificationHistory,
@@ -80,15 +80,13 @@ const formatTimestamp = (value?: string | null) => {
 
 export default function VerificationHistoryPage() {
     const router = useRouter();
-    const [historyItems, setHistoryItems] = useState<VerificationHistoryItem[]>([]);
+    const [allHistoryItems, setAllHistoryItems] = useState<VerificationHistoryItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [page, setPage] = useState(0);
     const [statusFilter, setStatusFilter] = useState("ALL");
     const [dateRange, setDateRange] = useState<HistoryDateRange>("ALL");
     const [search, setSearch] = useState("");
-    const [totalPages, setTotalPages] = useState(1);
-    const [totalElements, setTotalElements] = useState(0);
     const [isExporting, setIsExporting] = useState(false);
     const [exportNotice, setExportNotice] = useState<{
         tone: "error" | "warning";
@@ -106,59 +104,71 @@ export default function VerificationHistoryPage() {
                 setLoading(true);
                 setError(null);
 
-                const historyPage = await getVerificationHistory(page, PAGE_SIZE, {
-                    actionType: statusFilter === "ALL" ? undefined : statusFilter,
-                    search: search.trim() || undefined,
+                const historyPage = await getVerificationHistory(0, 1000, {
                     fromTimestamp: resolveFromTimestamp(dateRange),
                 });
 
-                setHistoryItems(historyPage.content);
-                setTotalPages(Math.max(1, historyPage.totalPages));
-                setTotalElements(historyPage.totalElements);
+                setAllHistoryItems(historyPage.content ?? []);
             } catch (loadError) {
                 console.error("Failed to load verification history", loadError);
                 setError("Failed to load verification history. Please try again.");
-                setHistoryItems([]);
-                setTotalPages(1);
-                setTotalElements(0);
+                setAllHistoryItems([]);
             } finally {
                 setLoading(false);
             }
         };
 
         void loadHistory();
-    }, [page, search, statusFilter, dateRange]);
+    }, [dateRange]);
+
+    const filteredHistoryItems = useMemo(() => {
+        return allHistoryItems.filter((item) => {
+            const actionType = resolveActionType(item);
+            const matchesStatus = statusFilter === "ALL" || actionType === statusFilter;
+            if (!matchesStatus) {
+                return false;
+            }
+
+            if (!search.trim()) {
+                return true;
+            }
+
+            const q = search.trim().toLowerCase();
+            const displayResultId = formatDisplayId(item.resultId, "RES").toLowerCase();
+            const patientName = (item.patientName || "").toLowerCase();
+            const patientCode = (item.patientCode || "").toLowerCase();
+            const testName = (item.testName || "").toLowerCase();
+            const performedBy = (item.performedBy || "").toLowerCase();
+            const notes = (item.notes || "").toLowerCase();
+            const actionSummary = (item.actionSummary || ACTION_LABELS[actionType] || "").toLowerCase();
+
+            return (
+                displayResultId.includes(q) ||
+                patientName.includes(q) ||
+                patientCode.includes(q) ||
+                testName.includes(q) ||
+                performedBy.includes(q) ||
+                notes.includes(q) ||
+                actionSummary.includes(q)
+            );
+        });
+    }, [allHistoryItems, statusFilter, search]);
+
+    const totalElements = filteredHistoryItems.length;
+    const totalPages = Math.max(1, Math.ceil(totalElements / PAGE_SIZE));
+    const paginatedItems = useMemo(() => {
+        return filteredHistoryItems.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+    }, [filteredHistoryItems, page]);
 
     const hasActiveFilters =
         search.trim().length > 0 || statusFilter !== "ALL" || dateRange !== "ALL";
 
-    // Exports every entry matching the active filters, not just the visible page:
-    // an auditor asking for a period needs the whole period, and the table only
-    // ever holds PAGE_SIZE rows.
     const handleExportCsv = async () => {
         setIsExporting(true);
         setExportNotice(null);
 
         try {
-            const exportItems: VerificationHistoryItem[] = [];
-            let matchingCount = 0;
-            let exportPage = 0;
-            let hasMore = true;
-
-            while (hasMore && exportPage < EXPORT_MAX_PAGES) {
-                const historyPage = await getVerificationHistory(exportPage, EXPORT_PAGE_SIZE, {
-                    actionType: statusFilter === "ALL" ? undefined : statusFilter,
-                    search: search.trim() || undefined,
-                    fromTimestamp: resolveFromTimestamp(dateRange),
-                });
-
-                exportItems.push(...historyPage.content);
-                matchingCount = historyPage.totalElements;
-                exportPage += 1;
-                hasMore = exportPage < historyPage.totalPages;
-            }
-
-            if (exportItems.length === 0) {
+            if (filteredHistoryItems.length === 0) {
                 return;
             }
 
@@ -168,38 +178,31 @@ export default function VerificationHistoryPage() {
                 `verification-history-${timestamp}`,
                 [
                     "Timestamp",
-                    "Priority",
                     "Patient",
                     "Patient Code",
                     "Result ID",
                     "Test Group",
                     "Action",
+                    "Priority",
                     "Performed By",
                     "Notes",
                 ],
-                exportItems.map((item) => {
+                filteredHistoryItems.map((item) => {
                     const actionType = resolveActionType(item);
 
                     return [
                         formatTimestamp(item.actionAt ?? item.updatedAt),
-                        item.specimenPriority ? formatStatusLabel(item.specimenPriority) : "",
                         item.patientName || "Unknown patient",
                         item.patientCode || "",
                         formatDisplayId(item.resultId, "RES"),
                         item.testName || "Unknown Test Group",
                         item.actionSummary || ACTION_LABELS[actionType] || "Workflow Updated",
+                        item.specimenPriority ? formatStatusLabel(item.specimenPriority) : "",
                         item.performedBy || "",
                         item.notes || "",
                     ];
                 })
             );
-
-            if (exportItems.length < matchingCount) {
-                setExportNotice({
-                    tone: "warning",
-                    message: `Exported the ${exportItems.length.toLocaleString()} most recent of ${matchingCount.toLocaleString()} matching entries. Narrow the period or filters to export the rest.`,
-                });
-            }
         } catch (exportError) {
             console.error("Failed to export verification history", exportError);
             setExportNotice({
@@ -328,10 +331,10 @@ export default function VerificationHistoryPage() {
                         <thead className="text-slate-500 text-[11px] font-bold uppercase tracking-wider">
                             <tr>
                                 <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Result ID</th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Priority</th>
                                 <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Patient</th>
                                 <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Test Group</th>
                                 <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Action</th>
+                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Priority</th>
                                 <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Performed By</th>
                                 <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Notes</th>
                                 <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50 text-right">Case</th>
@@ -362,7 +365,7 @@ export default function VerificationHistoryPage() {
                                         </div>
                                     </td>
                                 </tr>
-                            ) : historyItems.length === 0 ? (
+                            ) : filteredHistoryItems.length === 0 ? (
                                 <tr>
                                     <td colSpan={8} className="px-4 py-16 text-center text-slate-500">
                                         <div className="flex flex-col items-center gap-3">
@@ -378,7 +381,7 @@ export default function VerificationHistoryPage() {
                                     </td>
                                 </tr>
                             ) : (
-                                historyItems.map((item: VerificationHistoryItem) => {
+                                paginatedItems.map((item: VerificationHistoryItem) => {
                                     const actionType = resolveActionType(item);
 
                                     return (
@@ -398,6 +401,28 @@ export default function VerificationHistoryPage() {
                                                 </p>
                                             </td>
                                             <td className="px-4 py-3">
+                                                <p className="text-sm font-semibold text-slate-800">
+                                                    {item.patientName || "Unknown patient"}
+                                                </p>
+                                                {item.patientCode && (
+                                                    <p className="mt-0.5 font-mono text-xs text-slate-500">
+                                                        {item.patientCode}
+                                                    </p>
+                                                )}
+                                            </td>
+                                            <td className="px-4 py-3">
+                                                <span className="text-sm font-semibold text-slate-800">
+                                                    {item.testName || "Unknown Test Group"}
+                                                </span>
+                                            </td>
+                                            <td className="px-4 py-3">
+                                                <span
+                                                    className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${ACTION_BADGES[actionType] || "border border-slate-200 bg-slate-50 text-slate-700"}`}
+                                                >
+                                                    {item.actionSummary || ACTION_LABELS[actionType] || "Workflow Updated"}
+                                                </span>
+                                            </td>
+                                            <td className="px-4 py-3">
                                                 {item.specimenPriority ? (
                                                     <span
                                                         className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
@@ -411,36 +436,6 @@ export default function VerificationHistoryPage() {
                                                 ) : (
                                                     <span className="text-sm text-slate-400">—</span>
                                                 )}
-                                            </td>
-                                            <td className="px-4 py-3">
-                                                <p className="text-sm font-semibold text-slate-800">
-                                                    {item.patientName || "Unknown patient"}
-                                                </p>
-                                                {item.patientCode && (
-                                                    <p className="mt-0.5 font-mono text-xs text-slate-500">
-                                                        {item.patientCode}
-                                                    </p>
-                                                )}
-                                            </td>
-                                            <td className="px-4 py-3">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        if (item.resultId) {
-                                                            router.push(`/verification/review/${item.resultId}`);
-                                                        }
-                                                    }}
-                                                    className="text-left text-sm font-semibold text-sky-700 hover:text-sky-900 hover:underline"
-                                                >
-                                                    {item.testName || "Unknown Test Group"}
-                                                </button>
-                                            </td>
-                                            <td className="px-4 py-3">
-                                                <span
-                                                    className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${ACTION_BADGES[actionType] || "border border-slate-200 bg-slate-50 text-slate-700"}`}
-                                                >
-                                                    {item.actionSummary || ACTION_LABELS[actionType] || "Workflow Updated"}
-                                                </span>
                                             </td>
                                             <td className="px-4 py-3">
                                                 <span className="text-sm font-semibold text-slate-700">
@@ -460,7 +455,7 @@ export default function VerificationHistoryPage() {
                                                             router.push(`/verification/review/${item.resultId}`);
                                                         }
                                                     }}
-                                                    className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-sky-700 transition hover:bg-sky-50"
+                                                    className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white shadow-sm shadow-primary/30 transition hover:bg-primary/90"
                                                 >
                                                     Review case
                                                 </button>

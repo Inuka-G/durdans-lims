@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
     HISTORY_DATE_RANGES,
@@ -9,14 +9,13 @@ import {
 } from "@/lib/history-date-range";
 import { downloadCsv } from "@/lib/export-csv";
 import { formatDisplayId } from "@/lib/format-id";
+import { PRIORITY_COLORS, formatStatusLabel } from "@/constants/sample-lifecycle";
 import {
     getClinicalHistory,
-    HistoryQueryParams,
     VerificationHistoryItem,
 } from "@/lib/api";
 
 const PAGE_SIZE = 10;
-const EXPORT_PAGE_SIZE = 1000;
 
 const ACTION_LABELS: Record<string, string> = {
     CLINICAL_AUTHORIZED: "Authorized by Pathologist",
@@ -67,18 +66,14 @@ const formatTimestamp = (value?: string | null) => {
 
 export default function ClinicalHistoryPage() {
     const router = useRouter();
-    const [historyItems, setHistoryItems] = useState<VerificationHistoryItem[]>([]);
+    const [allHistoryItems, setAllHistoryItems] = useState<VerificationHistoryItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [page, setPage] = useState(0);
     const [statusFilter, setStatusFilter] = useState("ALL");
     const [dateRange, setDateRange] = useState<HistoryDateRange>("ALL");
     const [search, setSearch] = useState("");
-    const [totalPages, setTotalPages] = useState(1);
-    const [totalElements, setTotalElements] = useState(0);
     const [isExporting, setIsExporting] = useState(false);
-    // Kept apart from `error`: that state swaps the table body for an error panel, so a
-    // failed export would blank the history the user is still reading.
     const [exportError, setExportError] = useState<string | null>(null);
 
     useEffect(() => {
@@ -91,28 +86,61 @@ export default function ClinicalHistoryPage() {
                 setLoading(true);
                 setError(null);
 
-                const historyPage = await getClinicalHistory(page, PAGE_SIZE, {
-                    actionType: statusFilter === "ALL" ? undefined : statusFilter,
-                    search: search.trim() || undefined,
+                const historyPage = await getClinicalHistory(0, 1000, {
                     fromTimestamp: resolveFromTimestamp(dateRange),
                 });
 
-                setHistoryItems(historyPage.content);
-                setTotalPages(Math.max(1, historyPage.totalPages));
-                setTotalElements(historyPage.totalElements);
+                setAllHistoryItems(historyPage.content ?? []);
             } catch (loadError) {
                 console.error("Failed to load clinical history", loadError);
                 setError("Failed to load clinical history. Please try again.");
-                setHistoryItems([]);
-                setTotalPages(1);
-                setTotalElements(0);
+                setAllHistoryItems([]);
             } finally {
                 setLoading(false);
             }
         };
 
         void loadHistory();
-    }, [page, search, statusFilter, dateRange]);
+    }, [dateRange]);
+
+    const filteredHistoryItems = useMemo(() => {
+        return allHistoryItems.filter((item) => {
+            const actionType = resolveActionType(item);
+            const matchesStatus = statusFilter === "ALL" || actionType === statusFilter;
+            if (!matchesStatus) {
+                return false;
+            }
+
+            if (!search.trim()) {
+                return true;
+            }
+
+            const q = search.trim().toLowerCase();
+            const displayResultId = formatDisplayId(item.resultId, "RES").toLowerCase();
+            const patientName = (item.patientName || "").toLowerCase();
+            const patientCode = (item.patientCode || "").toLowerCase();
+            const testName = (item.testName || "").toLowerCase();
+            const performedBy = (item.performedBy || "").toLowerCase();
+            const notes = (item.notes || "").toLowerCase();
+            const actionSummary = (item.actionSummary || ACTION_LABELS[actionType] || "").toLowerCase();
+
+            return (
+                displayResultId.includes(q) ||
+                patientName.includes(q) ||
+                patientCode.includes(q) ||
+                testName.includes(q) ||
+                performedBy.includes(q) ||
+                notes.includes(q) ||
+                actionSummary.includes(q)
+            );
+        });
+    }, [allHistoryItems, statusFilter, search]);
+
+    const totalElements = filteredHistoryItems.length;
+    const totalPages = Math.max(1, Math.ceil(totalElements / PAGE_SIZE));
+    const paginatedItems = useMemo(() => {
+        return filteredHistoryItems.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+    }, [filteredHistoryItems, page]);
 
     const hasActiveFilters =
         search.trim().length > 0 || statusFilter !== "ALL" || dateRange !== "ALL";
@@ -122,27 +150,7 @@ export default function ClinicalHistoryPage() {
         setExportError(null);
 
         try {
-            const exportFilters: HistoryQueryParams = {
-                actionType: statusFilter === "ALL" ? undefined : statusFilter,
-                search: search.trim() || undefined,
-                fromTimestamp: resolveFromTimestamp(dateRange),
-            };
-
-            const firstPage = await getClinicalHistory(0, EXPORT_PAGE_SIZE, exportFilters);
-            const exportItems = [...firstPage.content];
-
-            // The export covers the whole filtered set, not the ten rows on screen, so walk
-            // the remaining pages. The first response's page count bounds the loop.
-            for (let nextPage = 1; nextPage < firstPage.totalPages; nextPage += 1) {
-                const followingPage = await getClinicalHistory(
-                    nextPage,
-                    EXPORT_PAGE_SIZE,
-                    exportFilters
-                );
-                exportItems.push(...followingPage.content);
-            }
-
-            if (exportItems.length === 0) {
+            if (filteredHistoryItems.length === 0) {
                 return;
             }
 
@@ -157,10 +165,11 @@ export default function ClinicalHistoryPage() {
                     "Result ID",
                     "Test Group",
                     "Action",
+                    "Priority",
                     "Performed By",
                     "Notes",
                 ],
-                exportItems.map((item) => {
+                filteredHistoryItems.map((item) => {
                     const actionType = resolveActionType(item);
 
                     return [
@@ -170,6 +179,7 @@ export default function ClinicalHistoryPage() {
                         formatDisplayId(item.resultId, "RES"),
                         item.testName || "Unknown Test Group",
                         item.actionSummary || ACTION_LABELS[actionType] || "Workflow Updated",
+                        item.specimenPriority ? formatStatusLabel(item.specimenPriority) : "",
                         item.performedBy || "",
                         item.notes || "",
                     ];
@@ -232,7 +242,7 @@ export default function ClinicalHistoryPage() {
                     <button
                         type="button"
                         onClick={() => void handleExportCsv()}
-                        disabled={isExporting || historyItems.length === 0}
+                        disabled={isExporting || totalElements === 0}
                         title="Exports every history entry matching the current search and filters"
                         className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                     >
@@ -292,15 +302,16 @@ export default function ClinicalHistoryPage() {
                                 <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Patient</th>
                                 <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Test Group</th>
                                 <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Action</th>
+                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Priority</th>
                                 <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Performed By</th>
                                 <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Notes</th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Case</th>
+                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50 text-right">Case</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-50">
                             {loading ? (
                                 <tr>
-                                    <td colSpan={7} className="px-4 py-16 text-center text-slate-500">
+                                    <td colSpan={8} className="px-4 py-16 text-center text-slate-500">
                                         <div className="flex flex-col items-center gap-3">
                                             <span className="material-icons animate-spin text-primary text-3xl">
                                                 sync
@@ -313,7 +324,7 @@ export default function ClinicalHistoryPage() {
                                 </tr>
                             ) : error ? (
                                 <tr>
-                                    <td colSpan={7} className="px-4 py-16 text-center text-slate-500">
+                                    <td colSpan={8} className="px-4 py-16 text-center text-slate-500">
                                         <div className="flex flex-col items-center gap-3">
                                             <span className="material-icons text-4xl text-red-200">
                                                 error
@@ -322,9 +333,9 @@ export default function ClinicalHistoryPage() {
                                         </div>
                                     </td>
                                 </tr>
-                            ) : historyItems.length === 0 ? (
+                            ) : filteredHistoryItems.length === 0 ? (
                                 <tr>
-                                    <td colSpan={7} className="px-4 py-16 text-center text-slate-500">
+                                    <td colSpan={8} className="px-4 py-16 text-center text-slate-500">
                                         <div className="flex flex-col items-center gap-3">
                                             <span className="material-icons text-4xl text-slate-200">
                                                 history
@@ -338,7 +349,7 @@ export default function ClinicalHistoryPage() {
                                     </td>
                                 </tr>
                             ) : (
-                                historyItems.map((item) => {
+                                paginatedItems.map((item) => {
                                     const actionType = resolveActionType(item);
 
                                     return (
@@ -368,7 +379,7 @@ export default function ClinicalHistoryPage() {
                                                 )}
                                             </td>
                                             <td className="px-4 py-3">
-                                                <span className="text-sm font-semibold text-slate-700">
+                                                <span className="text-sm font-semibold text-slate-800">
                                                     {item.testName || "Unknown Test Group"}
                                                 </span>
                                             </td>
@@ -380,6 +391,21 @@ export default function ClinicalHistoryPage() {
                                                 </span>
                                             </td>
                                             <td className="px-4 py-3">
+                                                {item.specimenPriority ? (
+                                                    <span
+                                                        className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
+                                                            PRIORITY_COLORS[
+                                                                item.specimenPriority.toUpperCase() as keyof typeof PRIORITY_COLORS
+                                                            ] ?? "bg-slate-100 text-slate-600"
+                                                        }`}
+                                                    >
+                                                        {formatStatusLabel(item.specimenPriority)}
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-sm text-slate-400">—</span>
+                                                )}
+                                            </td>
+                                            <td className="px-4 py-3">
                                                 <span className="text-sm font-semibold text-slate-700">
                                                     {item.performedBy || "-"}
                                                 </span>
@@ -389,7 +415,7 @@ export default function ClinicalHistoryPage() {
                                                     {item.notes || "-"}
                                                 </span>
                                             </td>
-                                            <td className="px-4 py-3">
+                                            <td className="px-4 py-3 text-right">
                                                 <button
                                                     type="button"
                                                     onClick={() => {
@@ -399,7 +425,7 @@ export default function ClinicalHistoryPage() {
                                                         router.push(`/clinical/review/${item.resultId}`);
                                                     }}
                                                     disabled={!item.resultId}
-                                                    className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 whitespace-nowrap"
+                                                    className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white shadow-sm shadow-primary/30 transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40 whitespace-nowrap"
                                                 >
                                                     Review case
                                                 </button>
