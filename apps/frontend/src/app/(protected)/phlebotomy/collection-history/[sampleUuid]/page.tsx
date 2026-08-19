@@ -4,9 +4,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { PRIORITY_COLORS, TUBE_COLOR_MAP, formatStatusLabel } from '@/constants/sample-lifecycle';
+import { PRIORITY_COLORS, formatStatusLabel } from '@/constants/sample-lifecycle';
 import { getPhlebotomySampleDetail, printSampleLabel } from '@/lib/api';
-import { getBarcodeBars, openPhlebotomySpecimenLabelPrint } from '@/lib/phlebotomy-label-print';
+import { getBarcodeBars, getTubeHexColor, openPhlebotomySpecimenLabelPrint } from '@/lib/phlebotomy-label-print';
 
 type SampleDetail = {
     id?: string;
@@ -17,6 +17,7 @@ type SampleDetail = {
     testType?: string | null;
     testCodes?: string[];
     tubeTypes?: string[];
+    tubeColor?: string | null;
     collectedAt?: string | null;
     collectedBy?: string | null;
     rejectionReason?: string | null;
@@ -87,6 +88,7 @@ export default function CollectionSampleDetailPage() {
                 pid: detail.patient?.pid ?? '—',
                 testCodes: Array.isArray(detail.testCodes) ? detail.testCodes : [],
                 tubeTypeLabel: String(tubeCode),
+                tubeColor: detail.tubeColor,
             });
             if (!opened) {
                 toast.error('Print window was blocked. Allow pop-ups for this site and try again.');
@@ -139,7 +141,7 @@ export default function CollectionSampleDetailPage() {
     }
 
     const tubeCode = detail.tubeTypes?.[0] ?? 'OTHER';
-    const tubeColorClass = TUBE_COLOR_MAP[String(tubeCode)] ?? TUBE_COLOR_MAP.OTHER;
+    const tubeColor = getTubeHexColor(detail.tubeColor);
     const priorityKey = (detail.priority ?? 'NORMAL') as keyof typeof PRIORITY_COLORS;
 
     return (
@@ -223,7 +225,7 @@ export default function CollectionSampleDetailPage() {
                             <span className="font-semibold text-slate-800">{detail.testType ?? '—'}</span>
                         </p>
                         <div className="flex items-center gap-2 mt-3">
-                            <div className={`w-4 h-10 rounded-full ${tubeColorClass}`} />
+                            <div className="w-4 h-10 rounded-full" style={{ backgroundColor: tubeColor }} />
                             <div>
                                 <p className="text-xs text-slate-400">Required tube</p>
                                 <p className="text-sm font-semibold text-slate-700">{String(tubeCode).replace(/_/g, ' ')}</p>
@@ -264,7 +266,7 @@ export default function CollectionSampleDetailPage() {
                     <div className="bg-slate-50 border border-dashed border-slate-300 rounded-2xl p-4">
                         <p className="text-xs font-bold text-slate-500 uppercase mb-3">Label preview</p>
                         <div className="bg-white rounded-xl border border-slate-200 p-4 flex items-center gap-3">
-                            <div className={`w-3 h-12 rounded-full ${tubeColorClass}`} />
+                            <div className="w-3 h-12 rounded-full" style={{ backgroundColor: tubeColor }} />
                             <div className="flex-1 min-w-0">
                                 <p className="text-xs font-bold text-slate-800 truncate">{detail.sampleId}</p>
                                 <p className="text-[10px] text-slate-500 truncate">{detail.patient?.name}</p>

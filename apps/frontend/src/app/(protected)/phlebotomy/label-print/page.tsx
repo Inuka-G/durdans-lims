@@ -4,8 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { useSearchParams } from 'next/navigation';
 import { getCollectionHistory, printSampleLabel } from '@/lib/api';
-import { getBarcodeBars, openPhlebotomySpecimenLabelPrint } from '@/lib/phlebotomy-label-print';
-import { TUBE_COLOR_MAP } from '@/constants/sample-lifecycle';
+import { getBarcodeBars, getTubeHexColor, openPhlebotomySpecimenLabelPrint } from '@/lib/phlebotomy-label-print';
 import type { LabelItem } from '@/types/sample-lifecycle';
 
 type LabelRow = LabelItem & {
@@ -21,6 +20,7 @@ type CollectionHistoryApiItem = {
     testCodes?: string[];
     tubeType?: string;
     tubeTypes?: string[];
+    tubeColor?: string | null;
     status?: string;
     collectedAt?: string;
     printCount?: number;
@@ -49,7 +49,7 @@ export default function LabelPrintPage() {
                             pid: item?.pid ?? '-',
                             testCodes: Array.isArray(item?.testCodes) ? item.testCodes : [],
                             tubeType: String(tubeTypeCode).replace(/_/g, ' '),
-                            tubeColor: TUBE_COLOR_MAP[String(tubeTypeCode)] ?? TUBE_COLOR_MAP.OTHER,
+                            tubeColor: getTubeHexColor(item?.tubeColor),
                             collectedAt: item?.collectedAt
                                 ? new Date(item.collectedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                                 : '-',
@@ -87,6 +87,7 @@ export default function LabelPrintPage() {
                 pid: label.pid,
                 testCodes: label.testCodes,
                 tubeTypeLabel: tubeCode,
+                tubeColor: label.tubeColor,
             });
 
             if (!opened) {
@@ -134,7 +135,7 @@ export default function LabelPrintPage() {
                                 <p className="text-sm text-slate-500">{label.patientName} • {label.pid}</p>
                             </div>
                             <div className="flex items-center gap-2">
-                                <div className={`w-4 h-4 rounded-full ${label.tubeColor} border border-white shadow-sm`} />
+                                <div className="w-4 h-4 rounded-full border border-white shadow-sm" style={{ backgroundColor: label.tubeColor }} />
                                 <span className="text-xs text-slate-400">{label.tubeType}</span>
                             </div>
                         </div>
@@ -142,7 +143,7 @@ export default function LabelPrintPage() {
                         {/* Label Preview */}
                         <div className="bg-slate-50 border border-dashed border-slate-300 rounded-xl p-4 mb-4">
                             <div className="flex items-center gap-3">
-                                <div className={`w-3 h-10 rounded-full ${label.tubeColor}`} />
+                                <div className="w-3 h-10 rounded-full" style={{ backgroundColor: label.tubeColor }} />
                                 <div className="flex-1">
                                     <p className="text-xs font-bold text-slate-700">{label.sampleId}</p>
                                     <p className="text-[10px] text-slate-500">{label.patientName}</p>

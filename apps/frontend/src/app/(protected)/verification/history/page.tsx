@@ -17,6 +17,13 @@ import {
 
 const PAGE_SIZE = 10;
 
+// The export walks the whole filtered result set in chunks rather than asking for
+// it in one call: a year of history in a single request is a heavy query and a
+// heavy response. EXPORT_MAX_PAGES is the safety valve for a request so wide that
+// even chunked paging would hammer the server.
+const EXPORT_PAGE_SIZE = 1000;
+const EXPORT_MAX_PAGES = 20;
+
 const ACTION_LABELS: Record<string, string> = {
     VERIFICATION_APPROVED: "Approved by Supervisor",
     VERIFICATION_RETURNED_TO_MLT: "Returned to MLT",
@@ -82,9 +89,15 @@ export default function VerificationHistoryPage() {
     const [search, setSearch] = useState("");
     const [totalPages, setTotalPages] = useState(1);
     const [totalElements, setTotalElements] = useState(0);
+    const [isExporting, setIsExporting] = useState(false);
+    const [exportNotice, setExportNotice] = useState<{
+        tone: "error" | "warning";
+        message: string;
+    } | null>(null);
 
     useEffect(() => {
         setPage(0);
+        setExportNotice(null);
     }, [search, statusFilter, dateRange]);
 
     useEffect(() => {
@@ -119,40 +132,83 @@ export default function VerificationHistoryPage() {
     const hasActiveFilters =
         search.trim().length > 0 || statusFilter !== "ALL" || dateRange !== "ALL";
 
-    // Exports the loaded page only: the history is server-paginated, so anything
-    // wider would need extra fetches the auditor never asked for.
-    const handleExportCsv = () => {
-        const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+    // Exports every entry matching the active filters, not just the visible page:
+    // an auditor asking for a period needs the whole period, and the table only
+    // ever holds PAGE_SIZE rows.
+    const handleExportCsv = async () => {
+        setIsExporting(true);
+        setExportNotice(null);
 
-        downloadCsv(
-            `verification-history-${timestamp}`,
-            [
-                "Timestamp",
-                "Priority",
-                "Patient",
-                "Patient Code",
-                "Result ID",
-                "Test Group",
-                "Action",
-                "Performed By",
-                "Notes",
-            ],
-            historyItems.map((item) => {
-                const actionType = resolveActionType(item);
+        try {
+            const exportItems: VerificationHistoryItem[] = [];
+            let matchingCount = 0;
+            let exportPage = 0;
+            let hasMore = true;
 
-                return [
-                    formatTimestamp(item.actionAt ?? item.updatedAt),
-                    item.specimenPriority ? formatStatusLabel(item.specimenPriority) : "",
-                    item.patientName || "Unknown patient",
-                    item.patientCode || "",
-                    formatDisplayId(item.resultId, "RES"),
-                    item.testName || "Unknown Test Group",
-                    item.actionSummary || ACTION_LABELS[actionType] || "Workflow Updated",
-                    item.performedBy || "",
-                    item.notes || "",
-                ];
-            })
-        );
+            while (hasMore && exportPage < EXPORT_MAX_PAGES) {
+                const historyPage = await getVerificationHistory(exportPage, EXPORT_PAGE_SIZE, {
+                    actionType: statusFilter === "ALL" ? undefined : statusFilter,
+                    search: search.trim() || undefined,
+                    fromTimestamp: resolveFromTimestamp(dateRange),
+                });
+
+                exportItems.push(...historyPage.content);
+                matchingCount = historyPage.totalElements;
+                exportPage += 1;
+                hasMore = exportPage < historyPage.totalPages;
+            }
+
+            if (exportItems.length === 0) {
+                return;
+            }
+
+            const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+
+            downloadCsv(
+                `verification-history-${timestamp}`,
+                [
+                    "Timestamp",
+                    "Priority",
+                    "Patient",
+                    "Patient Code",
+                    "Result ID",
+                    "Test Group",
+                    "Action",
+                    "Performed By",
+                    "Notes",
+                ],
+                exportItems.map((item) => {
+                    const actionType = resolveActionType(item);
+
+                    return [
+                        formatTimestamp(item.actionAt ?? item.updatedAt),
+                        item.specimenPriority ? formatStatusLabel(item.specimenPriority) : "",
+                        item.patientName || "Unknown patient",
+                        item.patientCode || "",
+                        formatDisplayId(item.resultId, "RES"),
+                        item.testName || "Unknown Test Group",
+                        item.actionSummary || ACTION_LABELS[actionType] || "Workflow Updated",
+                        item.performedBy || "",
+                        item.notes || "",
+                    ];
+                })
+            );
+
+            if (exportItems.length < matchingCount) {
+                setExportNotice({
+                    tone: "warning",
+                    message: `Exported the ${exportItems.length.toLocaleString()} most recent of ${matchingCount.toLocaleString()} matching entries. Narrow the period or filters to export the rest.`,
+                });
+            }
+        } catch (exportError) {
+            console.error("Failed to export verification history", exportError);
+            setExportNotice({
+                tone: "error",
+                message: "Failed to export verification history. Please try again.",
+            });
+        } finally {
+            setIsExporting(false);
+        }
     };
 
     return (
@@ -201,16 +257,42 @@ export default function VerificationHistoryPage() {
 
                     <button
                         type="button"
-                        onClick={handleExportCsv}
-                        disabled={historyItems.length === 0}
-                        title="Exports the history entries currently shown on this page."
+                        onClick={() => void handleExportCsv()}
+                        disabled={isExporting || totalElements === 0}
+                        title="Exports every history entry matching the current search, action, and period filters."
                         className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                     >
-                        <span className="material-icons text-lg">download</span>
-                        Export CSV
+                        <span className={`material-icons text-lg ${isExporting ? "animate-spin" : ""}`}>
+                            {isExporting ? "sync" : "download"}
+                        </span>
+                        {isExporting ? "Exporting..." : "Export CSV"}
                     </button>
                 </div>
             </div>
+
+            {exportNotice && (
+                <div
+                    role="status"
+                    className={`mb-6 flex items-start gap-2 rounded-xl border px-4 py-3 text-sm font-medium ${
+                        exportNotice.tone === "error"
+                            ? "border-red-200 bg-red-50 text-red-800"
+                            : "border-amber-200 bg-amber-50 text-amber-900"
+                    }`}
+                >
+                    <span className="material-icons text-lg">
+                        {exportNotice.tone === "error" ? "error_outline" : "info"}
+                    </span>
+                    <span className="flex-1">{exportNotice.message}</span>
+                    <button
+                        type="button"
+                        onClick={() => setExportNotice(null)}
+                        aria-label="Dismiss export message"
+                        className="material-icons text-lg opacity-60 transition hover:opacity-100"
+                    >
+                        close
+                    </button>
+                </div>
+            )}
 
             <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm p-4 mb-6">
                 <div className="flex flex-wrap items-center gap-3">
