@@ -29,13 +29,16 @@ const RESULT_FLAG_CONFIG: Record<string, { label: string; className: string }> =
     CRITICAL_HIGH: { label: 'CRITICAL HIGH', className: 'bg-red-100 text-red-700' },
 };
 
-const SUPERVISOR_APPROVE_CHECKS = [
-    { id: 'approve-check-patient-test-match', label: 'Patient & Test group match confirmed' },
-    { id: 'approve-check-required-parameters', label: 'All required parameters entered' },
-    { id: 'approve-check-abnormal-flags', label: 'Abnormal/critical flags reviewed' },
-    { id: 'approve-check-qc-status', label: 'QC status reviewed' },
-    { id: 'approve-check-mlt-notes', label: 'MLT notes reviewed' },
-];
+const SUPERVISOR_CHECKLIST = [
+    { id: 'patientTestMatch', label: 'Patient and test group match confirmed' },
+    { id: 'allParametersEntered', label: 'All required parameters are entered' },
+    { id: 'flagsReviewed', label: 'Abnormal and critical flags have been reviewed' },
+    { id: 'qcReviewed', label: 'QC status and instrument output reviewed' },
+    { id: 'notesReviewed', label: 'MLT notes and any return/recheck context reviewed' },
+] as const;
+
+const createEmptyChecklist = (): Record<string, boolean> =>
+    Object.fromEntries(SUPERVISOR_CHECKLIST.map((item) => [item.id, false]));
 
 const getFlagDisplay = (flag?: string | null) => {
     if (!flag) {
@@ -114,7 +117,7 @@ export default function ReviewCasePage() {
     const [returnReason, setReturnReason] = useState('');
     const [returnError, setReturnError] = useState<string | null>(null);
     const [approveNote, setApproveNote] = useState('');
-    const [approveChecks, setApproveChecks] = useState<string[]>([]);
+    const [reviewChecklist, setReviewChecklist] = useState<Record<string, boolean>>(createEmptyChecklist);
     const [submitError, setSubmitError] = useState<string | null>(null);
     const [requiresQcOverride, setRequiresQcOverride] = useState(false);
 
@@ -136,6 +139,11 @@ export default function ReviewCasePage() {
         if (resultId) {
             void loadResultDetails();
         }
+    }, [resultId]);
+
+    // Each case must be confirmed on its own evidence, never on the previous case's ticks.
+    useEffect(() => {
+        setReviewChecklist(createEmptyChecklist());
     }, [resultId]);
 
     const labResults = useMemo(() => {
@@ -196,18 +204,8 @@ export default function ReviewCasePage() {
     const reviewerRole = 'Lab Supervisor';
     const canReviewActions =
         resultDetail?.status === 'ENTERED' || resultDetail?.status === 'RETURNED_FOR_RECHECK';
-    const allApproveChecksConfirmed = approveChecks.length === SUPERVISOR_APPROVE_CHECKS.length;
-
-    const toggleApproveCheck = (checkId: string) => {
-        setApproveChecks((current) =>
-            current.includes(checkId)
-                ? current.filter((entry) => entry !== checkId)
-                : [...current, checkId]
-        );
-        if (submitError) {
-            setSubmitError(null);
-        }
-    };
+    const completedChecklistCount = SUPERVISOR_CHECKLIST.filter((item) => reviewChecklist[item.id]).length;
+    const isChecklistComplete = completedChecklistCount === SUPERVISOR_CHECKLIST.length;
 
     const resolveSubmitErrorMessage = (
         action: 'approve' | 'return',
@@ -242,8 +240,8 @@ export default function ReviewCasePage() {
             setSubmitError('This case has already been processed. Actions reopen only after a clinical return for recheck.');
             return;
         }
-        if (!allApproveChecksConfirmed) {
-            setSubmitError('Confirm all 5 supervisor approve checks before approving this result.');
+        if (!isChecklistComplete) {
+            setSubmitError('Complete all supervisor verification checks before approving this case.');
             return;
         }
         const trimmedSupervisorNote = approveNote.trim();
@@ -268,7 +266,7 @@ export default function ReviewCasePage() {
             });
             setShowApproveModal(false);
             setApproveNote('');
-            setApproveChecks([]);
+            setReviewChecklist(createEmptyChecklist());
             setRequiresQcOverride(false);
             router.push('/verification/pending');
         } catch (submitError) {
@@ -446,7 +444,7 @@ export default function ReviewCasePage() {
                                     }
                                     setShowApproveModal(false);
                                     setApproveNote('');
-                                    setApproveChecks([]);
+                                    setReviewChecklist(createEmptyChecklist());
                                     setRequiresQcOverride(false);
                                     setSubmitError(null);
                                 }}
@@ -457,43 +455,7 @@ export default function ReviewCasePage() {
                         </div>
 
                         <div className="max-h-[80vh] overflow-y-auto px-6 py-5">
-                            <div className="rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3">
-                                <div className="flex items-center justify-between gap-3">
-                                    <span className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                                        Supervisor Approve Checks
-                                    </span>
-                                    <span
-                                        className={`rounded-md px-2 py-0.5 text-[11px] font-bold ${
-                                            allApproveChecksConfirmed
-                                                ? 'bg-emerald-100 text-emerald-700'
-                                                : 'bg-amber-100 text-amber-700'
-                                        }`}
-                                    >
-                                        {approveChecks.length}/{SUPERVISOR_APPROVE_CHECKS.length} confirmed
-                                    </span>
-                                </div>
-                                <ul className="mt-2.5 space-y-1.5">
-                                    {SUPERVISOR_APPROVE_CHECKS.map((check) => (
-                                        <li key={check.id} className="flex items-start gap-2.5">
-                                            <input
-                                                id={check.id}
-                                                type="checkbox"
-                                                checked={approveChecks.includes(check.id)}
-                                                onChange={() => toggleApproveCheck(check.id)}
-                                                className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-                                            />
-                                            <label
-                                                htmlFor={check.id}
-                                                className="cursor-pointer text-[13px] font-medium leading-5 text-slate-600"
-                                            >
-                                                {check.label}
-                                            </label>
-                                        </li>
-                                    ))}
-                                </ul>
-                            </div>
-
-                            <label className="mt-5 block text-sm font-semibold text-slate-700" htmlFor="approve-note">
+                            <label className="block text-sm font-semibold text-slate-700" htmlFor="approve-note">
                                 Lab Supervisor Note{requiresQcOverride ? ' (Required)' : ''}
                             </label>
                             <textarea
@@ -531,7 +493,7 @@ export default function ReviewCasePage() {
                                 onClick={() => {
                                     setShowApproveModal(false);
                                     setApproveNote('');
-                                    setApproveChecks([]);
+                                    setReviewChecklist(createEmptyChecklist());
                                     setRequiresQcOverride(false);
                                     setSubmitError(null);
                                 }}
@@ -543,7 +505,7 @@ export default function ReviewCasePage() {
                             <button
                                 type="button"
                                 onClick={handleApprove}
-                                disabled={isSubmitting || !allApproveChecksConfirmed}
+                                disabled={isSubmitting || !isChecklistComplete}
                                 className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
                             >
                                 Confirm Approval
@@ -689,10 +651,14 @@ export default function ReviewCasePage() {
                                     setSubmitError('This case has already been processed. Actions reopen only after a clinical return for recheck.');
                                     return;
                                 }
+                                if (!isChecklistComplete) {
+                                    setSubmitError('Complete all supervisor verification checks before approving this case.');
+                                    return;
+                                }
                                 setShowApproveModal(true);
                                 setSubmitError(null);
                             }}
-                            disabled={isSubmitting || !canReviewActions}
+                            disabled={isSubmitting || !canReviewActions || !isChecklistComplete}
                             className="h-10 px-6 text-sm font-bold border-none rounded-lg bg-primary text-white hover:bg-primary/90 transition-colors flex items-center gap-2 shadow-sm shadow-primary/30 disabled:cursor-not-allowed disabled:opacity-60"
                         >
                             <span className="material-icons text-[18px]">check_circle</span>
@@ -702,6 +668,69 @@ export default function ReviewCasePage() {
                 </div>
 
                 <div className="flex flex-col gap-6">
+                    <div className="bg-white rounded-xl border border-slate-200/60 shadow-sm p-5">
+                        <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
+                            <span className="text-xs font-bold text-slate-700 uppercase tracking-widest">
+                                Supervisor Checklist
+                            </span>
+                            <span
+                                className={`rounded-md px-2 py-0.5 text-[11px] font-bold ${
+                                    isChecklistComplete
+                                        ? 'bg-emerald-100 text-emerald-700'
+                                        : 'bg-amber-100 text-amber-700'
+                                }`}
+                            >
+                                {completedChecklistCount}/{SUPERVISOR_CHECKLIST.length} checked
+                            </span>
+                        </div>
+                        <div className="space-y-2">
+                            {SUPERVISOR_CHECKLIST.map((item) => (
+                                <label
+                                    key={item.id}
+                                    htmlFor={`checklist-${item.id}`}
+                                    className={`flex items-start gap-2.5 rounded-lg border px-3 py-2.5 transition ${
+                                        canReviewActions
+                                            ? 'cursor-pointer'
+                                            : 'cursor-not-allowed opacity-60'
+                                    } ${
+                                        reviewChecklist[item.id]
+                                            ? 'border-emerald-200 bg-emerald-50/70'
+                                            : 'border-slate-100 bg-slate-50'
+                                    }`}
+                                >
+                                    <input
+                                        id={`checklist-${item.id}`}
+                                        type="checkbox"
+                                        checked={reviewChecklist[item.id]}
+                                        disabled={!canReviewActions}
+                                        onChange={() => {
+                                            setReviewChecklist((current) => ({
+                                                ...current,
+                                                [item.id]: !current[item.id],
+                                            }));
+                                            if (submitError) {
+                                                setSubmitError(null);
+                                            }
+                                        }}
+                                        className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-primary focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed"
+                                    />
+                                    <span
+                                        className={`text-[13px] font-medium leading-5 ${
+                                            reviewChecklist[item.id] ? 'text-emerald-800' : 'text-slate-600'
+                                        }`}
+                                    >
+                                        {item.label}
+                                    </span>
+                                </label>
+                            ))}
+                        </div>
+                        {!isChecklistComplete && canReviewActions && (
+                            <p className="mt-3 text-[11px] font-semibold text-amber-600">
+                                Approve stays locked until every check is confirmed.
+                            </p>
+                        )}
+                    </div>
+
                     <div className="bg-white rounded-xl border border-slate-200/60 shadow-sm p-5">
                         <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
                             <span className="text-xs font-bold text-slate-700 uppercase tracking-widest">

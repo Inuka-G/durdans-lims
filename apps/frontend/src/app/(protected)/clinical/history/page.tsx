@@ -11,10 +11,12 @@ import { downloadCsv } from "@/lib/export-csv";
 import { formatDisplayId } from "@/lib/format-id";
 import {
     getClinicalHistory,
+    HistoryQueryParams,
     VerificationHistoryItem,
 } from "@/lib/api";
 
 const PAGE_SIZE = 10;
+const EXPORT_PAGE_SIZE = 1000;
 
 const ACTION_LABELS: Record<string, string> = {
     CLINICAL_AUTHORIZED: "Authorized by Pathologist",
@@ -74,6 +76,10 @@ export default function ClinicalHistoryPage() {
     const [search, setSearch] = useState("");
     const [totalPages, setTotalPages] = useState(1);
     const [totalElements, setTotalElements] = useState(0);
+    const [isExporting, setIsExporting] = useState(false);
+    // Kept apart from `error`: that state swaps the table body for an error panel, so a
+    // failed export would blank the history the user is still reading.
+    const [exportError, setExportError] = useState<string | null>(null);
 
     useEffect(() => {
         setPage(0);
@@ -111,36 +117,72 @@ export default function ClinicalHistoryPage() {
     const hasActiveFilters =
         search.trim().length > 0 || statusFilter !== "ALL" || dateRange !== "ALL";
 
-    const handleExportCsv = () => {
-        const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+    const handleExportCsv = async () => {
+        setIsExporting(true);
+        setExportError(null);
 
-        downloadCsv(
-            `clinical-history-${stamp}`,
-            [
-                "Timestamp",
-                "Patient",
-                "Patient Code",
-                "Result ID",
-                "Test Group",
-                "Action",
-                "Performed By",
-                "Notes",
-            ],
-            historyItems.map((item) => {
-                const actionType = resolveActionType(item);
+        try {
+            const exportFilters: HistoryQueryParams = {
+                actionType: statusFilter === "ALL" ? undefined : statusFilter,
+                search: search.trim() || undefined,
+                fromTimestamp: resolveFromTimestamp(dateRange),
+            };
 
-                return [
-                    formatTimestamp(item.actionAt ?? item.updatedAt),
-                    item.patientName || "Unknown patient",
-                    item.patientCode || "",
-                    formatDisplayId(item.resultId, "RES"),
-                    item.testName || "Unknown Test Group",
-                    item.actionSummary || ACTION_LABELS[actionType] || "Workflow Updated",
-                    item.performedBy || "",
-                    item.notes || "",
-                ];
-            })
-        );
+            const firstPage = await getClinicalHistory(0, EXPORT_PAGE_SIZE, exportFilters);
+            const exportItems = [...firstPage.content];
+
+            // The export covers the whole filtered set, not the ten rows on screen, so walk
+            // the remaining pages. The first response's page count bounds the loop.
+            for (let nextPage = 1; nextPage < firstPage.totalPages; nextPage += 1) {
+                const followingPage = await getClinicalHistory(
+                    nextPage,
+                    EXPORT_PAGE_SIZE,
+                    exportFilters
+                );
+                exportItems.push(...followingPage.content);
+            }
+
+            if (exportItems.length === 0) {
+                return;
+            }
+
+            const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+
+            downloadCsv(
+                `clinical-history-${stamp}`,
+                [
+                    "Timestamp",
+                    "Patient",
+                    "Patient Code",
+                    "Result ID",
+                    "Test Group",
+                    "Action",
+                    "Performed By",
+                    "Notes",
+                ],
+                exportItems.map((item) => {
+                    const actionType = resolveActionType(item);
+
+                    return [
+                        formatTimestamp(item.actionAt ?? item.updatedAt),
+                        item.patientName || "Unknown patient",
+                        item.patientCode || "",
+                        formatDisplayId(item.resultId, "RES"),
+                        item.testName || "Unknown Test Group",
+                        item.actionSummary || ACTION_LABELS[actionType] || "Workflow Updated",
+                        item.performedBy || "",
+                        item.notes || "",
+                    ];
+                })
+            );
+        } catch (exportFailure) {
+            console.error("Failed to export clinical history", exportFailure);
+            setExportError(
+                "Could not export the clinical history. Check your connection, then try the export again."
+            );
+        } finally {
+            setIsExporting(false);
+        }
     };
 
     return (
@@ -189,16 +231,30 @@ export default function ClinicalHistoryPage() {
 
                     <button
                         type="button"
-                        onClick={handleExportCsv}
-                        disabled={historyItems.length === 0}
-                        title="Exports the history rows currently shown on this page"
+                        onClick={() => void handleExportCsv()}
+                        disabled={isExporting || historyItems.length === 0}
+                        title="Exports every history entry matching the current search and filters"
                         className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                     >
-                        <span className="material-icons text-lg">download</span>
-                        Export CSV
+                        <span
+                            className={`material-icons text-lg ${isExporting ? "animate-spin" : ""}`}
+                        >
+                            {isExporting ? "sync" : "download"}
+                        </span>
+                        {isExporting ? "Exporting..." : "Export CSV"}
                     </button>
                 </div>
             </div>
+
+            {exportError && (
+                <div
+                    role="alert"
+                    className="mb-6 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700"
+                >
+                    <span className="material-icons text-lg">error_outline</span>
+                    {exportError}
+                </div>
+            )}
 
             <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm p-4 mb-6">
                 <div className="flex flex-wrap items-center gap-3">
