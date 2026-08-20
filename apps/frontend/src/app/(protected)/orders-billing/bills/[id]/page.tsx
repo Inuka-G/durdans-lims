@@ -2,10 +2,16 @@
 
 import React, { useState, useEffect, use } from 'react';
 import { useRouter } from 'next/navigation';
+import { AlertTriangle, ArrowLeft, Printer, Receipt, StickyNote } from 'lucide-react';
 import { formatCurrency } from '@/constants/orders-billing';
 import { getBillById, getPatientById } from '@/lib/api';
 import { useAuth } from '@/hooks/useAuth';
 import type { Bill } from '@/types/orders-billing';
+import Button from '@/components/ui/Button';
+import PageHeader from '@/components/ui/PageHeader';
+import EmptyState from '@/components/ui/EmptyState';
+import StatusBadge from '@/components/shared/StatusBadge';
+import { formatPhone } from '@/components/patient-dashboard/dashboard-data';
 
 type BillPaymentWithNotes = {
     notes?: unknown;
@@ -43,6 +49,24 @@ function getErrorMessage(error: unknown) {
 
 function getDisplayName(value: unknown) {
     return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+const BILLS_CRUMBS = [
+    { label: 'Dashboard', href: '/dashboard' },
+    { label: 'Orders and billing', href: '/orders-billing' },
+    { label: 'Bills', href: '/orders-billing/bills' },
+];
+
+/** Label : value row used in the receipt metadata block. */
+function MetaRow({ label, children, mono = false }: { label: string; children: React.ReactNode; mono?: boolean }) {
+    return (
+        <div className="grid grid-cols-[120px_minmax(0,1fr)] gap-x-3 py-1">
+            <dt className="text-xs text-fg-muted">{label}</dt>
+            <dd className={mono ? 'break-all font-mono text-xs font-medium text-fg' : 'break-words text-sm font-medium text-fg'}>
+                {children}
+            </dd>
+        </div>
+    );
 }
 
 // ─── Page Component ───────────────────────────────────────────────────────────
@@ -103,12 +127,52 @@ export default function BillDetailsPage({ params }: { params: Promise<{ id: stri
         fetchBill();
     }, [resolvedParams.id]);
 
+    const backToBills = () => router.push('/orders-billing/bills');
+
     // ── Loading State ──────────────────────────────────────────────────────────
     if (loading) {
         return (
-            <div className="flex flex-col items-center justify-center py-24 gap-4">
-                <span className="material-icons text-5xl text-slate-300 animate-spin">progress_activity</span>
-                <p className="text-sm text-slate-400 font-medium">Loading bill details...</p>
+            <div className="mx-auto max-w-5xl">
+                <PageHeader title="Bill" crumbs={[...BILLS_CRUMBS, { label: 'Loading…' }]} />
+                <p role="status" aria-live="polite" className="sr-only">
+                    Loading bill details
+                </p>
+                <div aria-hidden="true" className="overflow-hidden rounded-lg border border-edge bg-surface">
+                    <div className="border-b border-edge bg-surface-muted px-6 py-6">
+                        <span className="mx-auto block h-4 w-40 rounded bg-skeleton" />
+                        <span className="mx-auto mt-2 block h-3 w-24 rounded bg-skeleton" />
+                    </div>
+                    <div className="space-y-6 p-6 md:p-8">
+                        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                            {Array.from({ length: 2 }).map((_, col) => (
+                                <div key={col} className="space-y-2">
+                                    {Array.from({ length: 4 }).map((__, row) => (
+                                        <span key={row} className="flex items-center gap-3">
+                                            <span className="h-3 w-24 rounded bg-skeleton" />
+                                            <span className="h-3 w-36 rounded bg-skeleton" />
+                                        </span>
+                                    ))}
+                                </div>
+                            ))}
+                        </div>
+                        <div className="space-y-2">
+                            {Array.from({ length: 3 }).map((_, i) => (
+                                <span key={i} className="flex items-center justify-between">
+                                    <span className="h-3 w-1/2 rounded bg-skeleton" />
+                                    <span className="h-3 w-20 rounded bg-skeleton" />
+                                </span>
+                            ))}
+                        </div>
+                        <div className="ml-auto max-w-xs space-y-2">
+                            {Array.from({ length: 3 }).map((_, i) => (
+                                <span key={i} className="flex items-center justify-between">
+                                    <span className="h-3 w-24 rounded bg-skeleton" />
+                                    <span className="h-3 w-20 rounded bg-skeleton" />
+                                </span>
+                            ))}
+                        </div>
+                    </div>
+                </div>
             </div>
         );
     }
@@ -116,16 +180,20 @@ export default function BillDetailsPage({ params }: { params: Promise<{ id: stri
     // ── Error State ────────────────────────────────────────────────────────────
     if (error) {
         return (
-            <div className="flex flex-col items-center justify-center py-24 gap-4">
-                <span className="material-icons text-5xl text-red-300">error_outline</span>
-                <h2 className="text-xl font-bold text-slate-700">Failed to Load Bill</h2>
-                <p className="text-sm text-red-400">{error}</p>
-                <button
-                    onClick={() => router.push('/orders-billing/bills')}
-                    className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-primary border border-primary/30 rounded-xl hover:bg-primary/5 transition-colors"
-                >
-                    Return to Bills List
-                </button>
+            <div className="mx-auto max-w-5xl">
+                <PageHeader title="Bill" crumbs={[...BILLS_CRUMBS, { label: resolvedParams.id }]} />
+                <div role="alert" className="rounded-lg border border-edge bg-surface">
+                    <EmptyState
+                        icon={AlertTriangle}
+                        title="Couldn't load bill"
+                        description={error}
+                        action={
+                            <Button size="sm" icon={ArrowLeft} onClick={backToBills}>
+                                Back to bills
+                            </Button>
+                        }
+                    />
+                </div>
             </div>
         );
     }
@@ -133,16 +201,20 @@ export default function BillDetailsPage({ params }: { params: Promise<{ id: stri
     // ── Not Found State ────────────────────────────────────────────────────────
     if (!bill) {
         return (
-            <div className="flex flex-col items-center justify-center py-24 gap-4">
-                <span className="material-icons text-5xl text-slate-300">receipt_long</span>
-                <h2 className="text-xl font-bold text-slate-700">Bill Not Found</h2>
-                <p className="text-sm text-slate-400">No bill matching ID: {resolvedParams.id}</p>
-                <button
-                    onClick={() => router.push('/orders-billing/bills')}
-                    className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-primary border border-primary/30 rounded-xl hover:bg-primary/5 transition-colors"
-                >
-                    Return to Bills List
-                </button>
+            <div className="mx-auto max-w-5xl">
+                <PageHeader title="Bill" crumbs={[...BILLS_CRUMBS, { label: resolvedParams.id }]} />
+                <div role="status" className="rounded-lg border border-edge bg-surface">
+                    <EmptyState
+                        icon={Receipt}
+                        title="Bill not found"
+                        description={`No bill matches ID ${resolvedParams.id}.`}
+                        action={
+                            <Button size="sm" icon={ArrowLeft} onClick={backToBills}>
+                                Back to bills
+                            </Button>
+                        }
+                    />
+                </div>
             </div>
         );
     }
@@ -155,12 +227,33 @@ export default function BillDetailsPage({ params }: { params: Promise<{ id: stri
     const latestPaymentNote = [...paymentsWithNotes].reverse()
         .find((payment) => typeof payment.notes === 'string' && payment.notes.trim())
         ?.notes as string | undefined;
+    const lines = bill.tests ?? [];
 
     return (
-        <div>
-            {/* Top Bar — hidden when printing */}
+        <div className="mx-auto max-w-5xl">
+            {/* Print: only the receipt is visible. The receipt is token-driven, so in dark mode its
+                text would print near-white on paper; re-pin the tokens it uses to the light palette
+                from globals.css (print-only — screen rendering stays fully token-based). */}
             <style>{`
                 @media print {
+                    html.dark, :root {
+                        color-scheme: light;
+                        --surface: #ffffff;
+                        --surface-muted: #f8fafc;
+                        --surface-hover: #f1f5f9;
+                        --edge: #e2e8f0;
+                        --fg: #0f172a;
+                        --fg-secondary: #334155;
+                        --fg-muted: #64748b;
+                        --fg-faint: #94a3b8;
+                        --status-verified-bg: #ecfdf5;
+                        --status-verified-fg: #047857;
+                        --status-verified-edge: #a7f3d0;
+                        --status-pending-bg: #fffbeb;
+                        --status-pending-fg: #b45309;
+                        --status-pending-edge: #fde68a;
+                    }
+
                     body * {
                         visibility: hidden;
                     }
@@ -190,105 +283,83 @@ export default function BillDetailsPage({ params }: { params: Promise<{ id: stri
                 }
             `}</style>
 
-            <div className="flex items-center justify-between mb-6 print-hidden">
-                <button
-                    onClick={() => router.push('/orders-billing/bills')}
-                    className="flex items-center gap-1.5 text-sm font-semibold text-slate-500 hover:text-primary transition-colors"
-                >
-                    <span className="material-icons text-lg">arrow_back</span>
-                    Back to Bills
-                </button>
-                <button
-                    onClick={() => window.print()}
-                    className="flex items-center gap-2 px-5 py-2.5 bg-primary text-white rounded-xl font-semibold text-sm hover:bg-primary/90 transition-colors shadow-sm"
-                >
-                    <span className="material-icons text-lg">print</span>
-                    Print Receipt
-                </button>
+            <div className="print-hidden">
+                <PageHeader
+                    title={`Bill ${bill.billId}`}
+                    crumbs={[...BILLS_CRUMBS, { label: bill.billId }]}
+                    meta={
+                        <>
+                            <span className="min-w-0 truncate" title={bill.patientName}>{bill.patientName}</span>
+                            <span aria-hidden="true">·</span>
+                            <span className="min-w-0 break-all font-mono text-xs">{bill.patientId}</span>
+                            <span aria-hidden="true">·</span>
+                            <StatusBadge status={bill.paymentStatus} />
+                        </>
+                    }
+                    actions={
+                        <>
+                            <Button icon={ArrowLeft} onClick={backToBills}>
+                                Back to bills
+                            </Button>
+                            <Button variant="primary" icon={Printer} onClick={() => window.print()}>
+                                Print receipt
+                            </Button>
+                        </>
+                    }
+                />
             </div>
 
-            <div className="print-area bg-white rounded-2xl shadow-sm border border-slate-200/60 overflow-hidden max-w-4xl mx-auto">
-                {/* Receipt Header */}
-                <div className="bg-slate-900 p-10 text-white text-center">
-                    <p className="text-blue-400 text-xl font-black uppercase tracking-widest mb-2">Durdans Hospital LIMS</p>
-                    <h1 className="text-xl font-bold">Official Receipt</h1>
-                </div>
+            <article className="print-area overflow-hidden rounded-lg border border-edge bg-surface" aria-labelledby="receipt-title">
+                {/* Receipt header */}
+                <header className="border-b border-edge bg-surface-muted px-6 py-6 text-center">
+                    <p className="text-base font-semibold tracking-wide text-fg">Durdans Hospital LIMS</p>
+                    <h2 id="receipt-title" className="mt-0.5 text-sm text-fg-muted">
+                        Official receipt
+                    </h2>
+                </header>
 
-                <div className="p-8 md:p-10">
-                    {/* 2-Column Metadata Section */}
-                    <div className="grid grid-cols-2 gap-12 pb-8 border-b border-slate-100">
-
-                        {/* Left Side: Patient Information */}
-                        <div className="space-y-0.5">
-                            <div className="grid grid-cols-[140px_10px_1fr] py-0.5">
-                                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Patient ID</p>
-                                <p>:</p>
-                                <p className="font-bold text-slate-700 text-sm">{bill.patientId}</p>
-                            </div>
-
-                            <div className="grid grid-cols-[140px_10px_1fr] py-0.5">
-                                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Name</p>
-                                <p>:</p>
-                                <p className="font-bold text-slate-700 text-sm">{bill.patientName}</p>
-                            </div>
-
-                            <div className="grid grid-cols-[140px_10px_1fr] py-0.5">
-                                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Age</p>
-                                <p>:</p>
-                                <p className="font-bold text-slate-700 text-sm">{bill.patientAge ?? '—'}</p>
-                            </div>
-
-                            <div className="grid grid-cols-[140px_10px_1fr] py-0.5">
-                                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Telephone No.</p>
-                                <p>:</p>
-                                <p className="font-bold text-slate-700 text-sm">{bill.patientPhone}</p>
-                            </div>
-                        </div>
-
-                        {/* Right Side: Bill Meta */}
-                        <div className="space-y-0.5">
-                            <div className="grid grid-cols-[140px_10px_1fr] py-0.5">
-                                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Bill ID</p>
-                                <p>:</p>
-                                <p className="font-mono font-bold text-slate-700 text-sm">{bill.billId}</p>
-                            </div>
-
-                            <div className="grid grid-cols-[140px_10px_1fr] py-0.5">
-                                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Order ID</p>
-                                <p>:</p>
-                                <p className="font-mono font-bold text-slate-700 text-sm">{bill.orderId}</p>
-                            </div>
-
-                            <div className="grid grid-cols-[140px_10px_1fr] py-0.5">
-                                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Issued By</p>
-                                <p>:</p>
-                                <p className="font-bold text-slate-900 text-sm">
-                                    {issuedBy}
-                                </p>
-                            </div>
-                        </div>
-
+                <div className="p-6 md:p-8">
+                    {/* Patient + bill metadata */}
+                    <div className="grid grid-cols-1 gap-x-10 gap-y-4 border-b border-edge pb-6 sm:grid-cols-2">
+                        <dl>
+                            <MetaRow label="Patient ID" mono>{bill.patientId}</MetaRow>
+                            <MetaRow label="Name">{bill.patientName}</MetaRow>
+                            <MetaRow label="Age">{bill.patientAge ?? '—'}</MetaRow>
+                            <MetaRow label="Telephone">{formatPhone(bill.patientPhone)}</MetaRow>
+                        </dl>
+                        <dl>
+                            <MetaRow label="Bill ID" mono>{bill.billId}</MetaRow>
+                            <MetaRow label="Order ID" mono>{bill.orderId}</MetaRow>
+                            <MetaRow label="Issued by">{issuedBy}</MetaRow>
+                            <MetaRow label="Payment status">
+                                <StatusBadge status={bill.paymentStatus} />
+                            </MetaRow>
+                        </dl>
                     </div>
 
-                    {/* Itemized Charges */}
-                    <div className="mb-8">
-                        <div className="flex items-center gap-2 mb-4 text-slate-400">
-                            <span className="material-icons text-base">receipt_long</span>
-                            <span className="text-xs font-bold uppercase tracking-widest">Itemized Charges</span>
-                        </div>
-                        <div className="border border-slate-100 rounded-2xl overflow-hidden">
-                            <table className="w-full text-left text-sm">
-                                <thead className="bg-slate-50 border-b border-slate-100">
-                                    <tr className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                                        <th className="px-6 py-3">Service / Test Description</th>
-                                        <th className="px-6 py-3 text-right">Amount (LKR)</th>
+                    {/* Itemised charges */}
+                    <section className="mt-6" aria-labelledby="charges-title">
+                        <h3 id="charges-title" className="mb-3 flex items-center gap-2 text-sm font-semibold text-fg">
+                            <Receipt className="h-4 w-4 text-fg-faint" aria-hidden="true" />
+                            Itemised charges
+                        </h3>
+                        <div className="overflow-x-auto rounded-md border border-edge">
+                            <table className="w-full min-w-[360px] table-fixed text-left text-[13px]">
+                                <thead>
+                                    <tr className="border-b border-edge bg-surface-muted text-xs font-medium text-fg-muted">
+                                        <th scope="col" className="py-2 pl-4 pr-3 font-medium">
+                                            Service / test
+                                        </th>
+                                        <th scope="col" className="w-40 px-3 py-2 text-right font-medium">
+                                            Amount (LKR)
+                                        </th>
                                     </tr>
                                 </thead>
-                                <tbody>
-                                    {(bill.tests ?? []).map((test, index) => (
-                                        <tr key={index} className="border-t border-slate-50 hover:bg-slate-50/50 transition-colors">
-                                            <td className="px-6 py-4 text-slate-700 font-medium">{test.testName ?? test.name ?? 'Test'}</td>
-                                            <td className="px-6 py-4 text-right text-slate-800 font-bold">
+                                <tbody className="divide-y divide-edge">
+                                    {lines.map((test, index) => (
+                                        <tr key={index} className="transition-colors hover:bg-surface-hover">
+                                            <td className="break-words py-2 pl-4 pr-3 font-medium text-fg">{test.testName ?? test.name ?? 'Test'}</td>
+                                            <td className="px-3 py-2 text-right tabular-nums text-fg">
                                                 {formatCurrency(test.price ?? test.totalPrice ?? test.unitPrice ?? 0)}
                                             </td>
                                         </tr>
@@ -296,53 +367,58 @@ export default function BillDetailsPage({ params }: { params: Promise<{ id: stri
                                 </tbody>
                             </table>
                         </div>
-                    </div>
+                        {lines.length === 0 && (
+                            <p className="mt-2 text-xs text-fg-muted">No line items on this bill.</p>
+                        )}
+                    </section>
 
-                    {/* Payment Summary */}
-                    <div className="max-w-xs ml-auto bg-slate-50 p-6 rounded-2xl border border-slate-200">
-                        <div className="flex justify-between text-sm mb-3">
-                            <span className="text-slate-500">Subtotal</span>
-                            <span className="font-semibold text-slate-700">{formatCurrency(bill.subtotal)}</span>
+                    {/* Payment summary */}
+                    <dl className="ml-auto mt-6 max-w-xs rounded-md border border-edge bg-surface-muted p-4 text-sm">
+                        <div className="flex items-center justify-between gap-4 py-1">
+                            <dt className="text-fg-muted">Subtotal</dt>
+                            <dd className="tabular-nums text-fg">{formatCurrency(bill.subtotal)}</dd>
                         </div>
                         {bill.serviceCharge > 0 && (
-                            <div className="flex justify-between text-sm mb-3">
-                                <span className="text-slate-500">Service Charge (5%)</span>
-                                <span className="font-semibold text-slate-700">{formatCurrency(bill.serviceCharge)}</span>
+                            <div className="flex items-center justify-between gap-4 py-1">
+                                <dt className="text-fg-muted">Service charge (5%)</dt>
+                                <dd className="tabular-nums text-fg">{formatCurrency(bill.serviceCharge)}</dd>
                             </div>
                         )}
                         {bill.discount > 0 && (
-                            <div className="flex justify-between text-sm mb-3">
-                                <span className="text-slate-500">Discount</span>
-                                <span className="font-semibold text-emerald-600">-{formatCurrency(bill.discount)}</span>
+                            <div className="flex items-center justify-between gap-4 py-1">
+                                <dt className="text-fg-muted">Discount</dt>
+                                <dd className="tabular-nums text-fg">−{formatCurrency(bill.discount)}</dd>
                             </div>
                         )}
-                        <div className="flex justify-between text-sm mb-3 pt-3 border-t border-slate-200">
-                            <span className="text-slate-500">Total Bill</span>
-                            <span className="font-bold text-slate-800">{formatCurrency(bill.totalAmount)}</span>
+                        <div className="mt-1 flex items-center justify-between gap-4 border-t border-edge pt-2">
+                            <dt className="font-medium text-fg">Total bill</dt>
+                            <dd className="font-semibold tabular-nums text-fg">{formatCurrency(bill.totalAmount)}</dd>
                         </div>
-                        <div className="flex justify-between text-sm mb-3">
-                            <span className="text-slate-500">Amount Paid</span>
-                            <span className="font-bold text-emerald-600">{formatCurrency(bill.paidAmount)}</span>
+                        <div className="flex items-center justify-between gap-4 py-1">
+                            <dt className="text-fg-muted">Amount paid</dt>
+                            <dd className="font-semibold tabular-nums text-status-verified-fg">{formatCurrency(bill.paidAmount)}</dd>
                         </div>
-                    </div>
+                    </dl>
 
                     {latestPaymentNote && (
-                        <div className="mt-8 rounded-2xl border border-slate-200 bg-slate-50 p-5">
-                            <div className="flex items-center gap-2 mb-2 text-slate-500">
-                                <span className="material-icons text-base">notes</span>
-                                <span className="text-xs font-bold uppercase tracking-widest">Special Notes</span>
-                            </div>
-                            <p className="text-sm text-slate-700 whitespace-pre-wrap">{latestPaymentNote}</p>
-                        </div>
+                        <section className="mt-6 rounded-md border border-edge bg-surface-muted p-4" aria-labelledby="notes-title">
+                            <h3 id="notes-title" className="mb-1.5 flex items-center gap-2 text-xs font-medium text-fg-muted">
+                                <StickyNote className="h-4 w-4 text-fg-faint" aria-hidden="true" />
+                                Notes
+                            </h3>
+                            <p className="whitespace-pre-wrap break-words text-sm text-fg">{latestPaymentNote}</p>
+                        </section>
                     )}
 
                     {/* Footer */}
-                    <div className="mt-12 flex justify-between items-center border-t border-slate-100 pt-6">
-                        <p className="text-xs text-slate-400 italic">Electronically verified document</p>
-                        <p className="text-xs text-slate-300 font-mono">{printDate} {printTime}</p>
-                    </div>
+                    <footer className="mt-8 flex flex-wrap items-center justify-between gap-2 border-t border-edge pt-4 text-xs text-fg-muted">
+                        <p>Electronically verified document</p>
+                        <p className="tabular-nums text-fg-faint">
+                            {printDate} {printTime}
+                        </p>
+                    </footer>
                 </div>
-            </div>
+            </article>
         </div>
     );
 }

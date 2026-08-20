@@ -1,9 +1,20 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { AxiosError } from 'axios';
+import {
+    AlertTriangle,
+    ArrowLeft,
+    Ban,
+    Check,
+    CheckCircle2,
+    ClipboardCheck,
+    Inbox,
+    Printer,
+    RefreshCw,
+    SearchX,
+} from 'lucide-react';
 import {
     acceptSample,
     getPatientById,
@@ -13,7 +24,15 @@ import {
     type Patient,
     type RejectionReason,
 } from '@/lib/api';
-import { PRIORITY_COLORS, SAMPLE_STATUS_COLORS, formatStatusLabel } from '@/constants/sample-lifecycle';
+import Button from '@/components/ui/Button';
+import PageHeader from '@/components/ui/PageHeader';
+import { InputField, SelectField, TextareaField } from '@/components/ui/Field';
+import SectionCard from '@/components/ui/SectionCard';
+import EmptyState from '@/components/ui/EmptyState';
+import StatusChip, { humanizeStatus } from '@/components/ui/StatusChip';
+import StatusBadge from '@/components/shared/StatusBadge';
+import PriorityBadge from '@/components/shared/PriorityBadge';
+import { formatRegistered } from '@/components/patient-dashboard/dashboard-data';
 
 const DEFAULT_REASON: RejectionReason = 'HEMOLYZED';
 const REJECTION_REASONS: RejectionReason[] = [
@@ -25,13 +44,17 @@ const REJECTION_REASONS: RejectionReason[] = [
 ];
 
 const TUBE_TYPE_HINTS: Record<string, string> = {
-    'full blood count': 'EDTA Purple Top',
-    fbc: 'EDTA Purple Top',
-    esr: 'EDTA Purple Top',
+    'full blood count': 'EDTA purple top',
+    fbc: 'EDTA purple top',
+    esr: 'EDTA purple top',
 };
 
 const REQUIRED_CHECKS = ['barcode', 'container', 'condition', 'window'];
 const CHECKS_STORAGE_PREFIX = 'reception-verification-checks';
+const SKELETON_ROWS = 5;
+
+const FOCUS_RING =
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-surface';
 
 type ChecklistItem = {
     id: string;
@@ -185,28 +208,28 @@ export default function QualityVerificationPage() {
         return [
             {
                 id: 'barcode',
-                label: 'Barcode Integrity',
+                label: 'Barcode integrity',
                 description: `Barcode ${selectedSample?.barcode ?? ''} is legible and matches the accessioning queue.`,
             },
             {
                 id: 'container',
-                label: 'Correct Container',
+                label: 'Correct container',
                 description: `Verify the specimen container against ${testName} requirements (${tubeHint}).`,
             },
             {
                 id: 'volume',
-                label: 'Volume Sufficiency',
+                label: 'Volume sufficiency',
                 description: 'Confirm the tube is adequately filled for testing before forwarding to MLT.',
                 optional: true,
             },
             {
                 id: 'condition',
-                label: 'Sample Condition',
+                label: 'Sample condition',
                 description: 'Visually confirm there is no clotting, leakage, hemolysis, or contamination.',
             },
             {
                 id: 'window',
-                label: 'Collection Window',
+                label: 'Collection window',
                 description: collectionDescription,
             },
         ];
@@ -216,9 +239,9 @@ export default function QualityVerificationPage() {
     const progress = Object.values(checks).filter(Boolean).length;
     const requiresCustomMessage = rejectReason === 'OTHER';
 
-    const patientDisplayName = patient?.fullName || patient?.firstName
-        ? [patient?.title, patient?.firstName, patient?.lastName].filter(Boolean).join(' ').trim()
-        : selectedSample?.patientId ?? 'Unknown Patient';
+    const patientDisplayName = patient?.firstName
+        ? [patient.title, patient.firstName, patient.lastName].filter(Boolean).join(' ').trim()
+        : patient?.fullName?.trim() || selectedSample?.patientId || 'Unknown patient';
 
     const patientInitials = buildInitials(patientDisplayName);
 
@@ -306,380 +329,453 @@ export default function QualityVerificationPage() {
         }
     };
 
+    const handleCancelRejection = () => {
+        setRejectDraftActive(false);
+        setNotes('');
+        setRejectReason(DEFAULT_REASON);
+        setError(null);
+    };
+
     const selectedSampleIsBusy = submittingAction !== null;
+    const progressPercent = checklist.length > 0 ? Math.round((progress / checklist.length) * 100) : 0;
 
     return (
-        <div className="max-w-7xl mx-auto">
-            <div className="flex items-center justify-between mb-5">
-                <Link
-                    href="/reception/accessioning"
-                    className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-primary transition-colors"
-                >
-                    <span className="material-icons text-base">chevron_left</span>
-                    Back to Reception Worklist
-                </Link>
-                <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                    <span className="text-sm font-semibold text-emerald-600">
-                        Scanner Online &amp; Ready
-                    </span>
-                </div>
-            </div>
+        <div className="mx-auto max-w-[1400px]">
+            <PageHeader
+                title="Quality verification"
+                crumbs={[
+                    { label: 'Lab reception', href: '/reception/accessioning' },
+                    { label: 'Reception worklist', href: '/reception/accessioning' },
+                    { label: 'Quality verification' },
+                ]}
+                meta={
+                    <>
+                        <span>Complete pre-analytical checks before queuing a sample for analysis.</span>
+                        <StatusChip tone="success" dot size="sm">
+                            Scanner online and ready
+                        </StatusChip>
+                    </>
+                }
+                actions={
+                    <>
+                        <Button href="/reception/accessioning" icon={ArrowLeft}>
+                            Back to worklist
+                        </Button>
+                        <Button
+                            icon={RefreshCw}
+                            loading={loading}
+                            disabled={selectedSampleIsBusy}
+                            onClick={() => void loadSamples()}
+                        >
+                            Refresh
+                        </Button>
+                    </>
+                }
+            />
+
+            {/* Live region for async list state */}
+            <p role="status" aria-live="polite" className="sr-only">
+                {loading
+                    ? 'Loading collected samples'
+                    : `${filteredSamples.length} of ${samples.length} ${samples.length === 1 ? 'sample' : 'samples'} in the verification queue.`}
+            </p>
 
             {error && (
-                <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                    {error}
+                <div
+                    role="alert"
+                    className="mb-4 flex items-start gap-2 rounded-lg border border-status-danger-edge bg-status-danger-bg px-4 py-3 text-sm text-status-danger-fg"
+                >
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span className="min-w-0 flex-1">{error}</span>
                 </div>
             )}
 
             {successMessage && (
-                <div className="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-                    {successMessage}
+                <div
+                    role="status"
+                    className="mb-4 flex items-start gap-2 rounded-lg border border-status-verified-edge bg-status-verified-bg px-4 py-3 text-sm text-status-verified-fg"
+                >
+                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span className="min-w-0 flex-1">{successMessage}</span>
                 </div>
             )}
 
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 mb-6">
-                <div className="flex items-center gap-3 px-5 py-3.5">
-                    <span className="material-icons text-xl text-slate-300">qr_code_scanner</span>
-                    <input
-                        type="text"
-                        value={searchQuery}
-                        onChange={(event) => setSearchQuery(event.target.value)}
-                        placeholder="Scan Sample Barcode or Search ID..."
-                        className="flex-1 text-sm text-slate-700 placeholder-slate-400 bg-transparent focus:outline-none"
-                    />
-                </div>
-            </div>
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
+                {/* Left pane: verification queue */}
+                <SectionCard
+                    title="Verification queue"
+                    count={loading ? undefined : filteredSamples.length}
+                    flush
+                    className="self-start"
+                >
+                    <div className="border-b border-edge bg-surface-muted px-3 py-2">
+                        <InputField
+                            label="Scan barcode or search samples"
+                            hideLabel
+                            type="search"
+                            autoComplete="off"
+                            value={searchQuery}
+                            onChange={(event) => setSearchQuery(event.target.value)}
+                            placeholder="Scan barcode or search by ID"
+                        />
+                    </div>
 
-            <div className="grid grid-cols-1 xl:grid-cols-[320px_minmax(0,1fr)] gap-6">
-                <div className="space-y-4">
-                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 overflow-hidden">
-                        <div className="px-5 py-4 border-b border-slate-100">
-                            <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wider">
-                                Verification Queue
-                            </h2>
-                            <p className="text-xs text-slate-400 mt-1">
-                                Select a collected sample to complete pre-analytical checks.
-                            </p>
-                        </div>
-
+                    <div aria-busy={loading}>
                         {loading ? (
-                            <div className="py-10 text-center">
-                                <div className="inline-block h-7 w-7 animate-spin rounded-full border-2 border-slate-200 border-t-primary" />
-                                <p className="mt-3 text-sm text-slate-500">Loading collected samples...</p>
-                            </div>
+                            <ul aria-hidden="true" className="divide-y divide-edge">
+                                {Array.from({ length: SKELETON_ROWS }).map((_, i) => (
+                                    <li key={i} className="space-y-2 px-4 py-3">
+                                        <div className="flex items-center justify-between gap-3">
+                                            <span className="h-3 w-24 rounded bg-skeleton" />
+                                            <span className="h-4 w-12 rounded bg-skeleton" />
+                                        </div>
+                                        <span className="block h-3 w-32 rounded bg-skeleton" />
+                                        <span className="block h-3 w-40 rounded bg-skeleton" />
+                                    </li>
+                                ))}
+                            </ul>
+                        ) : error && samples.length === 0 ? (
+                            <EmptyState
+                                icon={AlertTriangle}
+                                title="Couldn't load the verification queue"
+                                description="Check your connection, then try again."
+                                compact
+                                action={
+                                    <Button size="sm" icon={RefreshCw} onClick={() => void loadSamples()}>
+                                        Retry
+                                    </Button>
+                                }
+                            />
                         ) : filteredSamples.length === 0 ? (
-                            <div className="px-5 py-10 text-center text-sm text-slate-400">
-                                {samples.length === 0
-                                    ? 'No collected samples are available for quality verification.'
-                                    : 'No samples match your current search.'}
-                            </div>
+                            samples.length === 0 ? (
+                                <EmptyState
+                                    icon={Inbox}
+                                    title="No samples to verify"
+                                    description="Collected samples appear here as soon as they reach reception."
+                                    compact
+                                />
+                            ) : (
+                                <EmptyState
+                                    icon={SearchX}
+                                    title="No samples match your search"
+                                    description="Try a different barcode, patient ID, order ID or test name."
+                                    compact
+                                    action={
+                                        <Button size="sm" onClick={() => setSearchQuery('')}>
+                                            Clear search
+                                        </Button>
+                                    }
+                                />
+                            )
                         ) : (
-                            <div className="divide-y divide-slate-100">
+                            <ul aria-label="Verification queue" className="divide-y divide-edge">
                                 {filteredSamples.map((sample) => {
                                     const isActive = sample.sampleId === selectedSample?.sampleId;
 
                                     return (
-                                        <button
-                                            key={sample.sampleId}
-                                            type="button"
-                                            onClick={() => handleSelectSample(sample)}
-                                            className={`w-full text-left px-5 py-4 transition-colors ${
-                                                isActive ? 'bg-primary/5' : 'hover:bg-slate-50/70'
-                                            }`}
-                                        >
-                                            <div className="flex items-center justify-between gap-3">
-                                                <div>
-                                                    <p className="font-bold text-primary">{sample.barcode}</p>
-                                                    <p className="text-sm font-medium text-slate-700 mt-1">{sample.patientId}</p>
-                                                    <p className="text-xs text-slate-400 mt-1">{sample.orderId}</p>
+                                        <li key={sample.sampleId}>
+                                            <button
+                                                type="button"
+                                                aria-current={isActive ? 'true' : undefined}
+                                                onClick={() => handleSelectSample(sample)}
+                                                className={`block w-full border-l-2 px-4 py-3 text-left transition-colors ${FOCUS_RING} ${
+                                                    isActive
+                                                        ? 'border-primary bg-primary-soft'
+                                                        : 'border-transparent hover:bg-surface-hover'
+                                                }`}
+                                            >
+                                                <div className="flex items-start justify-between gap-3">
+                                                    <div className="min-w-0">
+                                                        <p className="truncate font-mono text-xs font-semibold text-primary-strong">
+                                                            {sample.barcode}
+                                                        </p>
+                                                        <p className="mt-0.5 truncate text-[13px] font-medium text-fg">
+                                                            {sample.patientId}
+                                                        </p>
+                                                        <p className="truncate text-xs text-fg-muted">{sample.orderId}</p>
+                                                    </div>
+                                                    <PriorityBadge priority={sample.priority} />
                                                 </div>
-                                                <span
-                                                    className={`inline-flex items-center px-2 py-1 rounded-lg text-[10px] font-bold ${
-                                                        PRIORITY_COLORS[sample.priority as keyof typeof PRIORITY_COLORS] ??
-                                                        'bg-slate-100 text-slate-600'
-                                                    }`}
-                                                >
-                                                    {formatStatusLabel(sample.priority)}
-                                                </span>
-                                            </div>
-                                            <p className="text-xs text-slate-500 mt-2">{sample.testName}</p>
-                                        </button>
+                                                <p className="mt-1.5 truncate text-xs text-fg-secondary" title={sample.testName}>
+                                                    {sample.testName}
+                                                </p>
+                                            </button>
+                                        </li>
                                     );
                                 })}
-                            </div>
+                            </ul>
                         )}
                     </div>
-                </div>
+                </SectionCard>
 
+                {/* Right pane: sample details + checks */}
                 {!selectedSample ? (
-                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 flex items-center justify-center min-h-[420px] px-8 text-center">
-                        <div>
-                            <p className="text-lg font-semibold text-slate-800">No sample selected</p>
-                            <p className="text-sm text-slate-500 mt-2">
-                                Choose a collected sample from the verification queue to review pre-analytical checks.
-                            </p>
-                        </div>
-                    </div>
+                    <SectionCard title="Pre-analytical verification" className="self-start">
+                        <EmptyState
+                            icon={ClipboardCheck}
+                            title="No sample selected"
+                            description="Choose a collected sample from the verification queue to review its pre-analytical checks."
+                        />
+                    </SectionCard>
                 ) : (
-                    <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-                        <div className="lg:col-span-2 space-y-5">
-                            <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-6">
-                                <div className="flex items-center gap-2 mb-1">
-                                    <span className="w-2 h-2 rounded-full bg-blue-500" />
-                                    <span
-                                        className={`text-[11px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-md ${
-                                            SAMPLE_STATUS_COLORS[selectedSample.status] ?? 'bg-slate-100 text-slate-600'
-                                        }`}
-                                    >
-                                        {formatStatusLabel(selectedSample.status)}
-                                    </span>
-                                </div>
-                                <p className="text-[11px] text-primary font-medium mb-0.5">{selectedSample.orderId}</p>
-                                <h2 className="text-xl font-bold text-slate-800 mb-5">
-                                    Sample ID: {selectedSample.barcode}
-                                </h2>
+                    <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-5">
+                        <SectionCard
+                            title="Sample details"
+                            actions={<StatusBadge status={selectedSample.status} />}
+                            className="lg:col-span-2"
+                        >
+                            <p className="break-all text-xs font-medium text-primary-strong">{selectedSample.orderId}</p>
+                            <h3 className="mt-0.5 break-all font-mono text-lg font-semibold text-fg">{selectedSample.barcode}</h3>
 
-                                <p className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider mb-3">
-                                    Patient Information
-                                </p>
-                                <div className="flex items-center gap-3 mb-4">
-                                    <div className="w-11 h-11 rounded-full bg-gradient-to-br from-rose-400 to-pink-500 flex items-center justify-center text-white font-bold text-sm shadow-sm">
+                            <div className="mt-4 border-t border-edge pt-4">
+                                <p className="mb-2 text-xs font-medium text-fg-muted">Patient</p>
+                                <div className="flex items-center gap-3">
+                                    <div
+                                        aria-hidden="true"
+                                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-soft text-sm font-semibold text-primary-strong"
+                                    >
                                         {patientInitials}
                                     </div>
-                                    <div>
-                                        <p className="font-bold text-slate-800 text-[15px]">
-                                            {patientLoading ? 'Loading patient...' : patientDisplayName}
+                                    <div className="min-w-0">
+                                        <p className="truncate text-sm font-semibold text-fg" aria-live="polite">
+                                            {patientLoading ? 'Loading patient…' : patientDisplayName}
                                         </p>
-                                        <p className="text-xs text-slate-400">
+                                        <p className="truncate text-xs text-fg-muted">
                                             {formatPatientMeta(patient, selectedSample.patientId)}
                                         </p>
                                     </div>
                                 </div>
 
-                                <div className="grid grid-cols-2 gap-4 mb-5">
-                                    <div>
-                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Patient Code</p>
-                                        <p className="text-sm font-medium text-slate-700">{selectedSample.patientId}</p>
+                                <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3">
+                                    <div className="min-w-0">
+                                        <dt className="text-xs text-fg-muted">Patient code</dt>
+                                        <dd className="mt-0.5 truncate text-sm font-medium text-fg">{selectedSample.patientId}</dd>
                                     </div>
-                                    <div>
-                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Collected At</p>
-                                        <p className="text-sm font-medium text-slate-700">
-                                            {selectedSample.collectedAt
-                                                ? new Date(selectedSample.collectedAt).toLocaleString()
-                                                : 'Not available'}
-                                        </p>
+                                    <div className="min-w-0">
+                                        <dt className="text-xs text-fg-muted">Collected</dt>
+                                        <dd className="mt-0.5 text-sm font-medium tabular-nums text-fg">
+                                            {formatCollectedAt(selectedSample.collectedAt)}
+                                        </dd>
                                     </div>
-                                </div>
+                                </dl>
+                            </div>
 
-                                <div className="border-t border-slate-100 pt-4">
-                                    <p className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider mb-3">
-                                        Sample Specimen
-                                    </p>
-                                    <div className="flex items-start gap-3">
-                                        <div className="w-2.5 h-10 rounded-full bg-purple-500 mt-1" />
-                                        <div>
-                                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Test Type</p>
-                                            <p className="text-sm font-bold text-slate-800 mb-2">{selectedSample.testName}</p>
-                                            <div className="flex gap-6">
-                                                <div>
-                                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Container Type</p>
-                                                    <p className="text-xs text-slate-600">{resolveTubeHint(selectedSample.testName)}</p>
-                                                </div>
-                                                <div>
-                                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Priority</p>
-                                                    <p className="text-xs text-slate-600">{formatStatusLabel(selectedSample.priority)}</p>
-                                                </div>
-                                            </div>
+                            <div className="mt-4 border-t border-edge pt-4">
+                                <p className="mb-2 text-xs font-medium text-fg-muted">Specimen</p>
+                                <div className="flex items-start gap-3">
+                                    {/* Specimen tube colour is physical (cap colour) so it stays literal in both themes */}
+                                    <span aria-hidden="true" className="mt-0.5 h-10 w-2.5 shrink-0 rounded-full bg-purple-500" />
+                                    <dl className="grid min-w-0 flex-1 grid-cols-2 gap-x-4 gap-y-3">
+                                        <div className="col-span-2 min-w-0">
+                                            <dt className="text-xs text-fg-muted">Test</dt>
+                                            <dd className="mt-0.5 break-words text-sm font-semibold text-fg">{selectedSample.testName}</dd>
                                         </div>
-                                    </div>
+                                        <div className="min-w-0">
+                                            <dt className="text-xs text-fg-muted">Container</dt>
+                                            <dd className="mt-0.5 text-xs text-fg-secondary">
+                                                {resolveTubeHint(selectedSample.testName)}
+                                            </dd>
+                                        </div>
+                                        <div className="min-w-0">
+                                            <dt className="text-xs text-fg-muted">Priority</dt>
+                                            <dd className="mt-0.5">
+                                                <PriorityBadge priority={selectedSample.priority} />
+                                            </dd>
+                                        </div>
+                                    </dl>
                                 </div>
                             </div>
-                        </div>
+                        </SectionCard>
 
-                        <div className="lg:col-span-3">
-                            <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60">
-                                <div className="px-6 pt-6 pb-4">
-                                    <div className="flex items-start justify-between">
-                                        <div>
-                                            <h3 className="text-lg font-bold text-slate-800">Pre-Analytical Verification</h3>
-                                            <p className="text-xs text-slate-400 mt-0.5">Complete all required physical checks before queuing the sample for analysis.</p>
-                                        </div>
-                                        <div className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 rounded-full px-3 py-1">
-                                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                                            <span className="text-xs font-bold text-emerald-600">
-                                                {selectedSample.collectedAt
-                                                    ? formatRelativeCollectionTime(selectedSample.collectedAt)
-                                                    : 'Collection time pending'}
-                                            </span>
-                                        </div>
-                                    </div>
-                                </div>
+                        <SectionCard
+                            title="Pre-analytical verification"
+                            actions={
+                                <StatusChip tone={selectedSample.collectedAt ? 'neutral' : 'pending'} dot size="sm">
+                                    {selectedSample.collectedAt
+                                        ? formatRelativeCollectionTime(selectedSample.collectedAt)
+                                        : 'Collection time pending'}
+                                </StatusChip>
+                            }
+                            flush
+                            className="lg:col-span-3"
+                        >
+                            <p className="border-b border-edge px-4 py-2.5 text-xs text-fg-muted">
+                                Complete all required physical checks before queuing the sample for analysis.
+                            </p>
 
-                                <div className="divide-y divide-slate-100">
-                                    {checklist.map((item) => {
-                                        const checked = !!checks[item.id];
-                                        const isBarcodeCheck = item.id === 'barcode';
+                            <ul className="divide-y divide-edge">
+                                {checklist.map((item) => {
+                                    const checked = !!checks[item.id];
+                                    const isBarcodeCheck = item.id === 'barcode';
+                                    const checkboxId = `qv-check-${item.id}`;
 
-                                        return (
-                                            <div
-                                                key={item.id}
-                                                className={`flex items-center gap-4 px-6 py-4 cursor-pointer transition-colors ${
-                                                    checked ? 'bg-emerald-50/60' : 'hover:bg-slate-50/50'
-                                                }`}
-                                            >
-                                                <label className="flex items-center gap-4 flex-1 min-w-0 cursor-pointer">
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={checked}
-                                                        onChange={() => handleCheck(item.id)}
-                                                        className="w-5 h-5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-200 flex-shrink-0"
-                                                    />
-                                                    <div className="flex-1 min-w-0">
-                                                        <div className="flex items-center gap-2">
-                                                            <p className={`text-sm font-semibold ${checked ? 'text-emerald-700' : 'text-slate-700'}`}>
-                                                                {item.label}
-                                                            </p>
-                                                            {item.optional && (
-                                                                <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
-                                                                    Optional
-                                                                </span>
-                                                            )}
-                                                        </div>
-                                                        <p className={`text-xs mt-0.5 ${checked ? 'text-emerald-600' : 'text-slate-400'}`}>
-                                                            {item.description}
-                                                        </p>
-                                                        {isBarcodeCheck && !checked && (
-                                                            <p className="text-[11px] text-amber-600 mt-2 font-medium">
-                                                                If the barcode is damaged but the specimen is otherwise acceptable, print the label before continuing.
-                                                            </p>
+                                    return (
+                                        <li
+                                            key={item.id}
+                                            className={`flex items-start gap-3 px-4 py-3 transition-colors ${
+                                                checked ? 'bg-status-verified-bg' : 'hover:bg-surface-hover'
+                                            }`}
+                                        >
+                                            <input
+                                                id={checkboxId}
+                                                type="checkbox"
+                                                checked={checked}
+                                                onChange={() => handleCheck(item.id)}
+                                                aria-describedby={`${checkboxId}-desc`}
+                                                className={`mt-0.5 h-4 w-4 shrink-0 cursor-pointer rounded border-edge-strong accent-primary ${FOCUS_RING}`}
+                                            />
+                                            <div className="min-w-0 flex-1">
+                                                <label htmlFor={checkboxId} className="block cursor-pointer">
+                                                    <span className="flex flex-wrap items-center gap-2">
+                                                        <span
+                                                            className={`text-sm font-medium ${
+                                                                checked ? 'text-status-verified-fg' : 'text-fg'
+                                                            }`}
+                                                        >
+                                                            {item.label}
+                                                        </span>
+                                                        {item.optional && (
+                                                            <StatusChip tone="neutral" size="sm">
+                                                                Optional
+                                                            </StatusChip>
                                                         )}
-                                                    </div>
+                                                    </span>
+                                                    <span
+                                                        id={`${checkboxId}-desc`}
+                                                        className={`mt-0.5 block text-xs ${
+                                                            checked ? 'text-status-verified-fg' : 'text-fg-muted'
+                                                        }`}
+                                                    >
+                                                        {item.description}
+                                                    </span>
                                                 </label>
                                                 {isBarcodeCheck && !checked && (
-                                                    <button
-                                                        type="button"
-                                                        onClick={handleBarcodePrint}
-                                                        className="flex items-center gap-1.5 px-3 py-2 border border-primary/20 text-primary text-xs font-bold rounded-xl hover:bg-primary/5 transition-colors flex-shrink-0"
-                                                    >
-                                                        <span className="material-icons text-sm">qr_code_2</span>
-                                                        Print Barcode
-                                                    </button>
-                                                )}
-                                                {checked && (
-                                                    <span className="material-icons text-emerald-500 text-lg flex-shrink-0">check</span>
+                                                    <p className="mt-1.5 text-xs text-status-pending-fg">
+                                                        If the barcode is damaged but the specimen is otherwise acceptable, print the label before continuing.
+                                                    </p>
                                                 )}
                                             </div>
-                                        );
-                                    })}
+                                            {isBarcodeCheck && !checked && (
+                                                <Button size="sm" icon={Printer} onClick={handleBarcodePrint}>
+                                                    Print barcode
+                                                </Button>
+                                            )}
+                                            {checked && (
+                                                <Check className="mt-0.5 h-4 w-4 shrink-0 text-status-verified" aria-hidden="true" />
+                                            )}
+                                        </li>
+                                    );
+                                })}
+                            </ul>
+
+                            {rejectDraftActive && (
+                                <section
+                                    aria-labelledby="qv-reject-heading"
+                                    className="space-y-3 border-t border-status-danger-edge bg-status-danger-bg px-4 py-4"
+                                >
+                                    <h3 id="qv-reject-heading" className="text-xs font-semibold text-status-danger-fg">
+                                        Documenting a rejection — complete the fields below, then confirm.
+                                    </h3>
+                                    <SelectField
+                                        label="Rejection reason"
+                                        required
+                                        value={rejectReason}
+                                        onChange={(event) => {
+                                            setRejectReason(event.target.value as RejectionReason);
+                                            setError(null);
+                                        }}
+                                    >
+                                        {REJECTION_REASONS.map((reason) => (
+                                            <option key={reason} value={reason}>
+                                                {humanizeStatus(reason)}
+                                            </option>
+                                        ))}
+                                    </SelectField>
+                                    <TextareaField
+                                        label={requiresCustomMessage ? 'Custom message' : 'Message'}
+                                        required={requiresCustomMessage}
+                                        hint={
+                                            requiresCustomMessage
+                                                ? 'Required when the reason is Other'
+                                                : 'Optional'
+                                        }
+                                        rows={3}
+                                        value={notes}
+                                        onChange={(event) => setNotes(event.target.value)}
+                                        placeholder={
+                                            requiresCustomMessage
+                                                ? 'Describe why this sample is being rejected…'
+                                                : 'Optional notes to record with this rejection…'
+                                        }
+                                    />
+                                </section>
+                            )}
+
+                            <div className="border-t border-edge px-4 py-3">
+                                <div className="mb-3 flex items-center gap-3">
+                                    <div
+                                        role="progressbar"
+                                        aria-label="Verification progress"
+                                        aria-valuemin={0}
+                                        aria-valuemax={checklist.length}
+                                        aria-valuenow={progress}
+                                        className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-hover"
+                                    >
+                                        <div
+                                            className={`h-full rounded-full transition-all duration-500 ${
+                                                allRequiredPassed ? 'bg-status-verified' : 'bg-primary'
+                                            }`}
+                                            style={{ width: `${progressPercent}%` }}
+                                        />
+                                    </div>
+                                    <span className="text-xs tabular-nums text-fg-muted">
+                                        {progress}/{checklist.length} checked
+                                    </span>
                                 </div>
 
-                                {rejectDraftActive && (
-                                    <div className="px-6 py-4 border-t border-slate-100 space-y-4 bg-red-50/30">
-                                        <p className="text-xs font-semibold text-red-800">
-                                            You are documenting a rejection — complete the fields below, then confirm.
-                                        </p>
-                                        <div>
-                                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
-                                                Rejection Reason
-                                            </label>
-                                            <select
-                                                value={rejectReason}
-                                                onChange={(event) => {
-                                                    setRejectReason(event.target.value as RejectionReason);
-                                                    setError(null);
-                                                }}
-                                                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-red-200 focus:border-red-300"
-                                            >
-                                                {REJECTION_REASONS.map((reason) => (
-                                                    <option key={reason} value={reason}>
-                                                        {formatStatusLabel(reason)}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                        </div>
-
-                                        <div>
-                                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
-                                                {requiresCustomMessage ? 'Custom message' : 'Message'}
-                                                {requiresCustomMessage && <span className="text-red-500 ml-1">*</span>}
-                                            </p>
-                                            <textarea
-                                                rows={3}
-                                                value={notes}
-                                                onChange={(event) => setNotes(event.target.value)}
-                                                placeholder={requiresCustomMessage
-                                                    ? 'Describe why this sample is being rejected...'
-                                                    : 'Optional notes to record with this rejection...'}
-                                                className="w-full px-4 py-3 text-sm border border-slate-200 rounded-xl bg-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-red-200 focus:border-red-300 transition-all resize-none"
-                                            />
-                                        </div>
-                                    </div>
-                                )}
-
-                                <div className="px-6 py-4 border-t border-slate-100">
-                                    <div className="flex items-center gap-3 mb-4">
-                                        <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                                            <div
-                                                className={`h-full rounded-full transition-all duration-500 ${
-                                                    allRequiredPassed ? 'bg-emerald-500' : 'bg-primary'
-                                                }`}
-                                                style={{ width: `${(progress / checklist.length) * 100}%` }}
-                                            />
-                                        </div>
-                                        <span className="text-xs font-bold text-slate-400">{progress}/{checklist.length} checked</span>
-                                    </div>
-
-                                    <div className="flex flex-wrap items-center gap-3 justify-end">
-                                        {rejectDraftActive && (
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    setRejectDraftActive(false);
-                                                    setNotes('');
-                                                    setRejectReason(DEFAULT_REASON);
-                                                    setError(null);
-                                                }}
-                                                disabled={selectedSampleIsBusy}
-                                                className="mr-auto px-4 py-2.5 text-sm font-semibold text-slate-600 hover:text-slate-900 transition-colors disabled:opacity-50"
-                                            >
-                                                Cancel rejection
-                                            </button>
-                                        )}
-                                        {!rejectDraftActive ? (
-                                            <button
-                                                type="button"
-                                                onClick={() => setRejectDraftActive(true)}
-                                                disabled={selectedSampleIsBusy}
-                                                className="flex items-center gap-1.5 px-5 py-2.5 border border-red-200 text-red-600 text-sm font-bold rounded-xl hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                            >
-                                                <span className="material-icons text-sm">cancel</span>
-                                                Reject Sample
-                                            </button>
-                                        ) : (
-                                            <button
-                                                type="button"
-                                                onClick={() => void handleReject()}
-                                                disabled={selectedSampleIsBusy}
-                                                className="flex items-center gap-1.5 px-5 py-2.5 border border-red-300 bg-red-600 text-white text-sm font-bold rounded-xl hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
-                                            >
-                                                <span className="material-icons text-sm">cancel</span>
-                                                {submittingAction === 'reject' ? 'Rejecting...' : 'Confirm rejection'}
-                                            </button>
-                                        )}
-                                        <button
-                                            type="button"
-                                            onClick={() => void handleAccept()}
-                                            disabled={!allRequiredPassed || selectedSampleIsBusy || rejectDraftActive}
-                                            className="flex items-center gap-1.5 px-5 py-2.5 bg-emerald-600 text-white text-sm font-bold rounded-xl hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-sm"
+                                <div className="flex flex-wrap items-center justify-end gap-2">
+                                    {rejectDraftActive && (
+                                        <Button
+                                            variant="ghost"
+                                            onClick={handleCancelRejection}
+                                            disabled={selectedSampleIsBusy}
+                                            className="mr-auto"
                                         >
-                                            <span className="material-icons text-sm">verified</span>
-                                            {submittingAction === 'accept' ? 'Accepting...' : 'Accept & Queue for Analysis'}
-                                        </button>
-                                    </div>
+                                            Cancel rejection
+                                        </Button>
+                                    )}
+                                    {!rejectDraftActive ? (
+                                        <Button
+                                            icon={Ban}
+                                            onClick={() => setRejectDraftActive(true)}
+                                            disabled={selectedSampleIsBusy}
+                                            className="border-status-danger-edge text-status-danger-fg hover:bg-status-danger-bg hover:text-status-danger-fg"
+                                        >
+                                            Reject sample
+                                        </Button>
+                                    ) : (
+                                        <Button
+                                            variant="danger"
+                                            icon={Ban}
+                                            onClick={() => void handleReject()}
+                                            disabled={selectedSampleIsBusy}
+                                            loading={submittingAction === 'reject'}
+                                        >
+                                            {submittingAction === 'reject' ? 'Rejecting…' : 'Confirm rejection'}
+                                        </Button>
+                                    )}
+                                    <Button
+                                        variant="primary"
+                                        icon={CheckCircle2}
+                                        onClick={() => void handleAccept()}
+                                        disabled={!allRequiredPassed || selectedSampleIsBusy || rejectDraftActive}
+                                        loading={submittingAction === 'accept'}
+                                    >
+                                        {submittingAction === 'accept' ? 'Accepting…' : 'Accept and queue for analysis'}
+                                    </Button>
                                 </div>
                             </div>
-                        </div>
+                        </SectionCard>
                     </div>
                 )}
             </div>
@@ -708,6 +804,17 @@ function buildInitials(name: string) {
     return parts.map((part) => part[0]?.toUpperCase() ?? '').join('');
 }
 
+/** "Today 09:12", "Yesterday 14:02", otherwise "16 Aug 2026 09:12". */
+function formatCollectedAt(iso?: string | null) {
+    if (!iso) return 'Not available';
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return 'Not available';
+    const label = formatRegistered(date);
+    if (label.startsWith('Today') || label.startsWith('Yesterday')) return label;
+    const time = date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
+    return `${label} ${time}`;
+}
+
 function formatRelativeCollectionTime(collectedAt: string) {
     const collectedMs = new Date(collectedAt).getTime();
     const diffMs = Date.now() - collectedMs;
@@ -729,7 +836,7 @@ function formatRelativeCollectionTime(collectedAt: string) {
 
 function formatPatientMeta(patient: Patient | null, fallbackPatientCode: string) {
     if (!patient) {
-        return `Patient Code: ${fallbackPatientCode}`;
+        return `Patient code: ${fallbackPatientCode}`;
     }
 
     const tokens = [
@@ -738,7 +845,7 @@ function formatPatientMeta(patient: Patient | null, fallbackPatientCode: string)
         patient.patientCode || fallbackPatientCode,
     ].filter(Boolean);
 
-    return tokens.join(' • ');
+    return tokens.join(' · ');
 }
 
 function calculateAge(dateOfBirth: string) {
@@ -755,7 +862,7 @@ function calculateAge(dateOfBirth: string) {
         age -= 1;
     }
 
-    return `${age} Years`;
+    return `${age} years`;
 }
 
 function getApiErrorMessage(error: unknown, fallbackMessage: string) {

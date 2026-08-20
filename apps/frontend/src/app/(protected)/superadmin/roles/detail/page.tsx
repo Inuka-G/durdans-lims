@@ -1,173 +1,301 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import {
+    ChevronDown,
+    FileText,
+    FlaskConical,
+    Lock,
+    RotateCcw,
+    Save,
+    Search,
+    Settings2,
+    ShieldCheck,
+    X,
+    type LucideIcon,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+import Button from "@/components/ui/Button";
+import PageHeader from "@/components/ui/PageHeader";
+import EmptyState from "@/components/ui/EmptyState";
+import StatusChip from "@/components/ui/StatusChip";
+
+interface PermissionItem {
+    id: string;
+    name: string;
+    description: string;
+    /** Granted by default for this role. */
+    granted: boolean;
+    /** Required for the core role function — cannot be revoked. */
+    locked?: boolean;
+}
+
+interface PermissionGroup {
+    id: string;
+    name: string;
+    icon: LucideIcon;
+    /** Declared permission count for the module (the preview lists a subset). */
+    count: number;
+    permissions: PermissionItem[];
+}
+
+const PERMISSION_GROUPS: PermissionGroup[] = [
+    {
+        id: "mlt",
+        name: "MLT processing module",
+        icon: FlaskConical,
+        count: 8,
+        permissions: [
+            {
+                id: "mlt.acknowledge",
+                name: "Specimen acknowledgment",
+                description: "Ability to confirm receipt of samples from phlebotomy or wards.",
+                granted: true,
+                locked: true,
+            },
+            {
+                id: "mlt.results.enter",
+                name: "Enter test results",
+                description: "Manual entry and batch upload of analyzer results to the system.",
+                granted: true,
+            },
+            {
+                id: "mlt.results.edit",
+                name: "Edit result history",
+                description: "Modify existing result entries before final verification is locked.",
+                granted: true,
+            },
+            {
+                id: "mlt.flags.override",
+                name: "Override abnormal flags",
+                description: "Dismiss system-generated critical value alerts during data entry.",
+                granted: false,
+            },
+        ],
+    },
+    { id: "verification", name: "Verification and authorisation", icon: ShieldCheck, count: 4, permissions: [] },
+    { id: "qc", name: "QC and instrument maintenance", icon: Settings2, count: 12, permissions: [] },
+    { id: "reporting", name: "Reporting and statistics", icon: FileText, count: 6, permissions: [] },
+];
+
+const DEFAULT_GRANTS: Record<string, boolean> = Object.fromEntries(
+    PERMISSION_GROUPS.flatMap((g) => g.permissions.map((p) => [p.id, p.granted] as const))
+);
 
 export default function DetailedRolePermissionsPage() {
-    const [isMLTModuleExpanded, setIsMLTModuleExpanded] = useState(true);
+    // The MLT module starts expanded (was `isMLTModuleExpanded`); other groups start collapsed.
+    const [expanded, setExpanded] = useState<Record<string, boolean>>({ mlt: true });
+    const [grants, setGrants] = useState<Record<string, boolean>>(DEFAULT_GRANTS);
+    const [search, setSearch] = useState("");
+
+    const toggleGroup = (id: string) => setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
+    const toggleGrant = (id: string) => setGrants((prev) => ({ ...prev, [id]: !prev[id] }));
+    const resetToDefault = () => setGrants(DEFAULT_GRANTS);
+
+    const isDirty = useMemo(() => PERMISSION_GROUPS.some((g) => g.permissions.some((p) => grants[p.id] !== p.granted)), [grants]);
+
+    // Filter permissions by name/description; a matching group name keeps all of its permissions.
+    const q = search.trim().toLowerCase();
+    const visibleGroups = useMemo(() => {
+        if (!q) return PERMISSION_GROUPS;
+        return PERMISSION_GROUPS.map((g) => {
+            if (g.name.toLowerCase().includes(q)) return g;
+            const permissions = g.permissions.filter(
+                (p) => p.name.toLowerCase().includes(q) || p.description.toLowerCase().includes(q)
+            );
+            return { ...g, permissions };
+        }).filter((g) => g.name.toLowerCase().includes(q) || g.permissions.length > 0);
+    }, [q]);
 
     return (
-        <div className="max-w-[1400px] mx-auto w-full font-sans text-slate-900 min-h-[calc(100vh-136px)] pt-2 pb-24 flex flex-col relative">
+        <div className="mx-auto w-full max-w-[1400px]">
+            <PageHeader
+                title="Medical laboratory technologist (MLT)"
+                crumbs={[
+                    { label: "System admin" },
+                    { label: "Role permissions", href: "/superadmin/roles" },
+                    { label: "Medical laboratory technologist" },
+                ]}
+                meta={
+                    <>
+                        <StatusChip tone="info" size="sm">
+                            Core role
+                        </StatusChip>
+                        <span aria-hidden="true">·</span>
+                        <span>Configure module-specific access for MLT staff</span>
+                    </>
+                }
+                actions={
+                    <label className="relative block w-full min-w-[220px] sm:w-80">
+                        <span className="sr-only">Search permissions in this role</span>
+                        <Search
+                            className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-faint"
+                            aria-hidden="true"
+                        />
+                        <input
+                            type="search"
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                            placeholder="Search permissions in this role"
+                            autoComplete="off"
+                            className="h-9 w-full rounded-md border border-edge bg-surface pl-8 pr-8 text-sm text-fg placeholder:text-fg-faint focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
+                        />
+                        {search && (
+                            <button
+                                type="button"
+                                onClick={() => setSearch("")}
+                                aria-label="Clear search"
+                                className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-fg-muted hover:bg-surface-hover hover:text-fg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                            >
+                                <X className="h-3.5 w-3.5" aria-hidden="true" />
+                            </button>
+                        )}
+                    </label>
+                }
+            />
 
-            <div className="mb-8 flex flex-col xl:flex-row xl:items-start justify-between gap-6">
-                <div>
-                    <div className="flex items-center gap-2 text-xs font-semibold text-[#94a3b8] mb-3">
-                        <span className="hover:text-[#0f172a] cursor-pointer transition-colors">System Admin</span>
-                        <span className="text-[10px] opacity-50">/</span>
-                        <span className="hover:text-[#0f172a] cursor-pointer transition-colors">Role Permissions</span>
-                        <span className="text-[10px] opacity-50">/</span>
-                        <span className="text-[#0f172a] font-bold">Medical Laboratory Technologist</span>
-                    </div>
-                    <div className="flex items-center gap-4">
-                        <h1 className="text-3xl font-extrabold text-[#0f172a] tracking-tight">Medical Laboratory Technologist (MLT)</h1>
-                        <span className="bg-[#eff6ff] text-[#1277E1] text-[10px] font-extrabold px-2.5 py-1 rounded-md uppercase tracking-widest border border-[#bfdbfe]">CORE ROLE</span>
-                    </div>
-                    <p className="text-[14px] font-medium text-[#64748b] mt-2">Configure granular module-specific access for MLT staff members.</p>
-                </div>
+            <p role="status" aria-live="polite" className="sr-only">
+                {q
+                    ? `${visibleGroups.length} of ${PERMISSION_GROUPS.length} modules match "${search.trim()}".`
+                    : isDirty
+                      ? "Permissions changed. Save changes or reset to default."
+                      : "Permissions match the role default."}
+            </p>
 
-                {/* Search Input */}
-                <div className="relative w-full xl:w-[380px]">
-                    <span className="material-icons absolute left-4 top-1/2 -translate-y-1/2 text-[#94a3b8] text-[20px]">search</span>
-                    <input
-                        type="text"
-                        placeholder="Search permissions in this role..."
-                        className="w-full bg-white border border-[#e2e8f0] text-[#0f172a] font-bold py-3.5 pl-12 pr-4 rounded-2xl focus:outline-none focus:ring-2 focus:ring-[#1277E1]/20 focus:border-[#1277E1] transition-all placeholder:text-[#94a3b8] placeholder:font-medium text-[14px] shadow-sm"
+            {visibleGroups.length === 0 ? (
+                <section className="rounded-lg border border-edge bg-surface">
+                    <EmptyState
+                        icon={Search}
+                        title="No permissions match"
+                        description="Try a different permission or module name."
+                        action={
+                            <Button size="sm" icon={X} onClick={() => setSearch("")}>
+                                Clear search
+                            </Button>
+                        }
                     />
-                </div>
-            </div>
+                </section>
+            ) : (
+                <div className="space-y-3">
+                    {visibleGroups.map((group) => {
+                        const open = Boolean(expanded[group.id]);
+                        const panelId = `permissions-${group.id}`;
+                        const headingId = `${panelId}-heading`;
+                        const Icon = group.icon;
+                        return (
+                            <section key={group.id} aria-labelledby={headingId} className="rounded-lg border border-edge bg-surface">
+                                <h2 id={headingId} className="m-0">
+                                    <button
+                                        type="button"
+                                        onClick={() => toggleGroup(group.id)}
+                                        aria-expanded={open}
+                                        aria-controls={panelId}
+                                        className={cn(
+                                            "flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left transition-colors hover:bg-surface-hover",
+                                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-surface",
+                                            open && "rounded-b-none border-b border-edge bg-surface-muted"
+                                        )}
+                                    >
+                                        <Icon className="h-5 w-5 shrink-0 text-fg-faint" aria-hidden="true" />
+                                        <span className="min-w-0 flex-1 truncate text-sm font-semibold text-fg">{group.name}</span>
+                                        <span className="rounded-full bg-surface-hover px-2 py-0.5 text-[11px] font-medium tabular-nums text-fg-secondary">
+                                            {group.count} {group.count === 1 ? "permission" : "permissions"}
+                                        </span>
+                                        <ChevronDown
+                                            className={cn("h-4 w-4 shrink-0 text-fg-faint transition-transform", open && "rotate-180")}
+                                            aria-hidden="true"
+                                        />
+                                    </button>
+                                </h2>
 
-            <div className="space-y-4">
-
-                {/* Accordion 1 - MLT Processing Module (Expanded) */}
-                <div className="bg-white border border-[#1277E1]/20 shadow-[0_4px_20px_-10px_rgba(18,119,225,0.15)] rounded-2xl overflow-hidden transition-all">
-                    {/* Accordion Header */}
-                    <div
-                        className="p-6 bg-[#f8fafc] border-b border-[#e2e8f0] flex items-center justify-between cursor-pointer group"
-                        onClick={() => setIsMLTModuleExpanded(!isMLTModuleExpanded)}
-                    >
-                        <div className="flex items-center gap-4">
-                            <span className="material-icons text-[#1277E1] text-[24px]">science</span>
-                            <h2 className="text-[18px] font-extrabold text-[#0f172a] tracking-tight group-hover:text-[#1277E1] transition-colors">MLT Processing Module</h2>
-                            <span className="bg-[#e2e8f0] text-[#475569] text-[11px] font-extrabold px-3 py-1 rounded-full">8 Permissions</span>
-                        </div>
-                        <span className="material-icons text-[#94a3b8] transition-transform duration-200" style={{ transform: isMLTModuleExpanded ? 'rotate(180deg)' : 'rotate(0deg)' }}>expand_more</span>
-                    </div>
-
-                    {/* Accordion Body */}
-                    {isMLTModuleExpanded && (
-                        <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-8">
-
-                            {/* Checkbox Item 1 */}
-                            <div className="flex items-start gap-4 p-2 -m-2 rounded-xl hover:bg-[#f8fafc] transition-colors">
-                                <div className="mt-0.5 flex items-center justify-center w-5 h-5 bg-[#1277E1] rounded-[4px] shadow-sm text-white shrink-0">
-                                    <span className="material-icons text-[16px]">check</span>
-                                </div>
-                                <div>
-                                    <div className="flex items-center gap-2">
-                                        <h3 className="text-[15px] font-bold text-[#0f172a]">Specimen Acknowledgment</h3>
-                                        <span className="material-icons text-[#cbd5e1] text-[16px]" title="Required for core role function">lock</span>
+                                {open && (
+                                    <div id={panelId}>
+                                        {group.permissions.length === 0 ? (
+                                            <EmptyState
+                                                compact
+                                                icon={Lock}
+                                                title="No permission details"
+                                                description="This module's permissions aren't configurable from this view yet."
+                                            />
+                                        ) : (
+                                            <ul className="grid grid-cols-1 gap-x-8 gap-y-1 p-3 md:grid-cols-2">
+                                                {group.permissions.map((perm) => {
+                                                    const checked = Boolean(grants[perm.id]);
+                                                    const inputId = `perm-${perm.id.replace(/\W+/g, "-")}`;
+                                                    const descId = `${inputId}-desc`;
+                                                    return (
+                                                        <li key={perm.id}>
+                                                            <label
+                                                                htmlFor={inputId}
+                                                                className={cn(
+                                                                    "flex items-start gap-3 rounded-md px-2 py-2 transition-colors",
+                                                                    perm.locked ? "cursor-not-allowed" : "cursor-pointer hover:bg-surface-hover"
+                                                                )}
+                                                            >
+                                                                <input
+                                                                    id={inputId}
+                                                                    type="checkbox"
+                                                                    checked={checked}
+                                                                    disabled={perm.locked}
+                                                                    onChange={() => toggleGrant(perm.id)}
+                                                                    aria-describedby={descId}
+                                                                    className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer rounded border-edge-strong accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60"
+                                                                />
+                                                                <span className={cn("min-w-0", !checked && !perm.locked && "text-fg-secondary")}>
+                                                                    <span className="flex items-center gap-1.5">
+                                                                        <span className={cn("text-sm font-medium", checked ? "text-fg" : "text-fg-secondary")}>
+                                                                            {perm.name}
+                                                                        </span>
+                                                                        {perm.locked && (
+                                                                            <>
+                                                                                <Lock className="h-3.5 w-3.5 shrink-0 text-fg-faint" aria-hidden="true" />
+                                                                                <span className="sr-only">(required for core role function)</span>
+                                                                            </>
+                                                                        )}
+                                                                    </span>
+                                                                    <span id={descId} className="mt-0.5 block text-xs leading-relaxed text-fg-muted">
+                                                                        {perm.description}
+                                                                        {perm.locked && " Required for the core role function."}
+                                                                    </span>
+                                                                </span>
+                                                            </label>
+                                                        </li>
+                                                    );
+                                                })}
+                                            </ul>
+                                        )}
                                     </div>
-                                    <p className="text-[13px] font-medium text-[#64748b] mt-1 leading-relaxed">
-                                        Ability to confirm receipt of samples from phlebotomy or wards.
-                                    </p>
-                                </div>
-                            </div>
+                                )}
+                            </section>
+                        );
+                    })}
+                </div>
+            )}
 
-                            {/* Checkbox Item 2 */}
-                            <div className="flex items-start gap-4 p-2 -m-2 rounded-xl hover:bg-[#f8fafc] transition-colors">
-                                <div className="mt-0.5 flex items-center justify-center w-5 h-5 bg-[#1277E1] rounded-[4px] shadow-sm text-white shrink-0">
-                                    <span className="material-icons text-[16px]">check</span>
-                                </div>
-                                <div>
-                                    <h3 className="text-[15px] font-bold text-[#0f172a]">Enter Test Results</h3>
-                                    <p className="text-[13px] font-medium text-[#64748b] mt-1 leading-relaxed">
-                                        Manual entry and batch upload of analyzer results to the system.
-                                    </p>
-                                </div>
-                            </div>
-
-                            {/* Checkbox Item 3 */}
-                            <div className="flex items-start gap-4 p-2 -m-2 rounded-xl hover:bg-[#f8fafc] transition-colors">
-                                <div className="mt-0.5 flex items-center justify-center w-5 h-5 bg-[#1277E1] rounded-[4px] shadow-sm text-white shrink-0">
-                                    <span className="material-icons text-[16px]">check</span>
-                                </div>
-                                <div>
-                                    <h3 className="text-[15px] font-bold text-[#0f172a]">Edit Result History</h3>
-                                    <p className="text-[13px] font-medium text-[#64748b] mt-1 leading-relaxed">
-                                        Modify existing result entries before final verification is locked.
-                                    </p>
-                                </div>
-                            </div>
-
-                            {/* Checkbox Item 4 */}
-                            <div className="flex items-start gap-4 p-2 -m-2 rounded-xl hover:bg-[#f8fafc] transition-colors">
-                                <div className="mt-0.5 flex items-center justify-center w-5 h-5 bg-white border-2 border-[#cbd5e1] rounded-[4px] shrink-0">
-                                    {/* Unchecked */}
-                                </div>
-                                <div className="opacity-70">
-                                    <h3 className="text-[15px] font-bold text-[#0f172a]">Override Abnormal Flags</h3>
-                                    <p className="text-[13px] font-medium text-[#64748b] mt-1 leading-relaxed">
-                                        Dismiss system-generated critical value alerts during data entry.
-                                    </p>
-                                </div>
-                            </div>
-
-                        </div>
+            {/* Sticky action bar */}
+            <div className="sticky bottom-0 z-10 mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-edge bg-canvas py-3">
+                <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-fg-muted">
+                    <span>Version 2.4.1</span>
+                    <span aria-hidden="true">·</span>
+                    <span>
+                        Last modified by <span className="font-medium text-fg-secondary">Admin_User</span> on 12 Oct, 11:20
+                    </span>
+                    {isDirty && (
+                        <>
+                            <span aria-hidden="true">·</span>
+                            <span className="font-medium text-status-pending-fg">Unsaved changes</span>
+                        </>
                     )}
                 </div>
-
-                {/* Collapsed Accordions */}
-                <div className="bg-white border border-[#e2e8f0] shadow-sm rounded-2xl overflow-hidden cursor-pointer hover:border-[#cbd5e1] transition-all">
-                    <div className="p-6 flex items-center justify-between group">
-                        <div className="flex items-center gap-4">
-                            <span className="material-icons text-[#1277E1] text-[24px]">verified_user</span>
-                            <h2 className="text-[18px] font-extrabold text-[#0f172a] tracking-tight group-hover:text-[#1277E1] transition-colors">Verification & Authorization</h2>
-                            <span className="bg-[#f1f5f9] text-[#64748b] text-[11px] font-extrabold px-3 py-1 rounded-full border border-[#e2e8f0]">4 Permissions</span>
-                        </div>
-                        <span className="material-icons text-[#94a3b8]">expand_more</span>
-                    </div>
-                </div>
-
-                <div className="bg-white border border-[#e2e8f0] shadow-sm rounded-2xl overflow-hidden cursor-pointer hover:border-[#cbd5e1] transition-all">
-                    <div className="p-6 flex items-center justify-between group">
-                        <div className="flex items-center gap-4">
-                            <span className="material-icons text-[#1277E1] text-[24px]">settings_suggest</span>
-                            <h2 className="text-[18px] font-extrabold text-[#0f172a] tracking-tight group-hover:text-[#1277E1] transition-colors">QC & Instrument Maintenance</h2>
-                            <span className="bg-[#f1f5f9] text-[#64748b] text-[11px] font-extrabold px-3 py-1 rounded-full border border-[#e2e8f0]">12 Permissions</span>
-                        </div>
-                        <span className="material-icons text-[#94a3b8]">expand_more</span>
-                    </div>
-                </div>
-
-                <div className="bg-white border border-[#e2e8f0] shadow-sm rounded-2xl overflow-hidden cursor-pointer hover:border-[#cbd5e1] transition-all">
-                    <div className="p-6 flex items-center justify-between group">
-                        <div className="flex items-center gap-4">
-                            <span className="material-icons text-[#1277E1] text-[24px]">description</span>
-                            <h2 className="text-[18px] font-extrabold text-[#0f172a] tracking-tight group-hover:text-[#1277E1] transition-colors">Reporting & Statistics</h2>
-                            <span className="bg-[#f1f5f9] text-[#64748b] text-[11px] font-extrabold px-3 py-1 rounded-full border border-[#e2e8f0]">6 Permissions</span>
-                        </div>
-                        <span className="material-icons text-[#94a3b8]">expand_more</span>
-                    </div>
-                </div>
-
-            </div>
-
-            {/* Sticky Footer */}
-            <div className="fixed bottom-0 left-0 lg:left-64 right-0 bg-white border-t border-[#e2e8f0] p-4 px-8 flex justify-between items-center z-40 shadow-[0_-10px_30px_-15px_rgba(0,0,0,0.1)]">
-                <div className="flex items-center gap-6">
-                    <span className="text-[11px] font-medium text-[#94a3b8]">© 2023 Durdans Hospital. Version 2.4.1</span>
-                    <span className="w-1 h-1 rounded-full bg-[#cbd5e1]"></span>
-                    <span className="text-[11px] font-medium text-[#94a3b8]">Last modified by: <span className="text-[#64748b] font-bold">Admin_User</span> on Oct 12, 11:20 AM</span>
-                </div>
-                <div className="flex items-center gap-3">
-                    <button className="bg-white border border-[#e2e8f0] hover:bg-[#f8fafc] text-[#0f172a] font-bold px-6 py-2.5 rounded-xl transition-colors text-[14px]">
-                        Reset to Default
-                    </button>
-                    <button className="bg-[#1277E1] hover:bg-blue-600 text-white font-bold px-8 py-2.5 rounded-xl transition-colors shadow-sm active:scale-95 text-[14px]">
-                        Save Changes
-                    </button>
+                <div className="ml-auto flex shrink-0 items-center gap-2">
+                    <Button icon={RotateCcw} onClick={resetToDefault} disabled={!isDirty}>
+                        Reset to default
+                    </Button>
+                    <Button variant="primary" icon={Save}>
+                        Save changes
+                    </Button>
                 </div>
             </div>
-
         </div>
     );
 }

@@ -1,18 +1,104 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, Suspense, type FormEvent, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { useRouter, useSearchParams } from 'next/navigation';
+import {
+    AlertCircle,
+    ArrowLeft,
+    Check,
+    CheckCircle2,
+    ChevronRight,
+    CreditCard,
+    Search,
+    SearchX,
+    X,
+    type LucideIcon,
+} from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
-import { formatCurrency, formatDateTime, PAYMENT_METHODS } from '@/constants/orders-billing';
+import { formatCurrency, PAYMENT_METHODS } from '@/constants/orders-billing';
 import { getOrders, getBillByOrderId, processPayment, getPatientById } from '@/lib/api';
+import { cn } from '@/lib/utils';
+import PageHeader from '@/components/ui/PageHeader';
+import Button from '@/components/ui/Button';
+import SectionCard from '@/components/ui/SectionCard';
+import EmptyState from '@/components/ui/EmptyState';
+import StatusChip, { humanizeStatus, toneForStatus } from '@/components/ui/StatusChip';
+import { FormSection, InputField, SelectField, TextareaField } from '@/components/ui/Field';
+import { formatPhone, formatRegistered } from '@/components/patient-dashboard/dashboard-data';
 
 type Step = 'search' | 'payment' | 'success';
 
-const PAYMENT_STATUS_COLORS: Record<string, string> = {
-    'NOT PAID': 'bg-orange-100 text-orange-700',
-    'PAID': 'bg-emerald-100 text-emerald-700',
-};
+const CRUMBS = [
+    { label: 'Dashboard', href: '/dashboard' },
+    { label: 'Bills', href: '/orders-billing/bills' },
+    { label: 'Record payment' },
+];
+
+const STEPS: { key: Step; label: string; icon: LucideIcon }[] = [
+    { key: 'search', label: 'Find order', icon: Search },
+    { key: 'payment', label: 'Payment', icon: CreditCard },
+    { key: 'success', label: 'Confirm', icon: CheckCircle2 },
+];
+
+/** "16 Aug 2026" / "Today 09:12" — tolerant of missing or unparsable values. */
+function formatBillDate(value?: string | null): string {
+    if (!value) return '—';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '—';
+    return formatRegistered(date);
+}
+
+/** Bills come back with PENDING meaning "not paid yet"; surface that in plain words. */
+function paymentStatusLabel(status?: string | null): string {
+    if (!status) return '—';
+    if (status === 'PENDING') return 'Not paid';
+    return humanizeStatus(status);
+}
+
+function StepIndicator({ current }: { current: Step }) {
+    const currentIdx = STEPS.findIndex(s => s.key === current);
+    return (
+        <ol aria-label="Payment steps" className="mb-5 flex flex-wrap items-center gap-1 text-sm">
+            {STEPS.map((step, idx) => {
+                const done = idx < currentIdx;
+                const active = idx === currentIdx;
+                const Icon = done ? Check : step.icon;
+                return (
+                    <li key={step.key} className="flex items-center gap-1">
+                        <span
+                            aria-current={active ? 'step' : undefined}
+                            className={cn(
+                                'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium ring-1 ring-inset',
+                                active
+                                    ? 'bg-primary-soft text-primary-strong ring-primary/25'
+                                    : done
+                                        ? 'bg-status-verified-bg text-status-verified-fg ring-status-verified-edge'
+                                        : 'bg-surface-muted text-fg-muted ring-edge'
+                            )}
+                        >
+                            <Icon className="h-4 w-4" aria-hidden="true" />
+                            {step.label}
+                            {done && <span className="sr-only">(completed)</span>}
+                        </span>
+                        {idx < STEPS.length - 1 && <ChevronRight className="h-4 w-4 text-fg-faint" aria-hidden="true" />}
+                    </li>
+                );
+            })}
+        </ol>
+    );
+}
+
+function DetailRow({ label, value, emphasis = false }: { label: string; value: ReactNode; emphasis?: boolean }) {
+    return (
+        <div className="flex items-start justify-between gap-3 text-sm">
+            <dt className="shrink-0 text-fg-muted">{label}</dt>
+            <dd className={cn('min-w-0 break-words text-right tabular-nums', emphasis ? 'font-semibold text-fg' : 'font-medium text-fg-secondary')}>
+                {value}
+            </dd>
+        </div>
+    );
+}
 
 function PaymentFormContent() {
     const router = useRouter();
@@ -25,6 +111,7 @@ function PaymentFormContent() {
     const [searchResults, setSearchResults] = useState<any[]>([]);
     const [selectedBill, setSelectedBill] = useState<any | null>(null);
     const [isSearching, setIsSearching] = useState(false);
+    const [hasSearched, setHasSearched] = useState(false);
     const [searchError, setSearchError] = useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [submitError, setSubmitError] = useState<string | null>(null);
@@ -45,6 +132,7 @@ function PaymentFormContent() {
     // ── Search ─────────────────────────────────────────────────────────────────
     const handleSearch = async (queryToSearch: string = searchQuery) => {
         if (!queryToSearch.trim()) return;
+        setHasSearched(true);
         try {
             setIsSearching(true);
             setSearchError(null);
@@ -158,7 +246,7 @@ function PaymentFormContent() {
     }, [searchParams]);
 
     // ── Submit ─────────────────────────────────────────────────────────────────
-    const handleSubmit = async (e: React.FormEvent) => {
+    const handleSubmit = async (e: FormEvent) => {
         e.preventDefault();
         const amount = parseFloat(formData.amount);
 
@@ -203,193 +291,175 @@ function PaymentFormContent() {
         }
     };
 
-    // ── Step indicator ─────────────────────────────────────────────────────────
-    const steps = [
-        { key: 'search', label: 'Find Order', icon: 'search' },
-        { key: 'payment', label: 'Payment', icon: 'payments' },
-        { key: 'success', label: 'Confirm', icon: 'check_circle' },
-    ];
+    const handleSearchSubmit = (e: FormEvent) => {
+        e.preventDefault();
+        handleSearch();
+    };
+
+    const handleClearSearch = () => {
+        setSearchQuery('');
+        setSearchResults([]);
+        setSearchError(null);
+        setHasSearched(false);
+    };
 
     // =========================================================================
     // STEP 1: SEARCH
     // =========================================================================
     if (currentStep === 'search') {
+        const showNoResults = hasSearched && !isSearching && searchResults.length === 0 && !searchError;
+
         return (
-            <div>
-                <div className="flex items-center justify-between mb-6">
-                    <button
-                        onClick={() => router.push('/orders-billing/bills')}
-                        className="flex items-center gap-1.5 text-sm font-semibold text-slate-500 hover:text-primary transition-colors"
-                    >
-                        <span className="material-icons text-lg">arrow_back</span>
-                        Back to Bills & Payments
-                    </button>
-                </div>
+            <div className="mx-auto max-w-5xl">
+                <PageHeader
+                    crumbs={CRUMBS}
+                    title="Record payment"
+                    meta={<span>Find the order or bill, then record the payment against it.</span>}
+                    actions={
+                        <Button variant="ghost" icon={ArrowLeft} onClick={() => router.push('/orders-billing/bills')}>
+                            Back to bills
+                        </Button>
+                    }
+                />
 
-                <div className="mb-6">
-                    <h1 className="text-2xl font-bold text-slate-800">Record Payment</h1>
-                    <p className="text-sm text-slate-500 mt-1">Search for a patient to record a payment</p>
-                </div>
+                <StepIndicator current={currentStep} />
 
-                {/* Step Indicator */}
-                <div className="flex items-center gap-0 mb-8">
-                    {steps.map((step, idx) => (
-                        <div key={step.key} className="flex items-center">
-                            <div className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${currentStep === step.key ? 'bg-primary text-white' : 'bg-slate-100 text-slate-400'}`}>
-                                <span className="material-icons text-base">{step.icon}</span>
-                                {step.label}
-                            </div>
-                            {idx < steps.length - 1 && (
-                                <span className="material-icons text-slate-300 mx-2">chevron_right</span>
+                {/* Search */}
+                <SectionCard title="Find a bill" className="mb-4">
+                    <form role="search" onSubmit={handleSearchSubmit} className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                        <InputField
+                            id="payment-search"
+                            label="Patient name, patient ID or order ID"
+                            type="text"
+                            autoComplete="off"
+                            placeholder="e.g. Nimal Perera, DH-88291, ORD-55429"
+                            value={searchQuery}
+                            onChange={e => setSearchQuery(e.target.value)}
+                            className="flex-1"
+                        />
+                        <div className="flex shrink-0 items-center gap-2">
+                            {searchQuery && (
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    icon={X}
+                                    aria-label="Clear search"
+                                    onClick={handleClearSearch}
+                                />
                             )}
+                            <Button type="submit" variant="primary" icon={Search} loading={isSearching} disabled={isSearching}>
+                                {isSearching ? 'Searching…' : 'Search'}
+                            </Button>
                         </div>
-                    ))}
-                </div>
+                    </form>
+                    <p className="mt-2 text-xs text-fg-muted">
+                        Enter a full or partial patient name, a patient ID (e.g. DH-88291) or an order ID (e.g. ORD-55429).
+                    </p>
 
-                {/* Search Card */}
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-6 mb-6">
-                    <label className="block text-sm font-semibold text-slate-700 mb-3">
-                        Search by Patient Name, Patient ID, or Order ID
-                    </label>
-                    <div className="flex gap-3">
-                        <div className="relative flex-1">
-                            <span className="material-icons absolute left-3 top-1/2 -translate-y-1/2 text-lg text-slate-400">search</span>
-                            <input
-                                type="text"
-                                placeholder="e.g., Nimal Perera, DH-88291, INV-2023-004521..."
-                                className="w-full pl-10 pr-4 py-3 text-sm border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-                                value={searchQuery}
-                                onChange={e => setSearchQuery(e.target.value)}
-                                onKeyDown={e => e.key === 'Enter' && handleSearch()}
-                            />
-                        </div>
-                        {searchQuery && (
-                            <button
-                                onClick={() => { setSearchQuery(''); setSearchResults([]); setSearchError(null); }}
-                                className="p-3 text-slate-400 hover:text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors"
-                            >
-                                <span className="material-icons text-lg">close</span>
-                            </button>
-                        )}
-                        <button
-                            onClick={() => handleSearch()}
-                            disabled={isSearching}
-                            className="px-6 py-3 bg-primary text-white rounded-xl font-semibold text-sm hover:bg-primary/90 transition-colors shadow-sm disabled:opacity-60 flex items-center gap-2"
-                        >
-                            {isSearching && <span className="material-icons text-base animate-spin">progress_activity</span>}
-                            {isSearching ? 'Searching...' : 'Search'}
-                        </button>
-                    </div>
-
-                    {/* Search Error */}
                     {searchError && (
-                        <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-600 font-medium flex items-center gap-2">
-                            <span className="material-icons text-base">error_outline</span>
-                            {searchError}
+                        <div role="alert" className="mt-3 flex items-start gap-3 rounded-lg border border-status-danger-edge bg-status-danger-bg p-3 text-sm text-status-danger-fg">
+                            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                            <div className="min-w-0">
+                                <p className="font-medium">Couldn&apos;t search bills</p>
+                                <p className="mt-0.5 break-words">{searchError}</p>
+                            </div>
                         </div>
                     )}
+                </SectionCard>
 
-                    {/* Search Tips */}
-                    <div className="mt-4 bg-blue-50 border border-blue-100 rounded-xl p-4 flex items-start gap-3">
-                        <span className="material-icons text-blue-600 text-lg mt-0.5 flex-shrink-0">info</span>
-                        <div className="text-sm text-blue-800">
-                            <p className="font-semibold mb-1">Search Tips:</p>
-                            <ul className="list-disc list-inside space-y-0.5 text-blue-700">
-                                <li>Enter full or partial patient name</li>
-                                <li>Use patient ID (e.g., DH-88291)</li>
-                                <li>Use order ID (e.g., ORD-55429)</li>
-                            </ul>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Search Results */}
-                {searchResults.length > 0 && (
-                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 overflow-hidden">
-                        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-                            <h2 className="font-bold text-slate-800">
-                                {searchResults.length} bill{searchResults.length !== 1 ? 's' : ''} found
-                            </h2>
-                        </div>
-                        <div className="divide-y divide-slate-50">
-                            {searchResults.map((bill: any) => (
-                                <div key={bill.id} className="p-6 hover:bg-slate-50/50 transition-colors">
-                                    <div className="flex items-start justify-between gap-4">
-                                        <div className="flex-1">
-                                            {/* Patient */}
-                                            <div className="flex items-start gap-3 mb-4">
-                                                <div className="w-11 h-11 rounded-xl bg-blue-100 flex items-center justify-center flex-shrink-0">
-                                                    <span className="material-icons text-blue-600">person</span>
-                                                </div>
-                                                <div>
-                                                    <h3 className="font-bold text-slate-800">{bill.patientName}</h3>
-                                                    <p className="text-sm text-slate-500">
-                                                        {bill.patientId} • {bill.patientPhone}
-                                                    </p>
-                                                </div>
-                                            </div>
-
-                                            {/* Bill Details Grid */}
-                                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
-                                                {[
-                                                    { label: 'Bill ID', value: bill.billId, hideIfPending: true },
-                                                    { label: 'Order ID', value: bill.orderId },
-                                                    { label: 'Bill Date', value: bill.billDate ? new Date(bill.billDate).toLocaleString('en-LK', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—', hideIfPending: true },
-                                                ]
-                                                    .filter(item => !(item.hideIfPending && bill.paymentStatus === 'PENDING'))
-                                                    .map(({ label, value }) => (
-                                                        <div key={label}>
-                                                            <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">{label}</p>
-                                                            <p className="font-semibold text-slate-700 text-sm">{value}</p>
-                                                        </div>
-                                                    ))}
-                                                <div>
-                                                    <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Status</p>
-                                                    <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-bold ${PAYMENT_STATUS_COLORS[bill.paymentStatus] ?? ''}`}>
-                                                        {bill.paymentStatus === 'PENDING' ? 'NOT PAID' : bill.paymentStatus}
-                                                    </span>
-                                                </div>
-                                            </div>
-
-                                            {/* Financial Summary */}
-                                            <div className="flex items-center gap-6 bg-slate-50 rounded-xl p-3">
-                                                <div>
-                                                    <p className="text-xs text-slate-400">Total Bill</p>
-                                                    <p className="font-bold text-slate-700">{formatCurrency(bill.totalAmount)}</p>
-                                                </div>
-                                                {bill.paidAmount > 0 && (
-                                                    <div>
-                                                        <p className="text-xs text-slate-400">Paid</p>
-                                                        <p className="font-bold text-emerald-600">{formatCurrency(bill.paidAmount)}</p>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-
-                                        {/* Process Button */}
-                                        <button
-                                            onClick={() => handleSelectBill(bill)}
-                                            disabled={bill.outstandingAmount === 0}
-                                            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl transition-colors flex-shrink-0 ${bill.outstandingAmount === 0 ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm'}`}
-                                        >
-                                            <span className="material-icons text-lg">
-                                                {bill.outstandingAmount === 0 ? 'check_circle' : 'payment'}
-                                            </span>
-                                            {bill.outstandingAmount === 0 ? 'Fully Paid' : 'Process Payment'}
-                                        </button>
-                                    </div>
+                {/* Searching skeleton */}
+                {isSearching && (
+                    <>
+                        <p role="status" aria-live="polite" className="sr-only">Searching bills</p>
+                        <div aria-hidden="true" className="divide-y divide-edge rounded-lg border border-edge bg-surface">
+                            {Array.from({ length: 2 }).map((_, i) => (
+                                <div key={i} className="animate-pulse space-y-2 p-4">
+                                    <div className="h-4 w-1/3 rounded bg-skeleton" />
+                                    <div className="h-3 w-1/4 rounded bg-skeleton" />
+                                    <div className="h-3 w-2/3 rounded bg-skeleton" />
                                 </div>
                             ))}
                         </div>
-                    </div>
+                    </>
                 )}
 
-                {/* No Results */}
-                {!isSearching && searchQuery && searchResults.length === 0 && !searchError && (
-                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-12 text-center">
-                        <span className="material-icons text-5xl text-slate-300 mb-3">search_off</span>
-                        <h3 className="text-lg font-bold text-slate-700 mb-1">No orders found</h3>
-                        <p className="text-sm text-slate-400">Try searching with a different patient name, patient id, or order id.</p>
+                {/* Results */}
+                {!isSearching && searchResults.length > 0 && (
+                    <SectionCard title="Bills found" count={searchResults.length} flush>
+                        <ul className="divide-y divide-edge">
+                            {searchResults.map((bill: any) => {
+                                const fullyPaid = bill.outstandingAmount === 0;
+                                const details = [
+                                    { label: 'Bill ID', value: bill.billId, hideIfPending: true },
+                                    { label: 'Order ID', value: bill.orderId },
+                                    { label: 'Bill date', value: formatBillDate(bill.billDate), hideIfPending: true },
+                                ].filter(item => !(item.hideIfPending && bill.paymentStatus === 'PENDING'));
+
+                                return (
+                                    <li key={bill.id} className="flex flex-col gap-3 p-4 transition-colors hover:bg-surface-hover sm:flex-row sm:items-start sm:justify-between">
+                                        <div className="min-w-0 flex-1">
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <p className="truncate text-sm font-semibold text-fg">{bill.patientName}</p>
+                                                <StatusChip tone={toneForStatus(bill.paymentStatus)} size="sm" dot>
+                                                    {paymentStatusLabel(bill.paymentStatus)}
+                                                </StatusChip>
+                                            </div>
+                                            <p className="mt-0.5 text-xs text-fg-muted">
+                                                {bill.patientId} · {formatPhone(bill.patientPhone)}
+                                            </p>
+
+                                            <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs sm:grid-cols-4">
+                                                {details.map(({ label, value }) => (
+                                                    <div key={label} className="min-w-0">
+                                                        <dt className="text-fg-muted">{label}</dt>
+                                                        <dd className="truncate font-medium text-fg-secondary">{value ?? '—'}</dd>
+                                                    </div>
+                                                ))}
+                                                <div>
+                                                    <dt className="text-fg-muted">Total</dt>
+                                                    <dd className="font-medium tabular-nums text-fg-secondary">{formatCurrency(bill.totalAmount)}</dd>
+                                                </div>
+                                                {bill.paidAmount > 0 && (
+                                                    <div>
+                                                        <dt className="text-fg-muted">Paid</dt>
+                                                        <dd className="font-medium tabular-nums text-status-verified-fg">{formatCurrency(bill.paidAmount)}</dd>
+                                                    </div>
+                                                )}
+                                                <div>
+                                                    <dt className="text-fg-muted">Outstanding</dt>
+                                                    <dd className="font-semibold tabular-nums text-fg">{formatCurrency(bill.outstandingAmount)}</dd>
+                                                </div>
+                                            </dl>
+                                        </div>
+
+                                        <div className="shrink-0">
+                                            <Button
+                                                type="button"
+                                                variant="secondary"
+                                                size="sm"
+                                                icon={fullyPaid ? CheckCircle2 : CreditCard}
+                                                disabled={fullyPaid}
+                                                onClick={() => handleSelectBill(bill)}
+                                                aria-label={fullyPaid ? `Bill for ${bill.patientName} is fully paid` : `Record payment for ${bill.patientName}`}
+                                            >
+                                                {fullyPaid ? 'Fully paid' : 'Record payment'}
+                                            </Button>
+                                        </div>
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                    </SectionCard>
+                )}
+
+                {/* No results */}
+                {showNoResults && (
+                    <div role="status" className="rounded-lg border border-edge bg-surface">
+                        <EmptyState
+                            icon={SearchX}
+                            title="No bills found"
+                            description="Try a different patient name, patient ID or order ID."
+                        />
                     </div>
                 )}
             </div>
@@ -408,308 +478,240 @@ function PaymentFormContent() {
             age: patientDetails?.age ?? selectedBill.patientAge ?? selectedBill.patient?.age ?? '—',
             gender: patientDetails?.gender ?? selectedBill.patientGender ?? selectedBill.patient?.gender ?? '—',
         };
+        const ageGender = `${patient.age === '—' ? '—' : `${patient.age} y`} · ${patient.gender}`;
+        const tests: any[] = selectedBill.tests ?? [];
+        const amountNumber = parseFloat(formData.amount);
+        const hasAmount = Boolean(formData.amount) && !isNaN(amountNumber);
+        const methodLabel = PAYMENT_METHODS.find((m: any) => m.value === formData.method)?.label ?? formData.method;
 
         return (
-            <div>
-                <div className="flex items-center justify-between mb-6">
-                    <button
-                        onClick={() => { setCurrentStep('search'); }}
-                        className="flex items-center gap-1.5 text-sm font-semibold text-slate-500 hover:text-primary transition-colors"
-                    >
-                        <span className="material-icons text-lg">arrow_back</span>
-                        Back
-                    </button>
-                </div>
+            <div className="mx-auto max-w-5xl">
+                <PageHeader
+                    crumbs={CRUMBS}
+                    title="Record payment"
+                    meta={
+                        <>
+                            <span>Recording payment for</span>
+                            <span className="font-medium text-fg-secondary">{patient.name}</span>
+                        </>
+                    }
+                    actions={
+                        <Button variant="ghost" icon={ArrowLeft} onClick={() => { setCurrentStep('search'); }}>
+                            Back to search
+                        </Button>
+                    }
+                />
 
-                <div className="mb-6">
-                    <h1 className="text-2xl font-bold text-slate-800">Record Payment</h1>
-                    <p className="text-sm text-slate-500 mt-1">Recording payment for <strong>{patient.name}</strong></p>
-                </div>
+                <StepIndicator current={currentStep} />
 
-                {/* Step Indicator */}
-                <div className="flex items-center gap-0 mb-8">
-                    {steps.map((step, idx) => (
-                        <div key={step.key} className="flex items-center">
-                            <div className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${currentStep === step.key ? 'bg-primary text-white' : step.key === 'search' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>
-                                <span className="material-icons text-base">{step.key === 'search' ? 'check' : step.icon}</span>
-                                {step.label}
-                            </div>
-                            {idx < steps.length - 1 && (
-                                <span className="material-icons text-slate-300 mx-2">chevron_right</span>
-                            )}
-                        </div>
-                    ))}
-                </div>
+                <form onSubmit={handleSubmit}>
+                    <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+                        {/* Left: patient and bill */}
+                        <div className="space-y-4">
+                            <SectionCard title="Patient">
+                                <dl className="space-y-2">
+                                    <DetailRow label="Name" value={patient.name} emphasis />
+                                    <DetailRow label="Patient ID" value={patient.id} />
+                                    <DetailRow label="Age / gender" value={ageGender} />
+                                    <DetailRow label="Phone" value={formatPhone(patient.phone === '—' ? undefined : patient.phone)} />
+                                </dl>
+                            </SectionCard>
 
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    {/* Left: Patient & Bill Info */}
-                    <div className="space-y-4">
-                        {/* Patient */}
-                        <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
-                            <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
-                                <span className="material-icons text-primary text-lg">person</span>
-                                Patient Information
-                            </h3>
-                            <div className="space-y-3 text-sm">
-                                {[
-                                    { label: 'Name', value: patient.name },
-                                    { label: 'Patient ID', value: patient.id },
-                                    { label: 'Age / Gender', value: `${patient.age}Y / ${patient.gender}` },
-                                    { label: 'Phone', value: patient.phone },
-                                ].map(({ label, value }) => (
-                                    <div key={label}>
-                                        <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">{label}</p>
-                                        <p className="font-semibold text-slate-700">{value}</p>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* Bill Summary */}
-                        <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
-                            <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
-                                <span className="material-icons text-primary text-lg">receipt_long</span>
-                                Bill Summary
-                            </h3>
-                            <div className="space-y-2 text-sm">
-                                <div className="flex justify-between">
-                                    <span className="text-slate-500">Bill ID:</span>
-                                    <span className="font-semibold text-slate-700">{selectedBill.billId}</span>
-                                </div>
-                                <div className="flex justify-between">
-                                    <span className="text-slate-500">Order ID:</span>
-                                    <span className="font-semibold text-slate-700">{selectedBill.orderId}</span>
-                                </div>
-                                <div className="flex justify-between">
-                                    <span className="text-slate-500">Order Date:</span>
-                                    <span className="font-semibold text-slate-700">{selectedBill.orderDate ? formatDateTime(selectedBill.orderDate) : '—'}</span>
-                                </div>
-                                <div className="border-t border-slate-100 pt-2 mt-2 space-y-2">
-                                    <div className="flex justify-between">
-                                        <span className="text-slate-500">Subtotal:</span>
-                                        <span>{formatCurrency(selectedBill.subtotal)}</span>
-                                    </div>
+                            <SectionCard title="Bill summary">
+                                <dl className="space-y-2">
+                                    <DetailRow label="Bill ID" value={selectedBill.billId ?? '—'} />
+                                    <DetailRow label="Order ID" value={selectedBill.orderId ?? '—'} />
+                                    <DetailRow label="Order date" value={formatBillDate(selectedBill.orderDate)} />
+                                </dl>
+                                <dl className="mt-3 space-y-2 border-t border-edge pt-3">
+                                    <DetailRow label="Subtotal" value={formatCurrency(selectedBill.subtotal)} />
                                     {selectedBill.serviceCharge > 0 && (
-                                        <div className="flex justify-between">
-                                            <span className="text-slate-500">Service Charge:</span>
-                                            <span>{formatCurrency(selectedBill.serviceCharge)}</span>
-                                        </div>
+                                        <DetailRow label="Service charge" value={formatCurrency(selectedBill.serviceCharge)} />
                                     )}
-                                    <div className="flex justify-between font-bold text-base border-t border-slate-100 pt-2">
-                                        <span className="text-slate-700">Total:</span>
-                                        <span className="text-slate-800">{formatCurrency(selectedBill.totalAmount)}</span>
+                                    <div className="border-t border-edge pt-2">
+                                        <DetailRow label="Total" value={formatCurrency(selectedBill.totalAmount)} emphasis />
                                     </div>
                                     {selectedBill.paidAmount > 0 && (
-                                        <div className="flex justify-between text-emerald-600">
-                                            <span>Paid:</span>
-                                            <span className="font-bold">{formatCurrency(selectedBill.paidAmount)}</span>
-                                        </div>
+                                        <DetailRow
+                                            label="Paid"
+                                            value={<span className="text-status-verified-fg">{formatCurrency(selectedBill.paidAmount)}</span>}
+                                        />
                                     )}
-                                </div>
-                            </div>
-                        </div>
+                                    <DetailRow label="Outstanding" value={formatCurrency(selectedBill.outstandingAmount)} emphasis />
+                                </dl>
+                            </SectionCard>
 
-                        {/* Tests */}
-                        <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
-                            <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
-                                <span className="material-icons text-primary text-lg">science</span>
-                                Tests Ordered
-                            </h3>
-                            <div className="space-y-2">
-                                {(selectedBill.tests ?? []).map((test: any, idx: number) => (
-                                    <div key={idx} className="flex justify-between items-start text-sm pb-2 border-b border-slate-50 last:border-0">
-                                        <div>
-                                            <p className="font-medium text-slate-700">{test.testName ?? test.name}</p>
-                                            <p className="text-xs text-slate-400">{test.testCode ?? test.code}</p>
-                                        </div>
-                                        <span className="font-semibold text-slate-700">{formatCurrency(test.price ?? 0)}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Right: Payment Form */}
-                    <div className="lg:col-span-2">
-                        <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-6">
-                            <h3 className="font-bold text-slate-800 text-lg mb-6 flex items-center gap-2">
-                                <span className="material-icons text-primary">payments</span>
-                                Payment Details
-                            </h3>
-
-                            <form onSubmit={handleSubmit} className="space-y-5">
-                                {/* Amount */}
-                                <div>
-                                    <label className="block text-sm font-semibold text-slate-700 mb-2">
-                                        Payment Amount <span className="text-red-500">*</span>
-                                    </label>
-                                    <input
-                                        type="text"
-                                        readOnly
-                                        value={`LKR ${parseFloat(formData.amount || '0').toFixed(2)}`}
-                                        className="w-full px-4 py-3 text-2xl font-bold border border-slate-200 rounded-xl bg-slate-50 focus:outline-none cursor-not-allowed text-slate-700"
-                                    />
-                                </div>
-
-                                {/* Payment Method */}
-                                <div>
-                                    <label className="block text-sm font-semibold text-slate-700 mb-2">
-                                        Payment Method <span className="text-red-500">*</span>
-                                    </label>
-                                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                                        {PAYMENT_METHODS.map((method: any) => (
-                                            <button
-                                                key={method.value}
-                                                type="button"
-                                                onClick={() => setFormData(prev => ({ ...prev, method: method.value }))}
-                                                className={`px-4 py-3 rounded-xl text-sm font-semibold border transition-colors ${formData.method === method.value ? 'bg-primary text-white border-primary shadow-sm' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
-                                            >
-                                                {method.label}
-                                            </button>
+                            <SectionCard title="Tests ordered" count={tests.length} flush>
+                                {tests.length === 0 ? (
+                                    <p className="px-4 py-3 text-sm text-fg-muted">No tests on this bill.</p>
+                                ) : (
+                                    <ul className="divide-y divide-edge">
+                                        {tests.map((test: any, idx: number) => (
+                                            <li key={idx} className="flex items-start justify-between gap-3 px-4 py-2 text-sm">
+                                                <div className="min-w-0">
+                                                    <p className="truncate font-medium text-fg">{test.testName ?? test.name}</p>
+                                                    <p className="text-xs text-fg-muted">{test.testCode ?? test.code}</p>
+                                                </div>
+                                                <span className="shrink-0 font-medium tabular-nums text-fg-secondary">{formatCurrency(test.price ?? 0)}</span>
+                                            </li>
                                         ))}
+                                    </ul>
+                                )}
+                            </SectionCard>
+                        </div>
+
+                        {/* Right: payment form */}
+                        <div className="space-y-4 lg:col-span-2">
+                            {submitError && (
+                                <div role="alert" className="flex items-start gap-3 rounded-lg border border-status-danger-edge bg-status-danger-bg p-3 text-sm text-status-danger-fg">
+                                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                                    <div className="min-w-0">
+                                        <p className="font-medium">Couldn&apos;t record payment</p>
+                                        <p className="mt-0.5 break-words">{submitError}</p>
                                     </div>
                                 </div>
+                            )}
 
-                                {/* Bank Transfer fields */}
+                            <FormSection title="Payment details" description="The full outstanding balance is collected. Fields marked * are required.">
+                                <InputField
+                                    id="payment-amount"
+                                    label="Amount"
+                                    type="text"
+                                    readOnly
+                                    value={formatCurrency(parseFloat(formData.amount || '0'))}
+                                    hint="Outstanding balance on this bill"
+                                />
+                                <SelectField
+                                    id="payment-method"
+                                    label="Payment method"
+                                    required
+                                    value={formData.method}
+                                    onChange={e => setFormData(prev => ({ ...prev, method: e.target.value }))}
+                                >
+                                    {PAYMENT_METHODS.map((method: any) => (
+                                        <option key={method.value} value={method.value}>
+                                            {method.label}
+                                        </option>
+                                    ))}
+                                </SelectField>
+
+                                {/* Bank transfer fields */}
                                 {formData.method === 'BANK_TRANSFER' && (
                                     <>
-                                        <div>
-                                            <label className="block text-sm font-semibold text-slate-700 mb-2">
-                                                Bank Reference No <span className="text-red-500">*</span>
+                                        <InputField
+                                            id="bank-reference-no"
+                                            label="Bank reference number"
+                                            required
+                                            type="text"
+                                            autoComplete="off"
+                                            value={formData.bankReferenceNo}
+                                            onChange={e => setFormData(prev => ({ ...prev, bankReferenceNo: e.target.value }))}
+                                            placeholder="e.g. TRF-2024-001234"
+                                        />
+                                        <InputField
+                                            id="bank-name"
+                                            label="Bank name"
+                                            required
+                                            type="text"
+                                            autoComplete="off"
+                                            value={formData.bankName}
+                                            onChange={e => setFormData(prev => ({ ...prev, bankName: e.target.value }))}
+                                            placeholder="e.g. Bank of Ceylon"
+                                        />
+                                        <div className="min-w-0 sm:col-span-2">
+                                            <label htmlFor="bank-receipt" className="mb-1 block text-xs font-medium text-fg-secondary">
+                                                Bank receipt
+                                                <span className="ml-0.5 text-status-danger-fg" aria-hidden="true">*</span>
                                             </label>
                                             <input
-                                                type="text"
-                                                value={formData.bankReferenceNo}
-                                                onChange={e => setFormData(prev => ({ ...prev, bankReferenceNo: e.target.value }))}
-                                                className="w-full px-4 py-3 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-                                                placeholder="e.g., TRF-2024-001234"
-                                                required
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm font-semibold text-slate-700 mb-2">Bank Name <span className="text-red-500">*</span></label>
-                                            <input
-                                                type="text"
-                                                value={formData.bankName}
-                                                onChange={e => setFormData(prev => ({ ...prev, bankName: e.target.value }))}
-                                                className="w-full px-4 py-3 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-                                                placeholder="e.g., Bank of Ceylon"
-                                                required
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm font-semibold text-slate-700 mb-2">Bank Receipt <span className="text-red-500">*</span></label>
-                                            <input
+                                                id="bank-receipt"
                                                 type="file"
-                                                accept="image/*,.pdf"
-                                                onChange={e => setFormData(prev => ({ ...prev, bankReceipt: e.target.files?.[0] || null }))}
-                                                className="w-full px-4 py-3 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20"
                                                 required
+                                                accept="image/*,.pdf"
+                                                aria-describedby="bank-receipt-hint"
+                                                onChange={e => setFormData(prev => ({ ...prev, bankReceipt: e.target.files?.[0] || null }))}
+                                                className="block w-full cursor-pointer rounded-md border border-edge bg-surface text-sm text-fg-secondary file:mr-3 file:rounded-l-md file:border-0 file:bg-surface-muted file:px-3 file:py-2 file:text-xs file:font-medium file:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                                             />
-                                            {formData.bankReceipt && (
-                                                <p className="mt-2 text-xs text-emerald-600 font-semibold flex items-center gap-1">
-                                                    <span className="material-icons text-sm">check_circle</span>
-                                                    {formData.bankReceipt.name}
-                                                </p>
-                                            )}
+                                            <p id="bank-receipt-hint" className="mt-1 text-xs text-fg-muted">
+                                                {formData.bankReceipt ? (
+                                                    <span className="inline-flex items-center gap-1 text-status-verified-fg">
+                                                        <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+                                                        {formData.bankReceipt.name}
+                                                    </span>
+                                                ) : (
+                                                    'Image or PDF of the transfer receipt'
+                                                )}
+                                            </p>
                                         </div>
                                     </>
                                 )}
 
                                 {/* Insurance fields */}
                                 {formData.method === 'INSURANCE' && (
-                                    <div>
-                                        <label className="block text-sm font-semibold text-slate-700 mb-2">Insurance Claim No <span className="text-red-500">*</span></label>
-                                        <input
-                                            type="text"
-                                            value={formData.insuranceClaimNo}
-                                            onChange={e => setFormData(prev => ({ ...prev, insuranceClaimNo: e.target.value }))}
-                                            className="w-full px-4 py-3 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-                                            placeholder="e.g., CLM-2024-001234"
-                                            required
-                                        />
-                                    </div>
-                                )}
-
-                                {/* Received By */}
-                                <div>
-                                    <label className="block text-sm font-semibold text-slate-700 mb-2">Received By</label>
-                                    <input
+                                    <InputField
+                                        id="insurance-claim-no"
+                                        label="Insurance claim number"
+                                        required
                                         type="text"
-                                        value={formData.receivedBy}
-                                        readOnly
-                                        className="w-full px-4 py-3 text-sm border border-slate-200 rounded-xl bg-slate-50 text-slate-500 focus:outline-none cursor-not-allowed"
+                                        autoComplete="off"
+                                        value={formData.insuranceClaimNo}
+                                        onChange={e => setFormData(prev => ({ ...prev, insuranceClaimNo: e.target.value }))}
+                                        placeholder="e.g. CLM-2024-001234"
                                     />
-                                </div>
+                                )}
 
-                                {/* Notes */}
-                                <div>
-                                    <label className="block text-sm font-semibold text-slate-700 mb-2">Notes (optional)</label>
-                                    <textarea
-                                        value={formData.notes}
-                                        onChange={e => setFormData(prev => ({ ...prev, notes: e.target.value }))}
-                                        rows={3}
-                                        className="w-full px-4 py-3 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all resize-none"
-                                        placeholder="Any additional notes..."
-                                    />
-                                </div>
+                                <InputField
+                                    id="received-by"
+                                    label="Received by"
+                                    type="text"
+                                    readOnly
+                                    value={formData.receivedBy}
+                                    hint="Signed-in staff member"
+                                />
+                                <TextareaField
+                                    id="payment-notes"
+                                    label="Notes (optional)"
+                                    rows={3}
+                                    value={formData.notes}
+                                    onChange={e => setFormData(prev => ({ ...prev, notes: e.target.value }))}
+                                    placeholder="Any additional notes"
+                                    className="sm:col-span-2"
+                                />
+                            </FormSection>
 
-                                {/* Summary before submit */}
-                                {formData.amount && !isNaN(parseFloat(formData.amount)) && (
-                                    <div className="bg-slate-50 rounded-2xl p-5 border border-slate-200">
-                                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Payment Summary</p>
-                                        <div className="space-y-2 text-sm">
-                                            <div className="flex justify-between">
-                                                <span className="text-slate-500">Amount to pay:</span>
-                                                <span className="font-bold text-primary text-lg">{formatCurrency(parseFloat(formData.amount) || 0)}</span>
-                                            </div>
-                                            <div className="flex justify-between">
-                                                <span className="text-slate-500">Method:</span>
-                                                <span className="font-semibold text-slate-700">{PAYMENT_METHODS.find((m: any) => m.value === formData.method)?.label}</span>
-                                            </div>
+                            {hasAmount && (
+                                <SectionCard title="Payment summary">
+                                    <dl className="space-y-2">
+                                        <div className="flex items-baseline justify-between gap-3">
+                                            <dt className="text-sm text-fg-muted">Amount to pay</dt>
+                                            <dd className="text-lg font-semibold tabular-nums text-fg">{formatCurrency(amountNumber || 0)}</dd>
                                         </div>
-                                    </div>
-                                )}
-
-                                {/* Submit error */}
-                                {submitError && (
-                                    <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-600 font-medium flex items-center gap-2">
-                                        <span className="material-icons text-base">error_outline</span>
-                                        {submitError}
-                                    </div>
-                                )}
-
-                                {/* Actions */}
-                                <div className="flex gap-3 pt-2">
-                                    <button
-                                        type="submit"
-                                        disabled={isSubmitting}
-                                        className="flex-1 py-3.5 bg-emerald-600 text-white rounded-xl font-bold text-sm hover:bg-emerald-700 transition-colors shadow-sm disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                                    >
-                                        {isSubmitting ? (
-                                            <>
-                                                <span className="material-icons text-lg animate-spin">progress_activity</span>
-                                                Processing...
-                                            </>
-                                        ) : (
-                                            <>
-                                                <span className="material-icons text-lg">check_circle</span>
-                                                Confirm Payment
-                                            </>
-                                        )}
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => router.push('/orders-billing/orders')}
-                                        className="px-6 py-3.5 bg-white text-slate-600 border border-slate-200 rounded-xl font-semibold text-sm hover:bg-slate-50 transition-colors"
-                                    >
-                                        Cancel
-                                    </button>
-                                </div>
-                            </form>
+                                        <DetailRow label="Method" value={methodLabel} />
+                                        <DetailRow label="Patient" value={patient.name} />
+                                    </dl>
+                                </SectionCard>
+                            )}
                         </div>
                     </div>
-                </div>
+
+                    {/* Sticky actions */}
+                    <div className="sticky bottom-0 z-10 mt-6 flex items-center justify-between gap-3 border-t border-edge bg-canvas py-3">
+                        <p className="min-w-0 truncate text-xs text-fg-muted">
+                            {formatCurrency(amountNumber || 0)} · {methodLabel}
+                        </p>
+                        <span role="status" aria-live="polite" className="sr-only">
+                            {isSubmitting ? 'Recording payment…' : ''}
+                        </span>
+                        <div className="ml-auto flex shrink-0 items-center gap-2">
+                            <Button type="button" variant="secondary" onClick={() => router.push('/orders-billing/orders')}>
+                                Cancel
+                            </Button>
+                            <Button type="submit" variant="primary" icon={CheckCircle2} loading={isSubmitting}>
+                                {isSubmitting ? 'Processing…' : 'Confirm payment'}
+                            </Button>
+                        </div>
+                    </div>
+                </form>
             </div>
         );
     }
@@ -717,12 +719,19 @@ function PaymentFormContent() {
 
 export default function NewPaymentPage() {
     return (
-        <Suspense fallback={
-            <div className="flex items-center justify-center p-12 text-slate-400">
-                <span className="material-icons animate-spin mr-2">progress_activity</span>
-                Loading...
-            </div>
-        }>
+        <Suspense
+            fallback={
+                <div className="mx-auto max-w-5xl">
+                    <PageHeader crumbs={CRUMBS} title="Record payment" />
+                    <p role="status" aria-live="polite" className="sr-only">Loading payment form</p>
+                    <div aria-hidden="true" className="animate-pulse space-y-3 rounded-lg border border-edge bg-surface p-4">
+                        <div className="h-3 w-1/3 rounded bg-skeleton" />
+                        <div className="h-9 w-full rounded bg-skeleton" />
+                        <div className="h-3 w-1/2 rounded bg-skeleton" />
+                    </div>
+                </div>
+            }
+        >
             <PaymentFormContent />
         </Suspense>
     );

@@ -3,21 +3,47 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { toast } from "sonner";
 import {
+    AlertTriangle,
+    CheckCircle2,
+    Globe,
+    Mail,
+    MessageCircle,
+    Printer,
+    RefreshCw,
+    RotateCw,
+    SearchX,
+    Smartphone,
+    Truck,
+    X,
+    XCircle,
+    type LucideIcon,
+} from "lucide-react";
+import {
     listFailedDeliveries,
     retryDispatchAttempt,
     type FailedDeliveryRow,
     type ApiDeliveryMethod,
 } from "@/lib/api";
+import { cn } from "@/lib/utils";
+import Button from "@/components/ui/Button";
+import PageHeader from "@/components/ui/PageHeader";
+import { InputField } from "@/components/ui/Field";
+import SectionCard from "@/components/ui/SectionCard";
+import EmptyState from "@/components/ui/EmptyState";
+import KpiTile from "@/components/ui/KpiTile";
+import StatusChip from "@/components/ui/StatusChip";
+import Pagination from "@/components/ui/Pagination";
 
 const ITEMS_PER_PAGE = 10;
+const SKELETON_ROWS = 6;
 
-const methodIcons: Record<ApiDeliveryMethod, { icon: string; color: string; bg: string; label: string }> = {
-    EMAIL: { icon: "mail", color: "text-blue-700", bg: "bg-blue-50", label: "Email" },
-    SMS: { icon: "smartphone", color: "text-amber-700", bg: "bg-amber-50", label: "SMS" },
-    WHATSAPP: { icon: "chat", color: "text-green-700", bg: "bg-green-50", label: "WhatsApp" },
-    POST: { icon: "local_shipping", color: "text-indigo-700", bg: "bg-indigo-50", label: "Post" },
-    PRINT: { icon: "print", color: "text-emerald-700", bg: "bg-emerald-50", label: "Print" },
-    PORTAL: { icon: "language", color: "text-purple-700", bg: "bg-purple-50", label: "Portal" },
+const METHOD_META: Record<ApiDeliveryMethod, { icon: LucideIcon; label: string }> = {
+    EMAIL: { icon: Mail, label: "Email" },
+    SMS: { icon: Smartphone, label: "SMS" },
+    WHATSAPP: { icon: MessageCircle, label: "WhatsApp" },
+    POST: { icon: Truck, label: "Post" },
+    PRINT: { icon: Printer, label: "Print" },
+    PORTAL: { icon: Globe, label: "Portal" },
 };
 
 export default function FailedDeliveriesPage() {
@@ -25,6 +51,8 @@ export default function FailedDeliveriesPage() {
     const [methodFilter, setMethodFilter] = useState("All");
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [retriedIds, setRetriedIds] = useState<string[]>([]);
+    const [retryingIds, setRetryingIds] = useState<string[]>([]);
+    const [bulkRetrying, setBulkRetrying] = useState(false);
     const [currentPage, setCurrentPage] = useState(1);
     const [allFailed, setAllFailed] = useState<FailedDeliveryRow[]>([]);
     const [loading, setLoading] = useState(true);
@@ -38,7 +66,7 @@ export default function FailedDeliveriesPage() {
             setAllFailed(rows);
         } catch (e) {
             console.error(e);
-            setError("Could not load failed deliveries.");
+            setError("Couldn't load failed deliveries. Check your connection and retry.");
             setAllFailed([]);
         } finally {
             setLoading(false);
@@ -108,6 +136,7 @@ export default function FailedDeliveriesPage() {
     };
 
     const handleRetry = async (attemptId: string) => {
+        setRetryingIds((prev) => [...prev, attemptId]);
         try {
             await retryDispatchAttempt(attemptId);
             setRetriedIds((prev) => [...prev, attemptId]);
@@ -116,10 +145,13 @@ export default function FailedDeliveriesPage() {
         } catch (e) {
             console.error(e);
             toast.error("Retry failed. Check console for details.");
+        } finally {
+            setRetryingIds((prev) => prev.filter((id) => id !== attemptId));
         }
     };
 
     const handleBulkRetry = async () => {
+        setBulkRetrying(true);
         try {
             for (const id of selectedIds) {
                 await retryDispatchAttempt(id);
@@ -130,298 +162,359 @@ export default function FailedDeliveriesPage() {
         } catch (e) {
             console.error(e);
             toast.error("One or more retries failed.");
+        } finally {
+            setBulkRetrying(false);
         }
     };
 
+    const hasFilters = search.trim().length > 0 || methodFilter !== "All";
+    const clearFilters = () => {
+        setSearch("");
+        setMethodFilter("All");
+        setCurrentPage(1);
+    };
+
+    const methodBreakdown = (Object.keys(METHOD_META) as ApiDeliveryMethod[])
+        .map((method) => ({ method, count: filtered.filter((r) => r.method === method).length }))
+        .filter((m) => m.count > 0);
+
+    // Skeleton the KPI tiles only on the very first load; refreshes after a retry keep the numbers visible.
+    const initialLoading = loading && allFailed.length === 0;
+    const showFooter = !loading && !error && filtered.length > 0;
+
     return (
-        <div>
-            <div className="flex flex-col md:flex-row md:items-start justify-between gap-4 mb-8">
-                <div>
-                    <h1 className="text-2xl font-bold text-slate-800">Failed Deliveries</h1>
-                    <p className="text-sm text-slate-500 mt-1">Investigate and retry failed report deliveries.</p>
-                </div>
-                <div className="relative w-full md:w-auto">
-                    <span className="material-icons absolute left-3 top-1/2 -translate-y-1/2 text-lg text-slate-400">search</span>
-                    <input
-                        type="text"
-                        placeholder="Search Report ID or Patient..."
+        <div className="mx-auto max-w-[1400px]">
+            <PageHeader
+                title="Failed deliveries"
+                crumbs={[{ label: "Dispatch", href: "/dispatch/dashboard" }, { label: "Failed deliveries" }]}
+                meta={<span>Investigate and retry failed report deliveries.</span>}
+                actions={
+                    <Button icon={RefreshCw} onClick={() => void loadFailed()} loading={loading && allFailed.length > 0}>
+                        Refresh
+                    </Button>
+                }
+            />
+
+            {/* Screen-reader status for async changes */}
+            <p role="status" aria-live="polite" className="sr-only">
+                {loading
+                    ? "Loading failed deliveries"
+                    : error
+                      ? "Failed deliveries could not be loaded"
+                      : bulkRetrying
+                        ? `Retrying ${selectedIds.length} deliveries`
+                        : `${filtered.length} failed ${filtered.length === 1 ? "delivery" : "deliveries"} in view${
+                              totalPages > 1 ? `, page ${currentPage} of ${totalPages}` : ""
+                          }.`}
+            </p>
+
+            {/* KPI row */}
+            <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <KpiTile label="Total failed" value={totalFailed} icon={AlertTriangle} tone="danger" note="Deliveries in view" loading={initialLoading} />
+                <KpiTile label="Max retries reached" value={maxRetries} icon={XCircle} tone="warning" note="5 or more attempts" loading={initialLoading} />
+                <KpiTile label="Average retry count" value={avgRetries} icon={RotateCw} note="Per failed delivery" loading={initialLoading} />
+            </div>
+
+            {/* Overview panels */}
+            <div className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
+                <SectionCard title="Failure overview">
+                    <p className="mb-3 text-xs text-fg-muted">Most common reasons reported by the core service.</p>
+                    {loading ? (
+                        <ul aria-hidden="true" className="space-y-3">
+                            {Array.from({ length: 4 }).map((_, i) => (
+                                <li key={i}>
+                                    <span className="mb-1.5 block h-3 w-40 rounded bg-skeleton" />
+                                    <span className="block h-2 w-full rounded-full bg-skeleton" />
+                                </li>
+                            ))}
+                        </ul>
+                    ) : failureReasons.length === 0 ? (
+                        <EmptyState compact icon={CheckCircle2} title="No failures in view" description="Nothing to break down for the current filters." />
+                    ) : (
+                        <ul className="space-y-3">
+                            {failureReasons.map((item) => (
+                                <li key={item.reason}>
+                                    <div className="mb-1 flex items-center justify-between gap-3 text-xs">
+                                        <span className="truncate font-medium text-fg-secondary" title={item.reason}>{item.reason}</span>
+                                        <span className="shrink-0 tabular-nums text-fg">{item.count}</span>
+                                    </div>
+                                    <div
+                                        role="meter"
+                                        aria-label={`${item.reason}: ${item.count}`}
+                                        aria-valuemin={0}
+                                        aria-valuemax={totalFailed}
+                                        aria-valuenow={item.count}
+                                        className="h-2 overflow-hidden rounded-full bg-surface-hover"
+                                    >
+                                        <div className="h-full rounded-full bg-status-danger" style={{ width: item.width }} />
+                                    </div>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                </SectionCard>
+
+                <SectionCard
+                    title="Failed by method"
+                    actions={
+                        methodFilter !== "All" ? (
+                            <Button size="sm" variant="ghost" icon={X} onClick={() => { setMethodFilter("All"); setCurrentPage(1); }}>
+                                Clear filter
+                            </Button>
+                        ) : undefined
+                    }
+                >
+                    {loading ? (
+                        <ul aria-hidden="true" className="space-y-2">
+                            {Array.from({ length: 3 }).map((_, i) => (
+                                <li key={i} className="h-10 rounded-md bg-skeleton" />
+                            ))}
+                        </ul>
+                    ) : methodBreakdown.length === 0 ? (
+                        <EmptyState compact icon={CheckCircle2} title="No failures by method" />
+                    ) : (
+                        <ul className="space-y-2" aria-label="Filter by delivery method">
+                            {methodBreakdown.map(({ method, count }) => {
+                                const m = METHOD_META[method];
+                                const Icon = m.icon;
+                                const active = methodFilter === method;
+                                return (
+                                    <li key={method}>
+                                        <button
+                                            type="button"
+                                            aria-pressed={active}
+                                            onClick={() => { setMethodFilter(method); setCurrentPage(1); }}
+                                            className={cn(
+                                                "flex w-full items-center gap-3 rounded-md border px-3 py-2 text-left transition-colors",
+                                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-surface",
+                                                active ? "border-primary bg-primary-soft" : "border-edge hover:bg-surface-hover"
+                                            )}
+                                        >
+                                            <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded bg-surface-muted text-fg-secondary ring-1 ring-inset ring-edge">
+                                                <Icon className="h-4 w-4" aria-hidden="true" />
+                                            </span>
+                                            <span className="flex-1 truncate text-sm font-medium text-fg">{m.label}</span>
+                                            <span className="text-sm font-semibold tabular-nums text-status-danger-fg">{count}</span>
+                                        </button>
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                    )}
+                </SectionCard>
+            </div>
+
+            {/* Table */}
+            <SectionCard
+                title="Failed deliveries"
+                count={filtered.length}
+                flush
+                actions={
+                    selectedIds.length > 0 ? (
+                        <Button
+                            variant="primary"
+                            size="sm"
+                            icon={RefreshCw}
+                            loading={bulkRetrying}
+                            onClick={() => void handleBulkRetry()}
+                        >
+                            Retry selected ({selectedIds.length})
+                        </Button>
+                    ) : undefined
+                }
+            >
+                {/* Filter toolbar */}
+                <div className="flex flex-wrap items-center gap-2 border-b border-edge bg-surface-muted px-3 py-2">
+                    <InputField
+                        label="Search failed deliveries"
+                        hideLabel
+                        type="search"
                         value={search}
                         onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
-                        className="pl-10 pr-4 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 w-full sm:w-72"
+                        placeholder="Search report ID, patient, test or reason"
+                        autoComplete="off"
+                        className="min-w-[200px] flex-1 sm:max-w-sm"
                     />
-                </div>
-            </div>
-
-            {error && (
-                <div className="mb-4 text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-4 py-2">{error}</div>
-            )}
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
-                    <div className="flex items-center justify-between mb-4">
-                        <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center">
-                            <span className="material-icons text-red-600">report_problem</span>
-                        </div>
-                    </div>
-                    <p className="text-3xl font-bold text-slate-800">{totalFailed}</p>
-                    <div className="flex items-center gap-2 mt-1">
-                        <p className="text-sm font-semibold text-slate-600">Total Failed</p>
-                        <span className="text-[11px] text-red-500 font-medium">Deliveries</span>
-                    </div>
-                </div>
-
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
-                    <div className="flex items-center justify-between mb-4">
-                        <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center">
-                            <span className="material-icons text-amber-600">cancel</span>
-                        </div>
-                    </div>
-                    <p className="text-3xl font-bold text-slate-800">{maxRetries}</p>
-                    <div className="flex items-center gap-2 mt-1">
-                        <p className="text-sm font-semibold text-slate-600">Max Retries Reached</p>
-                        <span className="text-[11px] text-amber-500 font-medium">≥ 5 attempts</span>
-                    </div>
-                </div>
-
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
-                    <div className="flex items-center justify-between mb-4">
-                        <div className="w-10 h-10 rounded-xl bg-purple-100 flex items-center justify-center">
-                            <span className="material-icons text-purple-600">autorenew</span>
-                        </div>
-                    </div>
-                    <p className="text-3xl font-bold text-slate-800">{avgRetries}</p>
-                    <div className="flex items-center gap-2 mt-1">
-                        <p className="text-sm font-semibold text-slate-600">Avg Retry Count</p>
-                        <span className="text-[11px] text-slate-400 font-medium">Per failed delivery</span>
-                    </div>
-                </div>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6 mb-8">
-                <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-6">
-                    <h3 className="text-sm font-bold text-slate-800 mb-1">Failure overview</h3>
-                    <p className="text-xs text-slate-500 mb-4">Structured reasons from the core service</p>
-                    <div className="min-h-40 rounded-xl border border-slate-100 bg-slate-50/40 p-4">
-                        {loading ? (
-                            <div className="flex h-32 items-center justify-center text-sm text-slate-400">Loading...</div>
-                        ) : failureReasons.length === 0 ? (
-                            <div className="flex h-32 items-center justify-center text-sm text-slate-400">No failures in view</div>
-                        ) : (
-                            <div className="space-y-3">
-                                {failureReasons.map((item) => (
-                                    <div key={item.reason}>
-                                        <div className="mb-1 flex items-center justify-between gap-3">
-                                            <span className="truncate text-xs font-semibold text-slate-600">{item.reason}</span>
-                                            <span className="text-xs font-bold text-red-600">{item.count}</span>
-                                        </div>
-                                        <div className="h-2 overflow-hidden rounded-full bg-white">
-                                            <div className="h-full rounded-full bg-red-500" style={{ width: item.width }} />
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                </div>
-
-                <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm p-6">
-                    <h3 className="text-sm font-bold text-slate-800 mb-4">Failed by Method</h3>
-                    <div className="flex flex-col gap-3">
-                        {(Object.keys(methodIcons) as ApiDeliveryMethod[]).map((method) => {
-                            const m = methodIcons[method];
-                            const count = filtered.filter((r) => r.method === method).length;
-                            if (count === 0) return null;
-                            return (
-                                <button
-                                    type="button"
-                                    key={method}
-                                    onClick={() => { setMethodFilter(method); setCurrentPage(1); }}
-                                    className={`flex items-center gap-3 p-3 rounded-xl transition-all border ${methodFilter === method ? "ring-2 ring-primary border-primary" : "border-transparent hover:border-slate-200 cursor-pointer"} ${m.bg}`}
-                                >
-                                    <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center shadow-sm shrink-0">
-                                        <span className={`material-icons text-[16px] ${m.color}`}>{m.icon}</span>
-                                    </div>
-                                    <span className="flex-1 text-left text-sm font-bold text-slate-700">{m.label}</span>
-                                    <span className="text-lg font-black text-red-500">{count}</span>
-                                </button>
-                            );
-                        })}
-                    </div>
-                    {methodFilter !== "All" && (
-                        <button
-                            type="button"
-                            onClick={() => setMethodFilter("All")}
-                            className="w-full mt-4 py-2 text-xs font-bold border border-slate-200 rounded-lg bg-white text-slate-500 hover:bg-slate-50 transition-colors"
-                        >
-                            Clear Filter
-                        </button>
+                    {hasFilters && (
+                        <Button variant="ghost" icon={X} onClick={clearFilters}>
+                            Clear filters
+                        </Button>
                     )}
                 </div>
-            </div>
 
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 overflow-hidden">
-                <div className="flex flex-col sm:flex-row items-center justify-between p-4 border-b border-slate-100 bg-slate-50/30 gap-4">
-                    <div className="flex items-center gap-4 w-full sm:w-auto">
-                        <span className="text-sm font-bold text-slate-800">Failed Deliveries</span>
-                        <span className="px-2.5 py-1 bg-red-100 text-red-700 text-[11px] font-bold rounded-md border border-red-200">
-                            {filtered.length} Records
-                        </span>
-                    </div>
-                    <div className="flex items-center gap-2 w-full sm:w-auto">
-                        {selectedIds.length > 0 && (
-                            <button
-                                type="button"
-                                onClick={() => void handleBulkRetry()}
-                                className="flex items-center justify-center gap-2 px-4 py-2 text-sm font-bold border-none rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors shadow-sm shadow-red-600/30 flex-1 sm:flex-none whitespace-nowrap"
-                            >
-                                <span className="material-icons text-[18px]">autorenew</span>
-                                Bulk Retry ({selectedIds.length})
-                            </button>
-                        )}
-                    </div>
-                </div>
-
-                <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                        <thead>
-                            <tr className="bg-slate-50/50 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">
-                                <th className="w-12 px-6 py-4 border-b border-slate-100">
-                                    <input
-                                        type="checkbox"
-                                        checked={allSelected}
-                                        onChange={toggleAll}
-                                        className="w-4 h-4 text-primary bg-white border-slate-300 rounded focus:ring-primary focus:ring-2 cursor-pointer"
-                                    />
-                                </th>
-                                <th className="px-4 py-4 border-b border-slate-100">Report ID</th>
-                                <th className="px-4 py-4 border-b border-slate-100">Patient</th>
-                                <th className="px-4 py-4 border-b border-slate-100">Test</th>
-                                <th className="px-4 py-4 border-b border-slate-100">Method</th>
-                                <th className="px-4 py-4 border-b border-slate-100">Failure Reason</th>
-                                <th className="px-4 py-4 border-b border-slate-100">Failed At</th>
-                                <th className="px-4 py-4 border-b border-slate-100">Retries</th>
-                                <th className="px-6 py-4 border-b border-slate-100 text-right">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {loading ? (
-                                <tr>
-                                    <td colSpan={9} className="text-center py-16 text-slate-400 text-sm">Loading...</td>
+                {/* States live outside the table so they centre on small screens */}
+                {loading ? (
+                    <ul aria-hidden="true" className="divide-y divide-edge">
+                        {Array.from({ length: SKELETON_ROWS }).map((_, i) => (
+                            <li key={i} className="flex items-center gap-3 px-4 py-2.5">
+                                <span className="h-4 w-4 shrink-0 rounded bg-skeleton" />
+                                <span className="h-3 w-24 shrink-0 rounded bg-skeleton" />
+                                <span className="h-4 w-32 shrink-0 rounded bg-skeleton" />
+                                <span className="hidden h-3 w-28 rounded bg-skeleton md:block" />
+                                <span className="h-5 w-40 rounded bg-skeleton" />
+                                <span className="hidden h-3 w-24 rounded bg-skeleton lg:block" />
+                                <span className="ml-auto h-7 w-16 rounded bg-skeleton" />
+                            </li>
+                        ))}
+                    </ul>
+                ) : error ? (
+                    <EmptyState
+                        icon={AlertTriangle}
+                        title="Failed deliveries unavailable"
+                        description={error}
+                        action={
+                            <Button size="sm" icon={RefreshCw} onClick={() => void loadFailed()}>
+                                Retry
+                            </Button>
+                        }
+                    />
+                ) : paginated.length === 0 ? (
+                    hasFilters ? (
+                        <EmptyState
+                            icon={SearchX}
+                            title="No failed deliveries match"
+                            description="Try a different search term or delivery method."
+                            action={
+                                <Button size="sm" icon={X} onClick={clearFilters}>
+                                    Clear filters
+                                </Button>
+                            }
+                        />
+                    ) : (
+                        <EmptyState
+                            icon={CheckCircle2}
+                            title="No failed deliveries"
+                            description="Every dispatched report has been delivered or is still in progress."
+                        />
+                    )
+                ) : (
+                    <div className="overflow-x-auto">
+                        {/*
+                          table-fixed: the auto-width "Failure reason" column gets whatever the
+                          fixed columns leave behind, so min-w must clear the sum in EVERY band.
+                          fixed sums — base 648 (40+128+160+128+80+112), md +160 = 808 (Test),
+                          lg +144 = 952 (Failed at). Reason is free text, so it needs a >=160px
+                          floor: base 960-648=312, md 970-808=162, lg 1120-952=168.
+                        */}
+                        <table className="w-full min-w-[960px] table-fixed text-left text-[13px] md:min-w-[970px] lg:min-w-[1120px]">
+                            <caption className="sr-only">Failed deliveries</caption>
+                            <thead>
+                                <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
+                                    <th scope="col" className="w-10 py-2 pl-4 pr-2">
+                                        <input
+                                            type="checkbox"
+                                            checked={allSelected}
+                                            onChange={toggleAll}
+                                            aria-label="Select all failed deliveries on this page"
+                                            className="h-4 w-4 rounded border-edge-strong accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-surface"
+                                        />
+                                    </th>
+                                    <th scope="col" className="w-32 px-3 py-2 font-medium">Report ID</th>
+                                    <th scope="col" className="w-40 px-3 py-2 font-medium">Patient</th>
+                                    <th scope="col" className="hidden w-40 px-3 py-2 font-medium md:table-cell">Test</th>
+                                    <th scope="col" className="w-32 px-3 py-2 font-medium">Method</th>
+                                    <th scope="col" className="px-3 py-2 font-medium">Failure reason</th>
+                                    <th scope="col" className="hidden w-36 px-3 py-2 font-medium lg:table-cell">Failed at</th>
+                                    <th scope="col" className="w-20 px-3 py-2 font-medium">Retries</th>
+                                    <th scope="col" className="w-28 py-2 pl-3 pr-4 text-right font-medium">Actions</th>
                                 </tr>
-                            ) : paginated.length === 0 ? (
-                                <tr>
-                                    <td colSpan={9} className="text-center py-16 text-slate-400 text-sm">
-                                        No failed deliveries found matching your criteria.
-                                    </td>
-                                </tr>
-                            ) : (
-                                paginated.map((record) => {
+                            </thead>
+                            <tbody className="divide-y divide-edge whitespace-nowrap">
+                                {paginated.map((record) => {
                                     const isSelected = selectedIds.includes(record.attemptId);
                                     const isRetried = retriedIds.includes(record.attemptId);
-                                    const m = methodIcons[record.method];
+                                    const isRetrying = retryingIds.includes(record.attemptId);
+                                    const m = METHOD_META[record.method];
+                                    const MethodIcon = m?.icon;
 
                                     return (
                                         <tr
                                             key={record.attemptId}
-                                            className={`border-b border-slate-50 last:border-0 transition-colors ${isRetried ? "bg-emerald-50/50" : isSelected ? "bg-red-50/30" : "bg-white hover:bg-slate-50/50"}`}
+                                            className={cn(
+                                                "transition-colors",
+                                                isRetried ? "bg-status-verified-bg" : isSelected ? "bg-primary-soft" : "hover:bg-surface-hover"
+                                            )}
                                         >
-                                            <td className="px-6 py-4">
+                                            <td className="py-2 pl-4 pr-2">
                                                 <input
                                                     type="checkbox"
                                                     checked={isSelected}
                                                     onChange={() => toggleOne(record.attemptId)}
                                                     disabled={isRetried}
-                                                    className={`w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary focus:ring-2 ${isRetried ? "cursor-not-allowed opacity-50 bg-slate-100" : "cursor-pointer bg-white"}`}
+                                                    aria-label={`Select report ${record.reportId}`}
+                                                    className="h-4 w-4 rounded border-edge-strong accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-50"
                                                 />
                                             </td>
-                                            <td className="px-4 py-4">
-                                                <span className="font-mono text-[13px] font-bold text-slate-700">{record.reportId}</span>
+                                            <td className="truncate px-3 py-2 font-mono text-xs font-medium text-fg" title={record.reportId}>
+                                                {record.reportId}
                                             </td>
-                                            <td className="px-4 py-4">
-                                                <div className="text-sm font-bold text-slate-800">{record.patientName}</div>
+                                            <td className="truncate px-3 py-2 font-medium text-fg" title={record.patientName}>
+                                                {record.patientName}
                                             </td>
-                                            <td className="px-4 py-4 text-[13px] text-slate-600 font-medium">{record.testName}</td>
-                                            <td className="px-4 py-4">
-                                                {m && (
-                                                    <div className="flex items-center gap-2">
-                                                        <div className={`w-7 h-7 rounded-md ${m.bg} flex items-center justify-center border border-white/50`}>
-                                                            <span className={`material-icons text-[14px] ${m.color}`}>{m.icon}</span>
-                                                        </div>
-                                                        <span className="text-xs font-semibold text-slate-600">{m.label}</span>
-                                                    </div>
+                                            <td className="hidden truncate px-3 py-2 text-fg-secondary md:table-cell" title={record.testName}>
+                                                {record.testName}
+                                            </td>
+                                            <td className="px-3 py-2">
+                                                {m && MethodIcon && (
+                                                    <span className="inline-flex items-center gap-2 text-xs text-fg-secondary">
+                                                        <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded bg-surface-muted ring-1 ring-inset ring-edge">
+                                                            <MethodIcon className="h-3.5 w-3.5" aria-hidden="true" />
+                                                        </span>
+                                                        {m.label}
+                                                    </span>
                                                 )}
                                             </td>
-                                            <td className="px-4 py-4">
-                                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-red-50 text-red-700 text-[11px] font-bold rounded-md border border-red-100">
-                                                    <span className="material-icons text-[12px]">error_outline</span>
+                                            <td className="px-3 py-2">
+                                                <StatusChip tone="danger" size="sm" dot title={record.failureReason}>
                                                     {record.failureReason}
-                                                </span>
+                                                </StatusChip>
                                             </td>
-                                            <td className="px-4 py-4 text-xs font-semibold text-slate-600">{record.failedDateTime}</td>
-                                            <td className="px-4 py-4">
-                                                <span className={`px-2.5 py-1 rounded-md text-[11px] font-bold ${record.retryCount >= 5 ? "bg-red-100 text-red-700 border border-red-200" : "bg-slate-100 text-slate-600"}`}>
-                                                    {record.retryCount}x
-                                                </span>
+                                            <td className="hidden truncate px-3 py-2 text-xs tabular-nums text-fg-secondary lg:table-cell">
+                                                {record.failedDateTime}
                                             </td>
-                                            <td className="px-6 py-4 text-right">
+                                            <td className="px-3 py-2">
+                                                <StatusChip tone={record.retryCount >= 5 ? "danger" : "neutral"} size="sm" title={`${record.retryCount} retries`}>
+                                                    <span className="tabular-nums">{record.retryCount}×</span>
+                                                </StatusChip>
+                                            </td>
+                                            <td className="py-2 pl-3 pr-4 text-right">
                                                 {isRetried ? (
-                                                    <span className="flex items-center justify-end gap-1.5 text-xs font-bold text-emerald-600">
-                                                        <span className="material-icons text-[14px]">check_circle</span>
+                                                    <span className="inline-flex items-center gap-1.5 text-xs font-medium text-status-verified-fg">
+                                                        <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
                                                         Retried
                                                     </span>
                                                 ) : (
-                                                    <button
-                                                        type="button"
+                                                    <Button
+                                                        size="sm"
+                                                        icon={RefreshCw}
+                                                        loading={isRetrying}
+                                                        disabled={bulkRetrying}
                                                         onClick={() => void handleRetry(record.attemptId)}
-                                                        className="px-4 py-2 text-xs font-bold rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors shadow-sm shadow-red-600/30 flex items-center justify-center gap-1.5 ml-auto"
+                                                        aria-label={`Retry delivery for report ${record.reportId}`}
                                                     >
-                                                        <span className="material-icons text-[14px]">autorenew</span>
                                                         Retry
-                                                    </button>
+                                                    </Button>
                                                 )}
                                             </td>
                                         </tr>
                                     );
-                                })
-                            )}
-                        </tbody>
-                    </table>
-                </div>
-
-                <div className="flex items-center justify-between px-6 py-4 border-t border-slate-100 bg-slate-50/50">
-                    <span className="text-sm text-slate-500">
-                        Showing <strong>{filtered.length === 0 ? 0 : (currentPage - 1) * ITEMS_PER_PAGE + 1}–{Math.min(currentPage * ITEMS_PER_PAGE, filtered.length)}</strong> of <strong>{filtered.length}</strong> records
-                    </span>
-                    <div className="flex items-center gap-2">
-                        <button
-                            type="button"
-                            onClick={() => setCurrentPage((p) => p - 1)}
-                            disabled={currentPage === 1}
-                            className="w-8 h-8 flex items-center justify-center border border-slate-200 rounded-md bg-white hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                        >
-                            <span className="material-icons text-[18px]">chevron_left</span>
-                        </button>
-                        {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-                            <button
-                                type="button"
-                                key={page}
-                                onClick={() => setCurrentPage(page)}
-                                className={`w-8 h-8 flex items-center justify-center rounded-md text-sm font-bold transition-colors ${page === currentPage ? "bg-primary text-white" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"}`}
-                            >
-                                {page}
-                            </button>
-                        ))}
-                        <button
-                            type="button"
-                            onClick={() => setCurrentPage((p) => p + 1)}
-                            disabled={currentPage === totalPages}
-                            className="w-8 h-8 flex items-center justify-center border border-slate-200 rounded-md bg-white hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                        >
-                            <span className="material-icons text-[18px]">chevron_right</span>
-                        </button>
+                                })}
+                            </tbody>
+                        </table>
                     </div>
-                </div>
-            </div>
+                )}
+
+                {showFooter && (
+                    <Pagination
+                        currentPage={currentPage}
+                        totalPages={totalPages}
+                        totalItems={filtered.length}
+                        pageSize={ITEMS_PER_PAGE}
+                        onPageChange={setCurrentPage}
+                        itemLabel="records"
+                    />
+                )}
+            </SectionCard>
         </div>
     );
 }

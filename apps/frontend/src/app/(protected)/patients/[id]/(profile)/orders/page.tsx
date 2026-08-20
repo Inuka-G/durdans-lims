@@ -1,10 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { AlertTriangle, ChevronLeft, ChevronRight, ClipboardList, Plus } from "lucide-react";
 import { getPatientOrders } from "@/lib/api";
-import { getOrderStatusColor, PAYMENT_STATUS_COLORS } from "@/constants/orders-billing";
+import { cn } from "@/lib/utils";
+import Button from "@/components/ui/Button";
+import SectionCard from "@/components/ui/SectionCard";
+import EmptyState from "@/components/ui/EmptyState";
+import { formatRegistered } from "@/components/patient-dashboard/dashboard-data";
 import { usePatient } from "../../PatientProvider";
+
+const PAGE_SIZE = 50;
 
 type PatientOrderRow = {
     id: string;
@@ -18,161 +25,292 @@ type PatientOrderRow = {
     }>;
 };
 
-const formatDateTime = (value?: string | null) => {
-    if (!value) return "-";
+/* ------------------------------------------------------------------ */
+/*  Status chips — colour = meaning, everything else neutral            */
+/* ------------------------------------------------------------------ */
+
+type ChipTone = "neutral" | "pending" | "verified" | "danger";
+
+const CHIP_TONE: Record<ChipTone, { chip: string; dot: string }> = {
+    neutral: { chip: "bg-surface-muted text-fg-secondary ring-edge", dot: "bg-fg-faint" },
+    pending: { chip: "bg-status-pending-bg text-status-pending-fg ring-status-pending-edge", dot: "bg-status-pending" },
+    verified: { chip: "bg-status-verified-bg text-status-verified-fg ring-status-verified-edge", dot: "bg-status-verified" },
+    danger: { chip: "bg-status-danger-bg text-status-danger-fg ring-status-danger-edge", dot: "bg-status-danger" },
+};
+
+const ORDER_STATUS_TONE: Record<string, ChipTone> = {
+    PENDING: "pending",
+    IN_PROGRESS: "neutral",
+    SAMPLE_COLLECTED: "neutral",
+    COMPLETED: "verified",
+    CANCELLED: "danger",
+    REJECTED: "danger",
+};
+
+const PAYMENT_STATUS_TONE: Record<string, ChipTone> = {
+    PAID: "verified",
+    PENDING: "pending",
+    FAILED: "danger",
+    REFUNDED: "neutral",
+};
+
+function StatusChip({ label, tone }: { label: string; tone: ChipTone }) {
+    const t = CHIP_TONE[tone];
+    return (
+        <span
+            title={label}
+            className={cn(
+                "inline-flex max-w-full items-center gap-1.5 rounded px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset",
+                t.chip
+            )}
+        >
+            <span aria-hidden="true" className={cn("h-1.5 w-1.5 shrink-0 rounded-full", t.dot)} />
+            <span className="truncate">{label}</span>
+        </span>
+    );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Formatting helpers                                                  */
+/* ------------------------------------------------------------------ */
+
+/** "IN_PROGRESS" → "In progress" */
+const formatLabel = (value?: string | null) => {
+    if (!value) return "—";
+    const words = value.replace(/_/g, " ").trim().toLowerCase();
+    return words ? words.charAt(0).toUpperCase() + words.slice(1) : "—";
+};
+
+const formatOrderDate = (value?: string | null) => {
+    if (!value) return "—";
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return value;
-
-    return date.toLocaleString("en-LK", {
-        year: "numeric",
-        month: "short",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-    });
+    return formatRegistered(date);
 };
 
-const formatLabel = (value?: string | null) => {
-    return value ? value.replace(/_/g, " ") : "-";
+const testsSummary = (tests: PatientOrderRow["tests"]) => {
+    const names = (tests ?? []).map((test) => test.testName || test.testCode || "Unknown test");
+    if (names.length === 0) return { text: "No tests listed", title: "", count: 0 };
+    const shown = names.slice(0, 2).join(", ");
+    const rest = names.length - 2;
+    return {
+        text: rest > 0 ? `${shown} +${rest} more` : shown,
+        title: names.join(", "),
+        count: names.length,
+    };
 };
+
+/* ------------------------------------------------------------------ */
+/*  Page                                                                */
+/* ------------------------------------------------------------------ */
 
 export default function PatientOrdersTab() {
     const { patient } = usePatient();
     const [orders, setOrders] = useState<PatientOrderRow[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
+    const [page, setPage] = useState(0);
+    const [totalPages, setTotalPages] = useState(1);
+    const [totalElements, setTotalElements] = useState<number | null>(null);
 
-    useEffect(() => {
-        let active = true;
-        const patientCode = patient?.patientCode || patient?.id;
+    const patientCode = patient?.patientCode || patient?.id;
 
-        if (!patientCode) {
-            setLoading(false);
-            return;
-        }
-
-        const loadOrders = async () => {
+    const loadOrders = useCallback(
+        async (pageIndex: number, isActive: () => boolean) => {
+            if (!patientCode) {
+                setLoading(false);
+                return;
+            }
             try {
                 setLoading(true);
                 setError("");
-                const response = await getPatientOrders(patientCode, 0, 50);
-                if (!active) return;
-                setOrders(response?.content ?? []);
+                const response = await getPatientOrders(patientCode, pageIndex, PAGE_SIZE);
+                if (!isActive()) return;
+                const content: PatientOrderRow[] = response?.content ?? [];
+                setOrders(content);
+                setTotalPages(typeof response?.totalPages === "number" && response.totalPages > 0 ? response.totalPages : 1);
+                setTotalElements(typeof response?.totalElements === "number" ? response.totalElements : null);
             } catch (loadError) {
                 console.error("Failed to load patient orders", loadError);
-                if (active) setError("Could not load this patient's orders.");
+                if (isActive()) setError("Could not load this patient's orders.");
             } finally {
-                if (active) setLoading(false);
+                if (isActive()) setLoading(false);
             }
-        };
+        },
+        [patientCode]
+    );
 
-        void loadOrders();
-
+    useEffect(() => {
+        let active = true;
+        void loadOrders(page, () => active);
         return () => {
             active = false;
         };
-    }, [patient?.id, patient?.patientCode]);
+    }, [loadOrders, page]);
 
     if (!patient) return null;
 
+    const hasPrev = page > 0;
+    const hasNext = page + 1 < totalPages;
+    const shownCount = orders.length;
+    const totalCount = totalElements ?? shownCount;
+
     return (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-8">
-            <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-                <h3 className="font-bold text-slate-900 flex items-center gap-2">
-                    <span className="material-icons text-primary text-xl">list_alt</span>
-                    Test Orders History
-                </h3>
-                <Link
-                    href="/orders-billing/create-order"
-                    className="bg-primary hover:bg-primary/90 text-white px-4 py-2 rounded text-sm font-semibold flex items-center gap-2 transition-colors"
-                >
-                    <span className="material-icons text-sm">add</span>
-                    Create New Order
-                </Link>
-            </div>
-            <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                    <thead>
-                        <tr className="bg-slate-50/50 text-slate-500 uppercase text-[11px] font-bold tracking-wider">
-                            <th className="px-6 py-4 border-b border-slate-100">Order ID</th>
-                            <th className="px-6 py-4 border-b border-slate-100">Order Date</th>
-                            <th className="px-6 py-4 border-b border-slate-100">Tests / Panels Summary</th>
-                            <th className="px-6 py-4 border-b border-slate-100 text-center">Order Status</th>
-                            <th className="px-6 py-4 border-b border-slate-100 text-center">Payment Status</th>
-                            <th className="px-6 py-4 border-b border-slate-100 text-right">Action</th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                        {loading ? (
-                            <tr>
-                                <td colSpan={6} className="px-6 py-10 text-center text-sm text-slate-400">
-                                    Loading patient orders...
-                                </td>
+        <SectionCard
+            title="Orders"
+            count={!loading && !error ? totalCount : undefined}
+            flush
+            className="mb-8"
+            actions={
+                <Button size="sm" variant="primary" icon={Plus} href="/orders-billing/create-order">
+                    Create order
+                </Button>
+            }
+        >
+            {/* States live outside the table so they centre on small screens */}
+            {loading ? (
+                <div role="status" aria-live="polite">
+                    <span className="sr-only">Loading orders</span>
+                    <ul aria-hidden="true" className="divide-y divide-edge">
+                        {Array.from({ length: 5 }).map((_, i) => (
+                            <li key={i} className="flex items-center gap-3 px-4 py-2.5">
+                                <span className="h-3 w-20 rounded bg-skeleton" />
+                                <span className="hidden h-3 w-24 rounded bg-skeleton sm:block" />
+                                <span className="h-3 w-40 rounded bg-skeleton" />
+                                <span className="ml-auto hidden h-3 w-16 rounded bg-skeleton md:block" />
+                                <span className="h-4 w-16 rounded bg-skeleton" />
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            ) : error ? (
+                <div role="alert">
+                    <EmptyState
+                        icon={AlertTriangle}
+                        title="Couldn't load orders"
+                        description={error}
+                        compact
+                        action={
+                            <Button size="sm" onClick={() => void loadOrders(page, () => true)}>
+                                Retry
+                            </Button>
+                        }
+                    />
+                </div>
+            ) : orders.length === 0 ? (
+                <EmptyState
+                    icon={ClipboardList}
+                    title="No orders yet"
+                    description="Create the first test order for this patient."
+                    compact
+                    action={
+                        <Button size="sm" icon={Plus} href="/orders-billing/create-order">
+                            Create order
+                        </Button>
+                    }
+                />
+            ) : (
+                <div className="overflow-x-auto">
+                    <table className="w-full min-w-[760px] table-fixed text-left text-[13px]">
+                        <thead>
+                            <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
+                                {/* Percentages sum to 94% so the 40px chevron column fits at the 760px minimum */}
+                                <th scope="col" className="w-[15%] py-2 pl-4 pr-3 font-medium">Order no</th>
+                                <th scope="col" className="w-[15%] px-3 py-2 font-medium">Date</th>
+                                <th scope="col" className="w-[32%] px-3 py-2 font-medium">Tests</th>
+                                <th scope="col" className="w-[19%] px-3 py-2 font-medium">Status</th>
+                                <th scope="col" className="w-[13%] px-3 py-2 font-medium">Payment</th>
+                                <th scope="col" className="w-10 py-2 pl-2 pr-3">
+                                    <span className="sr-only">Open</span>
+                                </th>
                             </tr>
-                        ) : error ? (
-                            <tr>
-                                <td colSpan={6} className="px-6 py-10 text-center text-sm text-red-500">
-                                    {error}
-                                </td>
-                            </tr>
-                        ) : orders.length === 0 ? (
-                            <tr>
-                                <td colSpan={6} className="px-6 py-10 text-center text-sm text-slate-400">
-                                    No test orders found for this patient.
-                                </td>
-                            </tr>
-                        ) : (
-                            orders.map((order) => (
-                                <tr key={order.id} className="hover:bg-slate-50/50 transition-colors">
-                                    <td className="px-6 py-4 font-semibold text-primary text-sm whitespace-nowrap">
-                                        {order.orderId}
-                                    </td>
-                                    <td className="px-6 py-4 text-sm text-slate-600 whitespace-nowrap">
-                                        {formatDateTime(order.orderDate)}
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <div className="flex flex-wrap gap-1">
-                                            {(order.tests ?? []).length === 0 ? (
-                                                <span className="text-xs text-slate-400">No tests listed</span>
-                                            ) : (
-                                                (order.tests ?? []).map((test, index) => (
-                                                    <span
-                                                        key={`${order.id}-${test.testCode ?? index}`}
-                                                        className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[11px] border border-slate-200"
-                                                    >
-                                                        {test.testName || test.testCode || "Unknown test"}
+                        </thead>
+                        <tbody className="divide-y divide-edge whitespace-nowrap">
+                            {orders.map((order) => {
+                                const href = `/orders-billing/orders/${order.id}`;
+                                const summary = testsSummary(order.tests);
+                                const status = (order.status ?? "").toUpperCase();
+                                const payment = (order.paymentStatus ?? "PENDING").toUpperCase();
+                                return (
+                                    <tr key={order.id} className="group transition-colors hover:bg-surface-hover">
+                                        <td className="truncate py-2 pl-4 pr-3">
+                                            <Link
+                                                href={href}
+                                                className="rounded font-mono text-xs font-medium text-primary-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-surface"
+                                            >
+                                                {order.orderId || order.id}
+                                            </Link>
+                                        </td>
+                                        <td className="px-3 py-2 tabular-nums text-fg-secondary">{formatOrderDate(order.orderDate)}</td>
+                                        <td className="px-3 py-2 text-fg-secondary">
+                                            <span className="block truncate" title={summary.title || undefined}>
+                                                {summary.count > 0 && (
+                                                    <span className="tabular-nums text-fg-muted">
+                                                        {summary.count} {summary.count === 1 ? "test" : "tests"}
+                                                        <span className="text-fg-faint"> · </span>
                                                     </span>
-                                                ))
-                                            )}
-                                        </div>
-                                    </td>
-                                    <td className="px-6 py-4 text-center">
-                                        <span className={`px-2.5 py-1 text-[10px] font-bold uppercase rounded tracking-wider ${getOrderStatusColor(order.status ?? "")}`}>
-                                            {formatLabel(order.status)}
-                                        </span>
-                                    </td>
-                                    <td className="px-6 py-4 text-center">
-                                        <span className={`px-2.5 py-1 text-[10px] font-bold uppercase rounded tracking-wider ${PAYMENT_STATUS_COLORS[order.paymentStatus ?? "PENDING"] ?? PAYMENT_STATUS_COLORS.PENDING}`}>
-                                            {formatLabel(order.paymentStatus ?? "PENDING")}
-                                        </span>
-                                    </td>
-                                    <td className="px-6 py-4 text-right">
-                                        <Link
-                                            className="text-primary hover:text-primary/80 text-sm font-bold flex items-center justify-end gap-1"
-                                            href={`/orders-billing/orders/${order.id}`}
-                                        >
-                                            View Order <span className="material-icons text-sm">open_in_new</span>
-                                        </Link>
-                                    </td>
-                                </tr>
-                            ))
-                        )}
-                    </tbody>
-                </table>
-            </div>
-            <div className="p-4 border-t border-slate-100 flex items-center justify-between">
-                <p className="text-xs text-slate-500">Showing {orders.length} order{orders.length === 1 ? "" : "s"}</p>
-            </div>
-        </div>
+                                                )}
+                                                {summary.count > 0 ? summary.text : <span className="text-fg-muted">{summary.text}</span>}
+                                            </span>
+                                        </td>
+                                        <td className="px-3 py-2">
+                                            <StatusChip label={formatLabel(status)} tone={ORDER_STATUS_TONE[status] ?? "neutral"} />
+                                        </td>
+                                        <td className="px-3 py-2">
+                                            <StatusChip label={formatLabel(payment)} tone={PAYMENT_STATUS_TONE[payment] ?? "neutral"} />
+                                        </td>
+                                        <td className="py-2 pl-2 pr-3 text-right">
+                                            <Link
+                                                href={href}
+                                                aria-label={`Open order ${order.orderId || order.id}`}
+                                                className="inline-flex h-7 w-7 items-center justify-center rounded text-fg-faint transition-colors hover:bg-surface-hover hover:text-fg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary group-hover:text-fg-muted"
+                                            >
+                                                <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                                            </Link>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+
+            {/* Footer — stays mounted while a page loads so the focused Next/Previous button is not unmounted */}
+            {!error && (orders.length > 0 || (loading && page > 0)) && (
+                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-edge px-4 py-2 text-xs text-fg-muted">
+                    <span className="tabular-nums" aria-live="polite">
+                        Showing {shownCount} of {totalCount} {totalCount === 1 ? "order" : "orders"}
+                    </span>
+                    {totalPages > 1 && (
+                        <nav aria-label="Orders pagination" className="flex items-center gap-1">
+                            <Button
+                                size="sm"
+                                variant="ghost"
+                                icon={ChevronLeft}
+                                aria-label="Previous page"
+                                disabled={!hasPrev || loading}
+                                onClick={() => setPage((current) => Math.max(0, current - 1))}
+                            >
+                                Previous
+                            </Button>
+                            <span className="px-1 tabular-nums">
+                                Page {page + 1} of {totalPages}
+                            </span>
+                            <Button
+                                size="sm"
+                                variant="ghost"
+                                aria-label="Next page"
+                                disabled={!hasNext || loading}
+                                onClick={() => setPage((current) => Math.min(totalPages - 1, current + 1))}
+                            >
+                                Next
+                                <ChevronRight aria-hidden="true" />
+                            </Button>
+                        </nav>
+                    )}
+                </div>
+            )}
+        </SectionCard>
     );
 }

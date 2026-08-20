@@ -1,55 +1,21 @@
 import type {
-    Priority, SampleStatus, Sample, AccessioningLogEntry, QCRun, Instrument, TestResult,
+    SampleStatus, Sample, AccessioningLogEntry, QCRun, Instrument, TestResult,
     BarcodeSearchResult, PendingVerificationSample, InstrumentBatch,
     ValidationSample, DispatchReport, DeliveryRecord, FailedDelivery
 } from '@/types/sample-lifecycle';
 
 // ==========================================
-// STATUS / PRIORITY COLORS
+// STATUS LABELS
 // ==========================================
-
-export const PRIORITY_COLORS: Record<Priority, string> = {
-    URGENT: 'bg-orange-100 text-orange-700',
-    NORMAL: 'bg-blue-100 text-blue-700',
-    STAT: 'bg-red-100 text-red-700',
-};
-
-export const SAMPLE_STATUS_COLORS: Record<string, string> = {
-    PENDING_COLLECTION: 'bg-slate-100 text-slate-600',
-    RECOLLECTION_REQUIRED: 'bg-orange-100 text-orange-700',
-    COLLECTED: 'bg-blue-100 text-blue-700',
-    IN_TRANSIT: 'bg-cyan-100 text-cyan-700',
-    RECEIVED_AT_LAB: 'bg-indigo-100 text-indigo-700',
-    QUALITY_CHECK: 'bg-amber-100 text-amber-700',
-    ACCEPTED: 'bg-emerald-100 text-emerald-700',
-    REJECTED: 'bg-red-100 text-red-700',
-    IN_TESTING: 'bg-violet-100 text-violet-700',
-    RESULT_ENTERED: 'bg-purple-100 text-purple-700',
-    SENT_FOR_VERIFICATION: 'bg-sky-100 text-sky-700',
-    VERIFIED: 'bg-teal-100 text-teal-700',
-    AUTHORIZED: 'bg-green-100 text-green-700',
-    DISPATCHED: 'bg-emerald-100 text-emerald-700',
-};
-
-export const FLAG_COLORS: Record<string, string> = {
-    NORMAL: 'bg-emerald-100 text-emerald-700',
-    LOW: 'bg-blue-100 text-blue-700',
-    HIGH: 'bg-amber-100 text-amber-700',
-    CRITICAL_LOW: 'bg-red-100 text-red-700',
-    CRITICAL_HIGH: 'bg-red-100 text-red-700',
-};
-
-export const INSTRUMENT_STATUS_CONFIG = {
-    online: { label: 'ONLINE', dot: 'bg-green-500', badge: 'bg-green-100 text-green-700' },
-    offline: { label: 'OFFLINE', dot: 'bg-red-500', badge: 'bg-red-100 text-red-700' },
-    busy: { label: 'BUSY', dot: 'bg-amber-500', badge: 'bg-amber-100 text-amber-700' },
-};
-
-export const QC_STATUS_CONFIG = {
-    PASS: { label: 'PASS', className: 'bg-emerald-100 text-emerald-700' },
-    FAIL: { label: 'FAIL', className: 'bg-red-100 text-red-700' },
-    WARN: { label: 'WARN', className: 'bg-amber-100 text-amber-700' },
-};
+// No colour lookup maps live here any more:
+//   • status / priority / flag / QC / instrument chips are rendered by
+//     `components/ui/StatusChip` (`STATUS_TONE` + semantic tokens, dark-mode
+//     aware), which replaced PRIORITY_COLORS, SAMPLE_STATUS_COLORS,
+//     FLAG_COLORS, INSTRUMENT_STATUS_CONFIG and QC_STATUS_CONFIG;
+//   • tube cap colours are supplies-inventory data, not a static map — each
+//     sample / label payload carries `tubeColor` from the tube-keyed supplies
+//     inventory and is resolved via `getTubeHexColor`
+//     (`lib/phlebotomy-label-print.ts`), rendered by `shared/TubeIndicator`.
 
 export function formatStatusLabel(s: SampleStatus | string): string {
     return s.replace(/_/g, ' ');

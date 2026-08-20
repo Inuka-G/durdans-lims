@@ -1,9 +1,34 @@
 "use client";
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, type CSSProperties } from 'react';
 import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import {
+    ArrowDownRight,
+    ArrowUpRight,
+    Banknote,
+    Building2,
+    CalendarRange,
+    CircleUserRound,
+    Clock3,
+    Droplets,
+    FileSpreadsheet,
+    FileText,
+    FlaskConical,
+    Microscope,
+    ReceiptText,
+    Send,
+    ShieldCheck,
+    Users,
+    type LucideIcon,
+} from 'lucide-react';
+import PageHeader from '@/components/ui/PageHeader';
+import Button from '@/components/ui/Button';
+import { InputField, SelectField } from '@/components/ui/Field';
+import SectionCard from '@/components/ui/SectionCard';
+import KpiTile from '@/components/ui/KpiTile';
+import DemoDataBanner from '@/components/shared/DemoDataBanner';
 
 const initialBarData = [
     { name: '01 OCT', revenue: 14000 },
@@ -20,11 +45,130 @@ const initialBarData = [
     { name: '31 OCT', revenue: 31800 },
 ];
 
+// Chart series colours may stay literal; the first series follows the brand token.
 const initialPieData = [
-    { name: 'Pathology', value: 55, color: '#1277E1' },
+    { name: 'Pathology', value: 55, color: 'var(--color-primary)' },
     { name: 'Radiology', value: 25, color: '#a855f7' },
     { name: 'General', value: 20, color: '#f59e0b' },
 ];
+
+const CHART_TOOLTIP_STYLE: CSSProperties = {
+    borderRadius: 6,
+    border: '1px solid var(--edge)',
+    background: 'var(--surface)',
+    color: 'var(--fg)',
+    boxShadow: '0 2px 8px rgb(15 23 42 / 0.12)',
+    fontSize: 12,
+    padding: '6px 10px',
+};
+
+type ModuleMetric = { label: string; value: string; delta?: string };
+type ModulePanel = { title: string; description: string; icon: LucideIcon; metrics: ModuleMetric[] };
+
+/** Static mock figures for the per-module performance panels (not yet wired to a backend). */
+const MODULE_PANELS: ModulePanel[] = [
+    {
+        title: 'Patient management',
+        description: 'Registration, duplicate detection, OTP verification and profiles.',
+        icon: CircleUserRound,
+        metrics: [
+            { label: 'New registrations', value: '1,245', delta: '+12.4%' },
+            { label: 'Searches', value: '15,820', delta: '+5.2%' },
+            { label: 'OTP sent', value: '8,412' },
+            { label: 'Duplicates', value: '34', delta: '-2.1%' },
+        ],
+    },
+    {
+        title: 'Test ordering & billing',
+        description: 'Lab test orders, bill generation and real-time payment tracking.',
+        icon: ReceiptText,
+        metrics: [
+            { label: 'Orders', value: '8,105', delta: '+8.5%' },
+            { label: 'Billed (LKR M)', value: '24.2', delta: '+15.2%' },
+            { label: 'Fully paid', value: '92%', delta: '+1.1%' },
+            { label: 'Partial', value: '142' },
+        ],
+    },
+    {
+        title: 'Sample lifecycle',
+        description: 'Tracks the process from sample collection to accessioning.',
+        icon: Droplets,
+        metrics: [
+            { label: 'Collected', value: '12,504', delta: '+6.1%' },
+            { label: 'Accessioned', value: '12,480', delta: '+6.4%' },
+            { label: 'Rejected', value: '42', delta: '-12%' },
+            { label: 'In transit', value: '1,102' },
+        ],
+    },
+    {
+        title: 'Laboratory processing',
+        description: 'MLT result entry, abnormal flagging and analyser sync.',
+        icon: Microscope,
+        metrics: [
+            { label: 'Results', value: '11,940', delta: '+9.2%' },
+            { label: 'Analysed', value: '85%', delta: '+1.5%' },
+            { label: 'Abnormal', value: '940' },
+            { label: 'Turnaround', value: '4.2h', delta: '-0.5h' },
+        ],
+    },
+    {
+        title: 'Verification & authorisation',
+        description: 'Technical verification by supervisors and pathologist authorisation.',
+        icon: ShieldCheck,
+        metrics: [
+            { label: 'Verified', value: '11,850', delta: '+8.4%' },
+            { label: 'Authorised', value: '11,802', delta: '+8.8%' },
+            { label: 'Pending', value: '342', delta: '-4.5%' },
+            { label: 'Recalled', value: '12' },
+        ],
+    },
+    {
+        title: 'Report dispatch',
+        description: 'Distribution of finalised reports via email, SMS and portal.',
+        icon: Send,
+        metrics: [
+            { label: 'Dispatched', value: '11,800', delta: '+9.1%' },
+            { label: 'Email sent', value: '9,450' },
+            { label: 'SMS alerts', value: '11,500' },
+            { label: 'Failures', value: '24', delta: '-12%' },
+        ],
+    },
+];
+
+/**
+ * Branch filter options. `value` is the stored filter key (also feeds the demo
+ * noise maths) and must not change; `label` is the sentence-case display copy.
+ */
+const BRANCHES = [
+    { value: 'All Branches', label: 'All branches' },
+    { value: 'Colombo Main', label: 'Colombo main branch' },
+    { value: 'Kandy Regional', label: 'Kandy regional centre' },
+    { value: 'Galle Outpost', label: 'Galle outpost' },
+];
+
+/** Parse a yyyy-mm-dd input value as a local date (avoids UTC day shifts). */
+function parseInputDate(value: string): Date | null {
+    const [y, m, d] = value.split('-').map(Number);
+    if (!y || !m || !d) return null;
+    return new Date(y, m - 1, d);
+}
+
+/** Date-only label for a report period — never a relative "Today HH:MM" timestamp. */
+function formatDay(d: Date | null): string {
+    return d ? d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+}
+
+function MetricDelta({ delta }: { delta: string }) {
+    const up = !delta.startsWith('-');
+    const Icon = up ? ArrowUpRight : ArrowDownRight;
+    return (
+        <span className="inline-flex items-center gap-0.5 text-[11px] text-fg-secondary tabular-nums">
+            <Icon className="h-3 w-3 shrink-0" aria-hidden="true" />
+            <span className="sr-only">{up ? 'Up' : 'Down'} </span>
+            {delta.replace(/^[+-]/, '')}
+        </span>
+    );
+}
 
 export default function SuperadminReportsPage() {
     const [startDate, setStartDate] = useState("2023-10-01");
@@ -73,7 +217,7 @@ export default function SuperadminReportsPage() {
             })));
 
             setPieData([
-                { name: 'Pathology', value: Math.floor(45 + noise * 20), color: '#1277E1' },
+                { name: 'Pathology', value: Math.floor(45 + noise * 20), color: 'var(--color-primary)' },
                 { name: 'Radiology', value: Math.floor(25 + noise * 10), color: '#a855f7' },
                 { name: 'General', value: Math.floor(15 + noise * 15), color: '#f59e0b' },
             ]);
@@ -94,15 +238,36 @@ export default function SuperadminReportsPage() {
                         <head>
                             <title>System_Report_${startDate}_to_${endDate}</title>
                             <script src="https://cdn.tailwindcss.com"></script>
-                            <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+                            <script>
+                                /* Light-theme values for the semantic colour classes used by the report markup */
+                                tailwind.config = { theme: { extend: { colors: {
+                                    canvas: '#f6f7f8',
+                                    surface: { DEFAULT: '#ffffff', muted: '#f8fafc', hover: '#f1f5f9' },
+                                    skeleton: '#f1f5f9',
+                                    edge: { DEFAULT: '#e2e8f0', strong: '#cbd5e1' },
+                                    fg: { DEFAULT: '#0f172a', secondary: '#334155', muted: '#64748b', faint: '#94a3b8' },
+                                    primary: { DEFAULT: '#137fec', strong: '#0b5fc2', soft: 'rgba(19, 127, 236, 0.08)' },
+                                    status: {
+                                        pending: { DEFAULT: '#f59e0b', bg: '#fffbeb', fg: '#b45309', edge: '#fde68a' },
+                                        verified: { DEFAULT: '#10b981', bg: '#ecfdf5', fg: '#047857', edge: '#a7f3d0' },
+                                        danger: { DEFAULT: '#ef4444', bg: '#fef2f2', fg: '#b91c1c', edge: '#fecaca' },
+                                    },
+                                } } } };
+                            </script>
                             <style>
+                                /* Light-theme values for the design tokens the charts reference */
+                                :root {
+                                    --color-primary: #137fec; --primary-soft: rgba(19, 127, 236, 0.08);
+                                    --surface: #ffffff; --edge: #e2e8f0; --edge-strong: #cbd5e1;
+                                    --fg: #0f172a; --fg-secondary: #334155; --fg-muted: #64748b; --fg-faint: #94a3b8;
+                                }
                                 @media print {
                                     @page { size: A4 landscape; margin: 10mm; }
                                     body { -webkit-print-color-adjust: exact; print-color-adjust: exact; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif; background: #f8fafc; }
                                     /* Hide interactive elements in print */
-                                    select, input, button, .data-html2canvas-ignore { display: none !important; }
+                                    select, input, button, [data-print-hide], .data-html2canvas-ignore { display: none !important; }
                                 }
-                                body { background: #f8fafc; padding: 20px; }
+                                body { background: #f8fafc; padding: 20px; color: #0f172a; }
                                 svg { max-width: 100%; height: auto; }
                             </style>
                         </head>
@@ -169,508 +334,258 @@ export default function SuperadminReportsPage() {
         XLSX.writeFile(workbook, `Cross_Branch_Report_${startDate}_to_${endDate}.xlsx`);
     };
 
+    const periodLabel = `${formatDay(parseInputDate(startDate))} – ${formatDay(parseInputDate(endDate))}`;
+    const branchLabel = BRANCHES.find((b) => b.value === selectedBranch)?.label ?? selectedBranch;
+    const pieTotal = pieData.reduce((acc, curr) => acc + curr.value, 0);
+    const barTotal = barData.reduce((acc, curr) => acc + curr.revenue, 0);
+    const barPeak = barData.reduce((best, curr) => (curr.revenue > best.revenue ? curr : best), barData[0]);
+
     return (
-        <div className="w-full bg-[#f8fafc] min-h-[calc(100vh-76px)] p-8 font-sans" ref={reportRef}>
+        <div className="mx-auto w-full max-w-[1400px]">
+            <div ref={reportRef}>
+                {/* Inside reportRef so the exported PDF carries the disclaimer too. */}
+                <DemoDataBanner note="Demo data — cross-branch figures are simulated from the selected branch and period; this screen is not yet connected to a live reporting backend." />
 
-            {/* Breadcrumb & Header */}
-            <div className="mb-8">
-                <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 mb-2">
-                    <span className="hover:text-[#0f172a] cursor-pointer transition-colors">Home</span>
-                    <span className="text-[10px] opacity-50">/</span>
-                    <span className="hover:text-[#0f172a] cursor-pointer transition-colors">Reports</span>
-                    <span className="text-[10px] opacity-50">/</span>
-                    <span className="text-[#0f172a] font-bold">System-wide</span>
-                </div>
-                <h1 className="text-2xl font-extrabold text-[#0f172a] tracking-tight">Cross-Branch Reports</h1>
-                <p className="text-[13px] font-medium text-[#64748b] mt-1">Aggregated performance and transactional data across all operating branches.</p>
-            </div>
-
-            {/* Filter Bar */}
-            <div className="bg-white border text-sm border-[#ecf0f6] shadow-sm rounded-2xl p-4 flex flex-col xl:flex-row xl:items-center justify-between gap-4 mb-6">
-
-                <div className="flex flex-col md:flex-row items-center gap-4 flex-1 flex-wrap">
-
-                    {/* Branch Filter */}
-                    <div className="flex flex-col gap-1.5 w-full md:w-[260px]">
-                        <label className="text-[10px] font-extrabold text-[#94a3b8] uppercase tracking-widest pl-1">BRANCH</label>
-                        <div className="relative">
-                            <select
-                                value={selectedBranch}
-                                onChange={(e) => setSelectedBranch(e.target.value)}
-                                className="w-full appearance-none bg-[#f8fafc] border border-[transparent] hover:border-[#ecf0f6] text-[#0f172a] font-bold py-3 pl-4 pr-10 rounded-xl focus:outline-none transition-all cursor-pointer text-[13px]"
-                            >
-                                <option value="All Branches">All Branches</option>
-                                <option value="Colombo Main">Colombo Main Branch</option>
-                                <option value="Kandy Regional">Kandy Regional Center</option>
-                                <option value="Galle Outpost">Galle Outpost</option>
-                            </select>
-                            <span className="material-icons absolute right-4 top-1/2 -translate-y-1/2 text-[#94a3b8] pointer-events-none text-lg">expand_more</span>
+                <PageHeader
+                    title="Cross-branch reports"
+                    crumbs={[{ label: "Super admin", href: "/superadmin" }, { label: "Cross-branch reports" }]}
+                    meta={
+                        <>
+                            <Building2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                            <span>{branchLabel}</span>
+                            <span aria-hidden="true">·</span>
+                            <CalendarRange className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                            <span>{periodLabel}</span>
+                        </>
+                    }
+                    actions={
+                        <div className="flex flex-wrap items-center gap-2" data-print-hide="true" data-html2canvas-ignore="true">
+                            <Button icon={FileText} onClick={handleExportPDF} loading={isExporting}>
+                                {isExporting ? 'Generating…' : 'Export PDF'}
+                            </Button>
+                            <Button icon={FileSpreadsheet} onClick={handleExportExcel}>
+                                Export Excel
+                            </Button>
                         </div>
-                    </div>
+                    }
+                />
 
-                    <div className="flex flex-col gap-1.5 w-full md:w-[320px]">
-                        <label className="text-[10px] font-extrabold text-[#94a3b8] uppercase tracking-widest pl-1">DATE RANGE</label>
-                        <div className="flex items-center gap-2">
-                            <input
-                                type="date"
-                                value={startDate}
-                                onChange={(e) => setStartDate(e.target.value)}
-                                className="w-1/2 bg-[#f8fafc] border border-[transparent] hover:border-[#ecf0f6] text-[#0f172a] font-bold py-2.5 px-3 rounded-xl focus:outline-none transition-all cursor-pointer text-[12px]"
-                            />
-                            <span className="text-[#94a3b8] font-bold">-</span>
-                            <input
-                                type="date"
-                                value={endDate}
-                                onChange={(e) => setEndDate(e.target.value)}
-                                className="w-1/2 bg-[#f8fafc] border border-[transparent] hover:border-[#ecf0f6] text-[#0f172a] font-bold py-2.5 px-3 rounded-xl focus:outline-none transition-all cursor-pointer text-[12px]"
-                            />
-                        </div>
-                    </div>
+                {/* Screen-reader status for filter changes */}
+                <p role="status" aria-live="polite" className="sr-only">
+                    {isExporting ? 'Generating PDF report' : `Showing ${branchLabel}, ${periodLabel}.`}
+                </p>
 
-                    {/* Category */}
-                    <div className="flex flex-col gap-1.5 w-full md:w-[220px]">
-                        <label className="text-[10px] font-extrabold text-[#94a3b8] uppercase tracking-widest pl-1">CATEGORY</label>
-                        <div className="relative">
-                            <select className="w-full appearance-none bg-[#f8fafc] border border-[transparent] hover:border-[#ecf0f6] text-[#0f172a] font-bold py-3 pl-4 pr-10 rounded-xl focus:outline-none transition-all cursor-pointer text-[13px]">
-                                <option>All Categories</option>
-                                <option>Pathology</option>
-                                <option>Radiology</option>
-                            </select>
-                            <span className="material-icons absolute right-4 top-1/2 -translate-y-1/2 text-[#94a3b8] pointer-events-none text-lg">expand_more</span>
-                        </div>
-                    </div>
-
-                    {/* Payment Status */}
-                    <div className="flex flex-col gap-1.5 w-full md:w-[220px]">
-                        <label className="text-[10px] font-extrabold text-[#94a3b8] uppercase tracking-widest pl-1">PAYMENT STATUS</label>
-                        <div className="relative">
-                            <select className="w-full appearance-none bg-[#f8fafc] border border-[transparent] hover:border-[#ecf0f6] text-[#0f172a] font-bold py-3 pl-4 pr-10 rounded-xl focus:outline-none transition-all cursor-pointer text-[13px]">
-                                <option>All Statuses</option>
-                                <option>Paid</option>
-                                <option>Pending</option>
-                            </select>
-                            <span className="material-icons absolute right-4 top-1/2 -translate-y-1/2 text-[#94a3b8] pointer-events-none text-lg">expand_more</span>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Export Buttons */}
-                <div className="flex items-center gap-3 self-end xl:self-center mt-4 xl:mt-0 xl:pt-5" data-html2canvas-ignore="true">
-                    <button
-                        onClick={handleExportPDF}
-                        disabled={isExporting}
-                        className={`flex items-center justify-center gap-2 bg-white border border-[#ecf0f6] text-[#0f172a] px-5 py-2.5 rounded-xl font-bold shadow-sm text-[13px] ${isExporting ? 'opacity-50 cursor-wait' : 'hover:bg-[#f8fafc] transition-colors'}`}
+                {/* Filter toolbar */}
+                <div
+                    data-print-hide="true"
+                    className="mb-5 flex flex-wrap items-end gap-2 rounded-lg border border-edge bg-surface-muted px-3 py-2"
+                >
+                    <SelectField
+                        label="Branch"
+                        value={selectedBranch}
+                        onChange={(e) => setSelectedBranch(e.target.value)}
+                        className="w-full sm:w-52"
                     >
-                        {isExporting ? (
-                            <span className="material-icons text-[#94a3b8] text-[18px] animate-spin">sync</span>
-                        ) : (
-                            <span className="material-icons text-[#ef4444] text-[18px]">picture_as_pdf</span>
-                        )}
-                        {isExporting ? 'Generating...' : 'PDF'}
-                    </button>
-                    <button
-                        onClick={handleExportExcel}
-                        className="flex items-center justify-center gap-2 bg-white border border-[#ecf0f6] hover:bg-[#f8fafc] text-[#0f172a] px-5 py-2.5 rounded-xl font-bold transition-colors shadow-sm text-[13px]"
-                    >
-                        <span className="material-icons text-[#22c55e] text-[18px]">table_view</span>
-                        Excel
-                    </button>
-                </div>
-            </div>
-
-            {/* KPIs Row */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-6">
-
-                {/* Total Patients */}
-                <div className="bg-white rounded-2xl p-6 border border-[#ecf0f6] shadow-sm flex flex-col justify-between">
-                    <div className="flex justify-between items-start mb-6">
-                        <span className="text-[13px] font-extrabold text-[#64748b]">Total Patients</span>
-                        <div className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center text-blue-500">
-                            <span className="material-icons text-[16px]">people</span>
-                        </div>
-                    </div>
-                    <div>
-                        <div className="flex items-end gap-2 mb-1">
-                            <span className="text-[28px] font-extrabold text-[#0f172a] leading-none">{kpis.patients}</span>
-                            <span className={`text-[12px] font-bold mb-1 ${kpis.pChange >= 0 ? 'text-[#16a34a]' : 'text-[#dc2626]'}`}>
-                                {kpis.pChange >= 0 ? '+' : ''}{kpis.pChange}%
-                            </span>
-                        </div>
-                        <span className="text-[11px] font-medium text-[#94a3b8]">vs. previous period</span>
-                    </div>
-                </div>
-
-                {/* Test Orders */}
-                <div className="bg-white rounded-2xl p-6 border border-[#ecf0f6] shadow-sm flex flex-col justify-between">
-                    <div className="flex justify-between items-start mb-6">
-                        <span className="text-[13px] font-extrabold text-[#64748b]">Test Orders</span>
-                        <div className="w-8 h-8 rounded-full bg-purple-50 flex items-center justify-center text-purple-500">
-                            <span className="material-icons text-[16px]">biotech</span>
-                        </div>
-                    </div>
-                    <div>
-                        <div className="flex items-end gap-2 mb-1">
-                            <span className="text-[28px] font-extrabold text-[#0f172a] leading-none">{kpis.orders}</span>
-                            <span className={`text-[12px] font-bold mb-1 ${kpis.oChange >= 0 ? 'text-[#16a34a]' : 'text-[#dc2626]'}`}>
-                                {kpis.oChange >= 0 ? '+' : ''}{kpis.oChange}%
-                            </span>
-                        </div>
-                        <span className="text-[11px] font-medium text-[#94a3b8]">Total tests performed</span>
-                    </div>
-                </div>
-
-                {/* Revenue */}
-                <div className="bg-white rounded-2xl p-6 border border-[#ecf0f6] shadow-sm flex flex-col justify-between">
-                    <div className="flex justify-between items-start mb-6">
-                        <span className="text-[13px] font-extrabold text-[#64748b]">Revenue</span>
-                        <div className="w-8 h-8 rounded-full bg-emerald-50 flex items-center justify-center text-emerald-500">
-                            <span className="material-icons text-[16px]">payments</span>
-                        </div>
-                    </div>
-                    <div>
-                        <div className="flex items-end gap-2 mb-1">
-                            <span className="text-[28px] font-extrabold text-[#0f172a] leading-none tracking-tight">LKR {kpis.revenue}M</span>
-                            <span className={`text-[12px] font-bold mb-1 ${kpis.rChange >= 0 ? 'text-[#16a34a]' : 'text-[#dc2626]'}`}>
-                                {kpis.rChange >= 0 ? '+' : ''}{kpis.rChange}%
-                            </span>
-                        </div>
-                        <span className="text-[11px] font-medium text-[#94a3b8]">Net collection</span>
-                    </div>
-                </div>
-
-                {/* Pending Reports */}
-                <div className="bg-white rounded-2xl p-6 border border-[#ecf0f6] shadow-sm flex flex-col justify-between">
-                    <div className="flex justify-between items-start mb-6">
-                        <span className="text-[13px] font-extrabold text-[#64748b]">Pending Reports</span>
-                        <div className="w-8 h-8 rounded-full bg-orange-50 flex items-center justify-center text-orange-500">
-                            <span className="material-icons text-[16px]">timer</span>
-                        </div>
-                    </div>
-                    <div>
-                        <div className="flex items-end gap-2 mb-1">
-                            <span className="text-[28px] font-extrabold text-[#0f172a] leading-none">{kpis.pending}</span>
-                            <span className={`text-[12px] font-bold mb-1 ${kpis.peChange >= 0 ? 'text-[#16a34a]' : 'text-[#dc2626]'}`}>
-                                {kpis.peChange >= 0 ? '+' : ''}{kpis.peChange}%
-                            </span>
-                        </div>
-                        <span className="text-[11px] font-medium text-[#94a3b8]">Awaiting verification</span>
-                    </div>
-                </div>
-
-            </div>
-
-            {/* Charts Row */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-                {/* Revenue Trend (Bar Chart) - takes 66% */}
-                <div className="lg:col-span-2 bg-white rounded-2xl p-6 border border-[#ecf0f6] shadow-sm h-[400px] flex flex-col">
-                    <div className="flex justify-between items-center mb-6">
-                        <h2 className="text-[15px] font-extrabold text-[#0f172a]">Revenue Trend</h2>
-                        <span className="text-[11px] font-bold bg-[#f1f5f9] text-[#64748b] px-3 py-1.5 rounded-lg border border-[#e2e8f0]">Last 30 Days</span>
-                    </div>
-                    <div className="flex-1 w-full mt-2">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={barData} barSize={42}>
-                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                                <XAxis
-                                    dataKey="name"
-                                    axisLine={false}
-                                    tickLine={false}
-                                    tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 700 }}
-                                    dy={10}
-                                />
-                                <YAxis hide={true} />
-                                <Tooltip
-                                    cursor={{ fill: 'transparent' }}
-                                    contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                                    itemStyle={{ color: '#0f172a', fontWeight: 'bold' }}
-                                />
-                                <Bar dataKey="revenue" radius={[4, 4, 0, 0]}>
-                                    {barData.map((entry, index) => (
-                                        <Cell key={`cell-${index}`} fill={entry.revenue < 10000 ? '#bae6fd' : entry.revenue < 20000 ? '#7dd3fc' : '#38bdf8'} />
-                                    ))}
-                                </Bar>
-                            </BarChart>
-                        </ResponsiveContainer>
-                    </div>
-                </div>
-
-                {/* Revenue by Category (Donut Chart) - takes 33% */}
-                <div className="bg-white rounded-2xl p-6 border border-[#ecf0f6] shadow-sm h-[400px] flex flex-col">
-                    <h2 className="text-[15px] font-extrabold text-[#0f172a] mb-4">Revenue by Category</h2>
-
-                    <div className="flex-1 relative flex items-center justify-center min-h-[200px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <PieChart>
-                                <Pie
-                                    data={pieData}
-                                    innerRadius={70}
-                                    outerRadius={95}
-                                    paddingAngle={5}
-                                    dataKey="value"
-                                    stroke="none"
-                                >
-                                    {pieData.map((entry, index) => (
-                                        <Cell key={`cell-${index}`} fill={entry.color} />
-                                    ))}
-                                </Pie>
-                                <Tooltip
-                                    contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                                    itemStyle={{ color: '#0f172a', fontWeight: 'bold' }}
-                                />
-                            </PieChart>
-                        </ResponsiveContainer>
-                        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                            <span className="text-[22px] font-extrabold text-[#0f172a]">
-                                {pieData.reduce((acc, curr) => acc + curr.value, 0)}%
-                            </span>
-                            <span className="text-[9px] font-extrabold text-[#94a3b8] uppercase tracking-widest mt-1">LAB TESTS</span>
-                        </div>
-                    </div>
-
-                    {/* Custom Legend */}
-                    <div className="mt-6 flex flex-col gap-3">
-                        {pieData.map((item) => (
-                            <div key={item.name} className="flex justify-between items-center">
-                                <div className="flex items-center gap-2">
-                                    <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: item.color }}></div>
-                                    <span className="text-[13px] font-semibold text-[#64748b]">{item.name}</span>
-                                </div>
-                                <span className="text-[13px] font-extrabold text-[#0f172a]">{item.value}%</span>
-                            </div>
+                        {BRANCHES.map((b) => (
+                            <option key={b.value} value={b.value}>
+                                {b.label}
+                            </option>
                         ))}
-                    </div>
+                    </SelectField>
+                    <InputField
+                        label="From"
+                        type="date"
+                        value={startDate}
+                        onChange={(e) => setStartDate(e.target.value)}
+                        className="w-full sm:w-40"
+                    />
+                    <InputField
+                        label="To"
+                        type="date"
+                        value={endDate}
+                        onChange={(e) => setEndDate(e.target.value)}
+                        className="w-full sm:w-40"
+                    />
+                    <SelectField label="Category" className="w-full sm:w-44">
+                        <option>All categories</option>
+                        <option>Pathology</option>
+                        <option>Radiology</option>
+                    </SelectField>
+                    <SelectField label="Payment status" className="w-full sm:w-44">
+                        <option>All statuses</option>
+                        <option>Paid</option>
+                        <option>Pending</option>
+                    </SelectField>
                 </div>
 
-            </div>
-
-            {/* System Module Performance Details */}
-            <div className="mt-6 mb-8">
-                <div className="flex items-center justify-between mb-6">
-                    <div>
-                        <h2 className="text-[18px] font-extrabold text-[#0f172a] tracking-tight">System Module Performance Details</h2>
-                        <p className="text-[13px] font-medium text-[#64748b] mt-0.5">Comprehensive tracking across the complete laboratory execution lifecycle.</p>
-                    </div>
+                {/* KPIs */}
+                <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    <KpiTile
+                        label="Total patients"
+                        value={kpis.patients}
+                        icon={Users}
+                        delta={{ value: kpis.pChange, label: 'vs previous period' }}
+                    />
+                    <KpiTile
+                        label="Test orders"
+                        value={kpis.orders}
+                        icon={FlaskConical}
+                        delta={{ value: kpis.oChange, label: 'vs previous period · tests performed' }}
+                    />
+                    <KpiTile
+                        label="Revenue"
+                        value={`LKR ${kpis.revenue}M`}
+                        icon={Banknote}
+                        delta={{ value: kpis.rChange, label: 'vs previous period · net collection' }}
+                    />
+                    <KpiTile
+                        label="Pending reports"
+                        value={kpis.pending}
+                        icon={Clock3}
+                        tone="warning"
+                        delta={{ value: kpis.peChange, label: 'vs previous period · awaiting verification' }}
+                    />
                 </div>
 
-                <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                {/* Charts */}
+                <div className="mb-5 grid grid-cols-1 gap-4 lg:grid-cols-3">
+                    <SectionCard
+                        title="Revenue trend"
+                        className="lg:col-span-2"
+                        actions={<span className="text-xs text-fg-muted">Last 30 days</span>}
+                        bodyClassName="px-2 pb-2 pt-3"
+                    >
+                        <figure className="m-0">
+                            <figcaption className="sr-only">
+                                {`Revenue trend for ${branchLabel}, ${periodLabel}: LKR ${barTotal.toLocaleString()} in total, peak ${
+                                    barPeak.name || 'mid-period'
+                                } with LKR ${barPeak.revenue.toLocaleString()}.`}
+                            </figcaption>
+                            <div className="h-72" aria-hidden="true">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart
+                                        data={barData}
+                                        margin={{ top: 4, right: 8, left: 8, bottom: 0 }}
+                                        accessibilityLayer={false}
+                                    >
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--edge)" />
+                                        <XAxis
+                                            dataKey="name"
+                                            axisLine={false}
+                                            tickLine={false}
+                                            tick={{ fill: 'var(--fg-muted)', fontSize: 11 }}
+                                            dy={10}
+                                        />
+                                        <YAxis hide={true} />
+                                        <Tooltip
+                                            cursor={{ fill: 'var(--primary-soft)' }}
+                                            contentStyle={CHART_TOOLTIP_STYLE}
+                                            itemStyle={{ color: 'var(--fg)' }}
+                                            labelStyle={{ color: 'var(--fg-muted)' }}
+                                            formatter={(value) => [`LKR ${Number(value).toLocaleString()}`, 'Revenue']}
+                                        />
+                                        <Bar dataKey="revenue" radius={[4, 4, 0, 0]} maxBarSize={42} name="Revenue">
+                                            {barData.map((entry, index) => (
+                                                <Cell
+                                                    key={`cell-${index}`}
+                                                    fill="var(--color-primary)"
+                                                    fillOpacity={entry.revenue < 10000 ? 0.45 : entry.revenue < 20000 ? 0.7 : 1}
+                                                />
+                                            ))}
+                                        </Bar>
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            </div>
+                        </figure>
+                    </SectionCard>
 
-                    {/* 1. Patient Management */}
-                    <div className="bg-white rounded-2xl border border-[#ecf0f6] shadow-sm flex flex-col overflow-hidden">
-                        <div className="p-5 flex justify-between items-center border-b border-[#ecf0f6] bg-blue-50/50">
-                            <div className="flex items-center gap-4">
-                                <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center shadow-sm">
-                                    <span className="material-icons">account_circle</span>
-                                </div>
-                                <div>
-                                    <h3 className="text-[14px] font-extrabold text-[#0f172a] uppercase tracking-wider">Patient Management</h3>
-                                    <p className="text-[11px] font-medium text-[#64748b] mt-0.5 leading-snug">Handles registration, duplicate detection, OTP verification, and profiles.</p>
-                                </div>
-                            </div>
-                        </div>
-                        <div className="p-5 grid grid-cols-2 sm:grid-cols-4 gap-4 divide-x divide-[#ecf0f6]">
-                            <div className="flex flex-col gap-1 pl-2">
-                                <span className="text-[10px] font-extrabold text-[#64748b] uppercase tracking-widest">New Reg.</span>
-                                <span className="text-[18px] font-extrabold text-[#0f172a]">1,245</span>
-                                <span className="text-[10px] font-bold text-[#16a34a]">+12.4%</span>
-                            </div>
-                            <div className="flex flex-col gap-1 pl-4">
-                                <span className="text-[10px] font-extrabold text-[#64748b] uppercase tracking-widest">Searches</span>
-                                <span className="text-[18px] font-extrabold text-[#0f172a]">15,820</span>
-                                <span className="text-[10px] font-bold text-[#16a34a]">+5.2%</span>
-                            </div>
-                            <div className="flex flex-col gap-1 pl-4">
-                                <span className="text-[10px] font-extrabold text-[#64748b] uppercase tracking-widest">OTP Sent</span>
-                                <span className="text-[18px] font-extrabold text-[#0f172a]">8,412</span>
-                            </div>
-                            <div className="flex flex-col gap-1 pl-4">
-                                <span className="text-[10px] font-extrabold text-[#64748b] uppercase tracking-widest">Duplicates</span>
-                                <span className="text-[18px] font-extrabold text-[#0f172a]">34</span>
-                                <span className="text-[10px] font-bold text-[#dc2626]">-2.1%</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* 2. Test Ordering and Billing */}
-                    <div className="bg-white rounded-2xl border border-[#ecf0f6] shadow-sm flex flex-col overflow-hidden">
-                        <div className="p-5 flex justify-between items-center border-b border-[#ecf0f6] bg-emerald-50/50">
-                            <div className="flex items-center gap-4">
-                                <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center shadow-sm">
-                                    <span className="material-icons">receipt_long</span>
-                                </div>
-                                <div>
-                                    <h3 className="text-[14px] font-extrabold text-[#0f172a] uppercase tracking-wider">Test Ordering & Billing</h3>
-                                    <p className="text-[11px] font-medium text-[#64748b] mt-0.5 leading-snug">Lab test orders, bill generation, and real-time payment tracking.</p>
+                    <SectionCard title="Revenue by category" bodyClassName="flex flex-col">
+                        <figure className="m-0 flex flex-1 flex-col">
+                            <figcaption className="sr-only">
+                                {`Revenue by category: ${pieData.map((p) => `${p.name} ${p.value}%`).join(', ')}.`}
+                            </figcaption>
+                            <div className="relative h-56" aria-hidden="true">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <PieChart accessibilityLayer={false}>
+                                        <Pie
+                                            data={pieData}
+                                            innerRadius="62%"
+                                            outerRadius="85%"
+                                            paddingAngle={5}
+                                            dataKey="value"
+                                            stroke="var(--surface)"
+                                            rootTabIndex={-1}
+                                        >
+                                            {pieData.map((entry, index) => (
+                                                <Cell key={`cell-${index}`} fill={entry.color} />
+                                            ))}
+                                        </Pie>
+                                        <Tooltip
+                                            contentStyle={CHART_TOOLTIP_STYLE}
+                                            itemStyle={{ color: 'var(--fg)' }}
+                                            formatter={(value, name) => [`${value}%`, name]}
+                                        />
+                                    </PieChart>
+                                </ResponsiveContainer>
+                                <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+                                    <span className="text-[22px] font-semibold leading-none tabular-nums text-fg">{pieTotal}%</span>
+                                    <span className="mt-1 text-[11px] text-fg-muted">Lab tests</span>
                                 </div>
                             </div>
-                        </div>
-                        <div className="p-5 grid grid-cols-2 sm:grid-cols-4 gap-4 divide-x divide-[#ecf0f6]">
-                            <div className="flex flex-col gap-1 pl-2">
-                                <span className="text-[10px] font-extrabold text-[#64748b] uppercase tracking-widest">Orders</span>
-                                <span className="text-[18px] font-extrabold text-[#0f172a]">8,105</span>
-                                <span className="text-[10px] font-bold text-[#16a34a]">+8.5%</span>
-                            </div>
-                            <div className="flex flex-col gap-1 pl-4">
-                                <span className="text-[10px] font-extrabold text-[#64748b] uppercase tracking-widest">Billed (M)</span>
-                                <span className="text-[18px] font-extrabold text-[#0f172a]">24.2</span>
-                                <span className="text-[10px] font-bold text-[#16a34a]">+15.2%</span>
-                            </div>
-                            <div className="flex flex-col gap-1 pl-4">
-                                <span className="text-[10px] font-extrabold text-[#64748b] uppercase tracking-widest">Fully Paid</span>
-                                <span className="text-[18px] font-extrabold text-[#0f172a]">92%</span>
-                                <span className="text-[10px] font-bold text-[#16a34a]">+1.1%</span>
-                            </div>
-                            <div className="flex flex-col gap-1 pl-4">
-                                <span className="text-[10px] font-extrabold text-[#64748b] uppercase tracking-widest">Partial</span>
-                                <span className="text-[18px] font-extrabold text-[#0f172a]">142</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* 3. Sample Lifecycle Management */}
-                    <div className="bg-white rounded-2xl border border-[#ecf0f6] shadow-sm flex flex-col overflow-hidden">
-                        <div className="p-5 flex justify-between items-center border-b border-[#ecf0f6] bg-orange-50/50">
-                            <div className="flex items-center gap-4">
-                                <div className="w-10 h-10 rounded-xl bg-orange-100 text-orange-600 flex items-center justify-center shadow-sm">
-                                    <span className="material-icons">bloodtype</span>
-                                </div>
-                                <div>
-                                    <h3 className="text-[14px] font-extrabold text-[#0f172a] uppercase tracking-wider">Sample Lifecycle Mgt.</h3>
-                                    <p className="text-[11px] font-medium text-[#64748b] mt-0.5 leading-snug">Tracks process from Sample Collection to Accessioning.</p>
-                                </div>
-                            </div>
-                        </div>
-                        <div className="p-5 grid grid-cols-2 sm:grid-cols-4 gap-4 divide-x divide-[#ecf0f6]">
-                            <div className="flex flex-col gap-1 pl-2">
-                                <span className="text-[10px] font-extrabold text-[#64748b] uppercase tracking-widest">Collected</span>
-                                <span className="text-[18px] font-extrabold text-[#0f172a]">12,504</span>
-                                <span className="text-[10px] font-bold text-[#16a34a]">+6.1%</span>
-                            </div>
-                            <div className="flex flex-col gap-1 pl-4">
-                                <span className="text-[10px] font-extrabold text-[#64748b] uppercase tracking-widest">Accessioned</span>
-                                <span className="text-[18px] font-extrabold text-[#0f172a]">12,480</span>
-                                <span className="text-[10px] font-bold text-[#16a34a]">+6.4%</span>
-                            </div>
-                            <div className="flex flex-col gap-1 pl-4">
-                                <span className="text-[10px] font-extrabold text-[#64748b] uppercase tracking-widest">Rejected</span>
-                                <span className="text-[18px] font-extrabold text-[#0f172a]">42</span>
-                                <span className="text-[10px] font-bold text-[#16a34a]">-12%</span>
-                            </div>
-                            <div className="flex flex-col gap-1 pl-4">
-                                <span className="text-[10px] font-extrabold text-[#64748b] uppercase tracking-widest">In-Transit</span>
-                                <span className="text-[18px] font-extrabold text-[#0f172a]">1,102</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* 4. Laboratory Processing (MLT Testing) */}
-                    <div className="bg-white rounded-2xl border border-[#ecf0f6] shadow-sm flex flex-col overflow-hidden">
-                        <div className="p-5 flex justify-between items-center border-b border-[#ecf0f6] bg-purple-50/50">
-                            <div className="flex items-center gap-4">
-                                <div className="w-10 h-10 rounded-xl bg-purple-100 text-purple-600 flex items-center justify-center shadow-sm">
-                                    <span className="material-icons">science</span>
-                                </div>
-                                <div>
-                                    <h3 className="text-[14px] font-extrabold text-[#0f172a] uppercase tracking-wider">Laboratory Processing</h3>
-                                    <p className="text-[11px] font-medium text-[#64748b] mt-0.5 leading-snug">MLT Result Entry, Abnormal Flagging, and Analyzer Sync.</p>
-                                </div>
-                            </div>
-                        </div>
-                        <div className="p-5 grid grid-cols-2 sm:grid-cols-4 gap-4 divide-x divide-[#ecf0f6]">
-                            <div className="flex flex-col gap-1 pl-2">
-                                <span className="text-[10px] font-extrabold text-[#64748b] uppercase tracking-widest">Results</span>
-                                <span className="text-[18px] font-extrabold text-[#0f172a]">11,940</span>
-                                <span className="text-[10px] font-bold text-[#16a34a]">+9.2%</span>
-                            </div>
-                            <div className="flex flex-col gap-1 pl-4">
-                                <span className="text-[10px] font-extrabold text-[#64748b] uppercase tracking-widest">Analyzed</span>
-                                <span className="text-[18px] font-extrabold text-[#0f172a]">85%</span>
-                                <span className="text-[10px] font-bold text-[#16a34a]">+1.5%</span>
-                            </div>
-                            <div className="flex flex-col gap-1 pl-4">
-                                <span className="text-[10px] font-extrabold text-[#64748b] uppercase tracking-widest">Abnormal</span>
-                                <span className="text-[18px] font-extrabold text-[#0f172a]">940</span>
-                            </div>
-                            <div className="flex flex-col gap-1 pl-4">
-                                <span className="text-[10px] font-extrabold text-[#64748b] uppercase tracking-widest">Time (h)</span>
-                                <span className="text-[18px] font-extrabold text-[#0f172a]">4.2h</span>
-                                <span className="text-[10px] font-bold text-[#16a34a]">-0.5h</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* 5. Verification and Authorization */}
-                    <div className="bg-white rounded-2xl border border-[#ecf0f6] shadow-sm flex flex-col overflow-hidden">
-                        <div className="p-5 flex justify-between items-center border-b border-[#ecf0f6] bg-indigo-50/50">
-                            <div className="flex items-center gap-4">
-                                <div className="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center shadow-sm">
-                                    <span className="material-icons">verified_user</span>
-                                </div>
-                                <div>
-                                    <h3 className="text-[14px] font-extrabold text-[#0f172a] uppercase tracking-wider">Verification & Auth.</h3>
-                                    <p className="text-[11px] font-medium text-[#64748b] mt-0.5 leading-snug">Technical Verification by Supervisors and Pathologist Auth.</p>
-                                </div>
-                            </div>
-                        </div>
-                        <div className="p-5 grid grid-cols-2 sm:grid-cols-4 gap-4 divide-x divide-[#ecf0f6]">
-                            <div className="flex flex-col gap-1 pl-2">
-                                <span className="text-[10px] font-extrabold text-[#64748b] uppercase tracking-widest">Verified</span>
-                                <span className="text-[18px] font-extrabold text-[#0f172a]">11,850</span>
-                                <span className="text-[10px] font-bold text-[#16a34a]">+8.4%</span>
-                            </div>
-                            <div className="flex flex-col gap-1 pl-4">
-                                <span className="text-[10px] font-extrabold text-[#64748b] uppercase tracking-widest">Authd.</span>
-                                <span className="text-[18px] font-extrabold text-[#0f172a]">11,802</span>
-                                <span className="text-[10px] font-bold text-[#16a34a]">+8.8%</span>
-                            </div>
-                            <div className="flex flex-col gap-1 pl-4">
-                                <span className="text-[10px] font-extrabold text-[#64748b] uppercase tracking-widest">Pending</span>
-                                <span className="text-[18px] font-extrabold text-[#0f172a]">342</span>
-                                <span className="text-[10px] font-bold text-[#16a34a]">-4.5%</span>
-                            </div>
-                            <div className="flex flex-col gap-1 pl-4">
-                                <span className="text-[10px] font-extrabold text-[#64748b] uppercase tracking-widest">Recalled</span>
-                                <span className="text-[18px] font-extrabold text-[#0f172a]">12</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* 6. Report Dispatch and Delivery */}
-                    <div className="bg-white rounded-2xl border border-[#ecf0f6] shadow-sm flex flex-col overflow-hidden">
-                        <div className="p-5 flex justify-between items-center border-b border-[#ecf0f6] bg-teal-50/50">
-                            <div className="flex items-center gap-4">
-                                <div className="w-10 h-10 rounded-xl bg-teal-100 text-teal-600 flex items-center justify-center shadow-sm">
-                                    <span className="material-icons">send</span>
-                                </div>
-                                <div>
-                                    <h3 className="text-[14px] font-extrabold text-[#0f172a] uppercase tracking-wider">Report Dispatch</h3>
-                                    <p className="text-[11px] font-medium text-[#64748b] mt-0.5 leading-snug">Distribution of finalized reports via Email, SMS, & Portal.</p>
-                                </div>
-                            </div>
-                        </div>
-                        <div className="p-5 grid grid-cols-2 sm:grid-cols-4 gap-4 divide-x divide-[#ecf0f6]">
-                            <div className="flex flex-col gap-1 pl-2">
-                                <span className="text-[10px] font-extrabold text-[#64748b] uppercase tracking-widest">Dispatched</span>
-                                <span className="text-[18px] font-extrabold text-[#0f172a]">11,800</span>
-                                <span className="text-[10px] font-bold text-[#16a34a]">+9.1%</span>
-                            </div>
-                            <div className="flex flex-col gap-1 pl-4">
-                                <span className="text-[10px] font-extrabold text-[#64748b] uppercase tracking-widest">Email Sent</span>
-                                <span className="text-[18px] font-extrabold text-[#0f172a]">9,450</span>
-                            </div>
-                            <div className="flex flex-col gap-1 pl-4">
-                                <span className="text-[10px] font-extrabold text-[#64748b] uppercase tracking-widest">SMS Alerts</span>
-                                <span className="text-[18px] font-extrabold text-[#0f172a]">11,500</span>
-                            </div>
-                            <div className="flex flex-col gap-1 pl-4">
-                                <span className="text-[10px] font-extrabold text-[#64748b] uppercase tracking-widest">Failures</span>
-                                <span className="text-[18px] font-extrabold text-[#0f172a]">24</span>
-                                <span className="text-[10px] font-bold text-[#16a34a]">-12%</span>
-                            </div>
-                        </div>
-                    </div>
-
+                            <ul className="mt-4 flex flex-col gap-2">
+                                {pieData.map((item) => (
+                                    <li key={item.name} className="flex items-center justify-between gap-2 text-[13px]">
+                                        <span className="flex min-w-0 items-center gap-2 text-fg-secondary">
+                                            <span
+                                                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                                                style={{ backgroundColor: item.color }}
+                                                aria-hidden="true"
+                                            />
+                                            <span className="truncate">{item.name}</span>
+                                        </span>
+                                        <span className="font-semibold tabular-nums text-fg">{item.value}%</span>
+                                    </li>
+                                ))}
+                            </ul>
+                        </figure>
+                    </SectionCard>
                 </div>
+
+                {/* Module performance */}
+                <section aria-labelledby="module-performance-heading">
+                    <div className="mb-3">
+                        <h2 id="module-performance-heading" className="text-base font-semibold tracking-tight text-fg">
+                            Module performance
+                        </h2>
+                        <p className="mt-0.5 text-xs text-fg-muted">Tracking across the complete laboratory execution lifecycle.</p>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                        {MODULE_PANELS.map((panel) => {
+                            const Icon = panel.icon;
+                            return (
+                                <SectionCard
+                                    key={panel.title}
+                                    title={panel.title}
+                                    actions={<Icon className="h-5 w-5 text-fg-faint" aria-hidden="true" />}
+                                >
+                                    <p className="mb-3 text-xs text-fg-muted">{panel.description}</p>
+                                    <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
+                                        {panel.metrics.map((m) => (
+                                            <div key={m.label} className="min-w-0">
+                                                <dt className="text-xs leading-tight text-fg-muted">{m.label}</dt>
+                                                <dd className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5">
+                                                    <span className="text-lg font-semibold leading-none tabular-nums text-fg">{m.value}</span>
+                                                    {m.delta && <MetricDelta delta={m.delta} />}
+                                                </dd>
+                                            </div>
+                                        ))}
+                                    </dl>
+                                </SectionCard>
+                            );
+                        })}
+                    </div>
+                </section>
             </div>
         </div>
     );

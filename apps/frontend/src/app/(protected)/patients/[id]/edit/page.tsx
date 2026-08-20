@@ -2,9 +2,44 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
+import { AlertTriangle, ArrowLeft, RefreshCw } from "lucide-react";
 import { updatePatient } from "@/lib/api";
+import Button from "@/components/ui/Button";
+import PageHeader from "@/components/ui/PageHeader";
+import { FormSection, InputField, SelectField, TextareaField } from "@/components/ui/Field";
+import EmptyState from "@/components/ui/EmptyState";
+import { formatRegistered, parsePatientCreatedAt } from "@/components/patient-dashboard/dashboard-data";
 import { usePatient } from "../PatientProvider";
+
+/** Read-only controls: keep them focusable/copyable but visually muted. */
+const READONLY_FIELD = "[&_input]:bg-surface-muted [&_input]:text-fg-muted";
+
+function EditPatientSkeleton() {
+    return (
+        <div className="mx-auto max-w-5xl" role="status" aria-live="polite" aria-busy="true">
+            <span className="sr-only">Loading patient…</span>
+            <div className="mb-5 space-y-2">
+                <div className="h-6 w-40 animate-pulse rounded bg-skeleton" />
+                <div className="h-4 w-64 animate-pulse rounded bg-skeleton" />
+            </div>
+            <div className="space-y-4">
+                {[8, 6, 2].map((fields, i) => (
+                    <div key={i} className="rounded-lg border border-edge bg-surface p-4 sm:p-5">
+                        <div className="mb-4 h-4 w-36 animate-pulse rounded bg-skeleton" />
+                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                            {Array.from({ length: fields }).map((_, j) => (
+                                <div key={j} className="space-y-1">
+                                    <div className="h-3 w-24 animate-pulse rounded bg-skeleton" />
+                                    <div className="h-9 w-full animate-pulse rounded-md bg-skeleton" />
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+}
 
 export default function EditPatientPage() {
     const { patient, loading, error, refresh } = usePatient();
@@ -56,22 +91,40 @@ export default function EditPatientPage() {
     }, [patient]);
 
     if (loading) {
-        return (
-            <div className="flex justify-center items-center py-12">
-                <span className="material-icons animate-spin text-primary text-3xl">sync</span>
-            </div>
-        );
+        return <EditPatientSkeleton />;
     }
 
     if (error || !patient) {
         return (
-            <div className="p-8 text-center bg-red-50 text-red-600 rounded-xl border border-red-200">
-                {error || "Patient not found."}
+            <div className="mx-auto max-w-5xl">
+                <PageHeader title="Edit patient" />
+                <div className="rounded-lg border border-edge bg-surface">
+                    <p role="alert" className="sr-only">
+                        {error || "Patient not found."}
+                    </p>
+                    <EmptyState
+                        icon={AlertTriangle}
+                        title="Couldn't load patient"
+                        description={error || "Patient not found."}
+                        action={
+                            <div className="flex flex-wrap items-center justify-center gap-2">
+                                <Button variant="primary" icon={RefreshCw} onClick={() => refresh()}>
+                                    Retry
+                                </Button>
+                                <Button href="/patients" icon={ArrowLeft}>
+                                    Back to patients
+                                </Button>
+                            </div>
+                        }
+                    />
+                </div>
             </div>
         );
     }
 
     const patientParamId = patient.id || patient.patientId;
+    const profileHref = `/patients/${patientParamId}`;
+    const patientName = `${patient.firstName || ""} ${patient.lastName || ""}`.trim();
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
         const { name, value } = e.target;
@@ -86,7 +139,7 @@ export default function EditPatientPage() {
         try {
             await updatePatient(patient.id as string, formData);
             await refresh(); // Refresh context
-            router.push(`/patients/${patientParamId}`); // Redirect back to profile
+            router.push(profileHref); // Redirect back to profile
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
         } catch (err: any) {
             console.error("Failed to update patient", err);
@@ -97,272 +150,190 @@ export default function EditPatientPage() {
     };
 
     return (
-        <div className="pb-12">
-            <div className="mb-6">
-                <Link
-                    href={`/patients/${patientParamId}`}
-                    className="inline-flex items-center text-sm font-medium text-slate-500 hover:text-primary transition-colors mb-4"
-                >
-                    <span className="material-icons text-base mr-1">arrow_back</span>
-                    Back to Patient Profile
-                </Link>
-                <div className="flex items-end gap-3">
-                    <h1 className="text-2xl font-bold text-slate-900">Edit Patient Details</h1>
-                    <p className="text-lg text-slate-400 mb-0.5">/ {patientParamId} - {patient.firstName} {patient.lastName}</p>
-                </div>
-            </div>
+        <div className="mx-auto max-w-5xl">
+            <PageHeader
+                title="Edit patient"
+                meta={
+                    <>
+                        <span className="tabular-nums">{patientParamId}</span>
+                        {patientName && (
+                            <>
+                                <span aria-hidden="true">·</span>
+                                <span className="text-fg-secondary">{patientName}</span>
+                            </>
+                        )}
+                    </>
+                }
+                actions={
+                    <Button href={profileHref} icon={ArrowLeft}>
+                        Back to profile
+                    </Button>
+                }
+            />
 
             {saveError && (
-                <div className="mb-6 p-4 bg-red-50 text-red-600 border border-red-200 rounded-lg text-sm">
-                    {saveError}
+                <div
+                    role="alert"
+                    className="mb-4 flex items-start gap-2 rounded-lg border border-status-danger-edge bg-status-danger-bg px-3 py-2.5 text-sm text-status-danger-fg"
+                >
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span>{saveError}</span>
                 </div>
             )}
 
-            <form onSubmit={handleSubmit} className="space-y-6">
-                <section className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-                    <div className="flex items-center gap-2 mb-6 pb-2 border-b border-slate-100">
-                        <span className="material-symbols-outlined text-primary">person</span>
-                        <h2 className="text-base font-bold text-slate-900">Basic Information</h2>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-3 gap-6">
-                            <div className="md:col-span-1">
-                                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Title</label>
-                                <select
-                                    name="title"
-                                    value={formData.title}
-                                    onChange={handleChange}
-                                    className="w-full rounded-lg border-slate-300 bg-white text-sm focus:ring-primary focus:border-primary"
-                                >
-                                    <option value="MR">Mr.</option>
-                                    <option value="MRS">Mrs.</option>
-                                    <option value="MS">Ms.</option>
-                                    <option value="MISS">Miss</option>
-                                    <option value="DR">Dr.</option>
-                                    <option value="PROF">Prof.</option>
-                                    <option value="REV">Rev.</option>
-                                </select>
-                            </div>
-                            <div className="md:col-span-1">
-                                <label className="block text-sm font-semibold text-slate-700 mb-1.5">First Name</label>
-                                <input
-                                    type="text"
-                                    name="firstName"
-                                    value={formData.firstName}
-                                    onChange={handleChange}
-                                    required
-                                    className="w-full rounded-lg border-slate-300 bg-white text-sm focus:ring-primary focus:border-primary"
-                                />
-                            </div>
-                            <div className="md:col-span-1">
-                                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Last Name</label>
-                                <input
-                                    type="text"
-                                    name="lastName"
-                                    value={formData.lastName}
-                                    onChange={handleChange}
-                                    required
-                                    className="w-full rounded-lg border-slate-300 bg-white text-sm focus:ring-primary focus:border-primary"
-                                />
-                            </div>
-                        </div>
-
-                        <div>
-                            <label className="block text-sm font-semibold text-slate-700 mb-1.5">Date of Birth</label>
-                            <input
-                                type="date"
-                                name="dob"
-                                value={formData.dob}
-                                onChange={handleChange}
-                                className="w-full rounded-lg border-slate-300 bg-white text-sm focus:ring-primary focus:border-primary"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-semibold text-slate-700 mb-1.5">Gender</label>
-                            <select
-                                name="gender"
-                                value={formData.gender}
-                                onChange={handleChange}
-                                className="w-full rounded-lg border-slate-300 bg-white text-sm focus:ring-primary focus:border-primary"
-                            >
-                                <option value="male">Male</option>
-                                <option value="female">Female</option>
-                                <option value="other">Other</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label className="block text-sm font-semibold text-slate-700 mb-1.5">NIC / Passport Number (Read-only)</label>
-                            <input
+            <form onSubmit={handleSubmit}>
+                <div className="space-y-4">
+                    <FormSection title="Basic information" description="Name, date of birth and identity details.">
+                        <div className="grid grid-cols-1 gap-4 sm:col-span-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_minmax(0,2fr)]">
+                            <SelectField label="Title" name="title" value={formData.title} onChange={handleChange}>
+                                <option value="MR">Mr.</option>
+                                <option value="MRS">Mrs.</option>
+                                <option value="MS">Ms.</option>
+                                <option value="MISS">Miss</option>
+                                <option value="DR">Dr.</option>
+                                <option value="PROF">Prof.</option>
+                                <option value="REV">Rev.</option>
+                            </SelectField>
+                            <InputField
+                                label="First name"
                                 type="text"
-                                value={formData.identityNumber || ""}
-                                readOnly
-                                className="w-full rounded-lg border-slate-200 bg-slate-100 text-sm text-slate-500 cursor-not-allowed"
+                                name="firstName"
+                                value={formData.firstName}
+                                onChange={handleChange}
+                                required
+                                autoComplete="given-name"
                             />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-semibold text-slate-700 mb-1.5">Blood Group</label>
-                            <select
-                                name="bloodGroup"
-                                value={formData.bloodGroup}
-                                onChange={handleChange}
-                                className="w-full rounded-lg border-slate-300 bg-white text-sm focus:ring-primary focus:border-primary"
-                            >
-                                <option value="">Select</option>
-                                <option value="A_POSITIVE">A+</option>
-                                <option value="A_NEGATIVE">A-</option>
-                                <option value="B_POSITIVE">B+</option>
-                                <option value="B_NEGATIVE">B-</option>
-                                <option value="O_POSITIVE">O+</option>
-                                <option value="O_NEGATIVE">O-</option>
-                                <option value="AB_POSITIVE">AB+</option>
-                                <option value="AB_NEGATIVE">AB-</option>
-                                <option value="UNKNOWN">Unknown</option>
-                            </select>
-                        </div>
-
-                        <div>
-                            <label className="block text-sm font-semibold text-slate-700 mb-1.5">Marital Status</label>
-                            <select
-                                name="maritalStatus"
-                                value={formData.maritalStatus}
-                                onChange={handleChange}
-                                className="w-full rounded-lg border-slate-300 bg-white text-sm focus:ring-primary focus:border-primary"
-                            >
-                                <option value="">Select</option>
-                                <option value="SINGLE">Single</option>
-                                <option value="MARRIED">Married</option>
-                                <option value="DIVORCED">Divorced</option>
-                                <option value="WIDOWED">Widowed</option>
-                                <option value="OTHER">Other</option>
-                            </select>
-                        </div>
-
-                        <div>
-                            <label className="block text-sm font-semibold text-slate-700 mb-1.5">Nationality</label>
-                            <input
+                            <InputField
+                                label="Last name"
                                 type="text"
-                                name="nationality"
-                                value={formData.nationality}
+                                name="lastName"
+                                value={formData.lastName}
                                 onChange={handleChange}
-                                className="w-full rounded-lg border-slate-300 bg-white text-sm focus:ring-primary focus:border-primary"
+                                required
+                                autoComplete="family-name"
                             />
                         </div>
-                    </div>
-                </section>
 
-                <section className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-                    <div className="flex items-center gap-2 mb-6 pb-2 border-b border-slate-100">
-                        <span className="material-symbols-outlined text-primary">contact_phone</span>
-                        <h2 className="text-base font-bold text-slate-900">Contact Details</h2>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div>
-                            <label className="block text-sm font-semibold text-slate-700 mb-1.5">Phone Number</label>
-                            <input
-                                type="tel"
-                                name="phoneNumber"
-                                value={formData.phoneNumber}
-                                onChange={handleChange}
-                                className="w-full rounded-lg border-slate-300 bg-white text-sm focus:ring-primary focus:border-primary"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-semibold text-slate-700 mb-1.5">Alternative Phone / Home</label>
-                            <input
-                                type="tel"
-                                name="alternatePhone"
-                                value={formData.alternatePhone}
-                                onChange={handleChange}
-                                className="w-full rounded-lg border-slate-300 bg-white text-sm focus:ring-primary focus:border-primary"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-semibold text-slate-700 mb-1.5">Email Address</label>
-                            <input
-                                type="email"
-                                name="email"
-                                value={formData.email}
-                                onChange={handleChange}
-                                className="w-full rounded-lg border-slate-300 bg-white text-sm focus:ring-primary focus:border-primary"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-semibold text-slate-700 mb-1.5">Emergency Contact Name</label>
-                            <input
-                                type="text"
-                                name="contactPersonName"
-                                value={formData.contactPersonName}
-                                onChange={handleChange}
-                                placeholder="Name of contact person"
-                                className="w-full rounded-lg border-slate-300 bg-white text-sm focus:ring-primary focus:border-primary"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-semibold text-slate-700 mb-1.5">Emergency Contact Phone</label>
-                            <input
-                                type="tel"
-                                name="contactPersonPhone"
-                                value={formData.contactPersonPhone}
-                                onChange={handleChange}
-                                placeholder="+94 7X XXX XXXX"
-                                className="w-full rounded-lg border-slate-300 bg-white text-sm focus:ring-primary focus:border-primary"
-                            />
-                        </div>
-                        <div className="md:col-span-2">
-                            <label className="block text-sm font-semibold text-slate-700 mb-1.5">Residential Address</label>
-                            <textarea
-                                name="address"
-                                value={formData.address}
-                                onChange={handleChange}
-                                rows={3}
-                                className="w-full rounded-lg border-slate-300 bg-white text-sm focus:ring-primary focus:border-primary"
-                            />
-                        </div>
-                    </div>
-                </section>
+                        <InputField label="Date of birth" type="date" name="dob" value={formData.dob} onChange={handleChange} />
 
-                <section className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-                    <div className="flex items-center gap-2 mb-6 pb-2 border-b border-slate-100">
-                        <span className="material-symbols-outlined text-primary">settings_applications</span>
-                        <h2 className="text-base font-bold text-slate-900">System Information</h2>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div>
-                            <label className="block text-sm font-semibold text-slate-700 mb-1.5">Patient ID</label>
-                            <input
-                                type="text"
-                                value={patient.patientId || patient.id}
-                                disabled
-                                className="w-full rounded-lg border-slate-200 bg-slate-100 text-sm text-slate-500 cursor-not-allowed"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-semibold text-slate-700 mb-1.5">Registration Date</label>
-                            <input
-                                type="text"
-                                value={patient.createdAt ? new Date(patient.createdAt).toLocaleDateString() : ""}
-                                disabled
-                                className="w-full rounded-lg border-slate-200 bg-slate-100 text-sm text-slate-500 cursor-not-allowed"
-                            />
-                        </div>
-                    </div>
-                </section>
+                        <SelectField label="Gender" name="gender" value={formData.gender} onChange={handleChange}>
+                            <option value="male">Male</option>
+                            <option value="female">Female</option>
+                            <option value="other">Other</option>
+                        </SelectField>
 
-                <div className="flex items-center justify-end gap-4 pt-6">
-                    <Link
-                        href={`/patients/${patientParamId}`}
-                        className="px-6 py-2.5 rounded-lg border border-slate-300 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
-                    >
-                        Cancel
-                    </Link>
-                    <button
-                        type="submit"
-                        disabled={isSaving}
-                        className="px-8 py-2.5 rounded-lg bg-primary hover:bg-primary/90 text-white text-sm font-semibold shadow-sm transition-all disabled:opacity-50 flex items-center gap-2"
-                    >
-                        {isSaving ? <span className="material-icons animate-spin text-sm">sync</span> : null}
-                        {isSaving ? "Saving..." : "Save Changes"}
-                    </button>
+                        <InputField
+                            label="NIC / passport number"
+                            type="text"
+                            value={formData.identityNumber || ""}
+                            readOnly
+                            aria-readonly="true"
+                            hint="Read-only. Identity numbers can't be changed here."
+                            className={READONLY_FIELD}
+                        />
+
+                        <SelectField label="Blood group" name="bloodGroup" value={formData.bloodGroup} onChange={handleChange}>
+                            <option value="">Select</option>
+                            <option value="A_POSITIVE">A+</option>
+                            <option value="A_NEGATIVE">A-</option>
+                            <option value="B_POSITIVE">B+</option>
+                            <option value="B_NEGATIVE">B-</option>
+                            <option value="O_POSITIVE">O+</option>
+                            <option value="O_NEGATIVE">O-</option>
+                            <option value="AB_POSITIVE">AB+</option>
+                            <option value="AB_NEGATIVE">AB-</option>
+                            <option value="UNKNOWN">Unknown</option>
+                        </SelectField>
+
+                        <SelectField label="Marital status" name="maritalStatus" value={formData.maritalStatus} onChange={handleChange}>
+                            <option value="">Select</option>
+                            <option value="SINGLE">Single</option>
+                            <option value="MARRIED">Married</option>
+                            <option value="DIVORCED">Divorced</option>
+                            <option value="WIDOWED">Widowed</option>
+                            <option value="OTHER">Other</option>
+                        </SelectField>
+
+                        <InputField
+                            label="Nationality"
+                            type="text"
+                            name="nationality"
+                            value={formData.nationality}
+                            onChange={handleChange}
+                            autoComplete="country-name"
+                        />
+                    </FormSection>
+
+                    <FormSection title="Contact details" description="How to reach the patient and who to call in an emergency.">
+                        <InputField
+                            label="Phone number"
+                            type="tel"
+                            name="phoneNumber"
+                            value={formData.phoneNumber}
+                            onChange={handleChange}
+                            autoComplete="tel"
+                            inputMode="tel"
+                        />
+                        <InputField
+                            label="Alternative phone / home"
+                            type="tel"
+                            name="alternatePhone"
+                            value={formData.alternatePhone}
+                            onChange={handleChange}
+                            inputMode="tel"
+                        />
+                        <InputField
+                            label="Email address"
+                            type="email"
+                            name="email"
+                            value={formData.email}
+                            onChange={handleChange}
+                            autoComplete="email"
+                            inputMode="email"
+                        />
+                        <InputField
+                            label="Emergency contact name"
+                            type="text"
+                            name="contactPersonName"
+                            value={formData.contactPersonName}
+                            onChange={handleChange}
+                            placeholder="Name of contact person"
+                        />
+                        <InputField
+                            label="Emergency contact phone"
+                            type="tel"
+                            name="contactPersonPhone"
+                            value={formData.contactPersonPhone}
+                            onChange={handleChange}
+                            placeholder="+94 7X XXX XXXX"
+                            inputMode="tel"
+                        />
+                        <TextareaField
+                            label="Residential address"
+                            name="address"
+                            value={formData.address}
+                            onChange={handleChange}
+                            rows={3}
+                            className="sm:col-span-2"
+                        />
+                    </FormSection>
+
+                    <FormSection title="System information" description="Assigned by the system and not editable.">
+                        <InputField label="Patient ID" type="text" value={patient.patientId || patient.id || ""} disabled />
+                        <InputField
+                            label="Registration date"
+                            type="text"
+                            value={formatRegistered(parsePatientCreatedAt(patient))}
+                            disabled
+                        />
+                    </FormSection>
+                </div>
+
+                <div className="sticky bottom-0 z-10 mt-6 flex items-center justify-end gap-2 border-t border-edge bg-canvas py-3">
+                    <Button href={profileHref}>Cancel</Button>
+                    <Button type="submit" variant="primary" loading={isSaving}>
+                        {isSaving ? "Saving…" : "Save changes"}
+                    </Button>
                 </div>
             </form>
         </div>
