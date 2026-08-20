@@ -84,6 +84,19 @@ The first three are content problems as much as code problems — several hundre
 names and fasting rules need clinical and linguistic sign-off. That work is the schedule
 critical path, not the code.
 
+## Phase 1 — landed
+
+- `test_package`, `test_package_item`, `test_catalog_i18n`, `test_package_i18n`; fasting
+  and prep columns on `test_catalog`
+- Bundle price stored, saving / fasting / turnaround derived — strictest rule wins
+- A package cannot be activated without a price or without tests; sample packages ship
+  inactive at zero
+- Translations are drafts until a clinical role reviews them; unreviewed rows are never
+  served and callers fall back to English with `translated=false`
+- Translation coverage endpoint returning the outstanding test codes, not just a percentage
+- `/api/v1/agent/**` under a dedicated `AGENT_READONLY` role, catalogue data only
+- `lims-agent` Keycloak client with a service account and no secret in the realm import
+
 ## Phase 0 — landed
 
 - Gradle build, Liquibase, observability and Docker conventions matched to the core service
