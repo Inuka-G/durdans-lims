@@ -41,4 +41,14 @@ public record MetaProperties(
     public boolean isSubscriptionConfigured() {
         return verifyToken != null && !verifyToken.isBlank();
     }
+
+    /**
+     * Whether outbound sends can be attempted at all. Same fail-closed posture as the
+     * webhook: with no access token or phone number id, the send path refuses locally
+     * instead of letting the Graph API reject a half-configured call.
+     */
+    public boolean isSendConfigured() {
+        return accessToken != null && !accessToken.isBlank()
+                && phoneNumberId != null && !phoneNumberId.isBlank();
+    }
 }

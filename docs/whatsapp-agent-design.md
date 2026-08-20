@@ -159,6 +159,29 @@ A caveat on `nip.io`: the hostname contains the IP address, so changing the Elas
 changes the webhook URL. Meta's callback URL is awkward to change — re-verification has
 a window where deliveries fail — so a real domain is worth having before launch.
 
+## Phase 2a — landed
+
+The outbound half of the platform, without the agent yet:
+
+- `MetaSendClient` — the one place that calls the Graph API. Thin by design: policy
+  and persistence stay out of it. Refuses locally when send credentials are absent,
+  masks long digit runs out of Graph error bodies before they can reach a log line
+  (the 6-digit error codes survive; echoed phone numbers do not)
+- `OutboundMessageService` — every send passes through here so the 24-hour window is
+  enforced in exactly one place. Outside the window it refuses and returns empty;
+  the template fallback is a later phase. The row is written after the Graph call
+  because `wamid` is NOT NULL UNIQUE and only Meta can mint one
+- Delivery receipts (`sent` / `delivered` / `read` / `failed`) applied to outbound
+  rows, forward-only by rank — a late `delivered` cannot walk back a `read`. A
+  `failed` receipt persists Meta's error code and detail on the row
+- First-touch auto-acknowledgement: a stored inbound message fires an AFTER_COMMIT
+  async event; the responder greets once per conversation per cooldown, gated by an
+  atomic UPDATE claim so two rapid messages cannot produce two greetings. A send
+  failure rolls the claim back, so the next inbound message retries it. Bilingual,
+  deliberately non-clinical, and replaced by the agent proper in the next slice
+- 22 new tests: unit over the client, policy, receipts and responder; Testcontainers
+  integration over the claim's concurrency contract and the receipt lifecycle
+
 ## Phase 1 — landed
 
 - `test_package`, `test_package_item`, `test_catalog_i18n`, `test_package_i18n`; fasting

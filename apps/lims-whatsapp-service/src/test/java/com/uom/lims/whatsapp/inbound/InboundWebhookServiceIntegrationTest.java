@@ -138,7 +138,7 @@ class InboundWebhookServiceIntegrationTest extends AbstractIntegrationTest {
         WebhookPayload.Value statusOnly = new WebhookPayload.Value(
                 "whatsapp", new WebhookPayload.Metadata("+94112345678", "phone-id"),
                 null, null,
-                List.of(new WebhookPayload.Status("wamid.GGG", "delivered", "1755600600", WA_ID)));
+                List.of(new WebhookPayload.Status("wamid.GGG", "delivered", "1755600600", WA_ID, null)));
         WebhookPayload payload = new WebhookPayload("whatsapp_business_account",
                 List.of(new WebhookPayload.Entry("waba-id",
                         List.of(new WebhookPayload.Change("messages", statusOnly)))));

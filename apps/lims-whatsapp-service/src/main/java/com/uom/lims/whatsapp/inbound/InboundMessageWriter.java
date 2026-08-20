@@ -9,10 +9,12 @@ import com.uom.lims.whatsapp.domain.WaConversationEntity;
 import com.uom.lims.whatsapp.domain.WaConversationRepository;
 import com.uom.lims.whatsapp.domain.WaMessageEntity;
 import com.uom.lims.whatsapp.domain.WaMessageRepository;
+import com.uom.lims.whatsapp.reply.InboundMessageStoredEvent;
 import com.uom.lims.whatsapp.util.PiiMasker;
 import com.uom.lims.whatsapp.webhook.WebhookPayload;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
@@ -37,6 +39,7 @@ public class InboundMessageWriter {
     private final WaContactRepository contactRepository;
     private final WaConversationRepository conversationRepository;
     private final WaMessageRepository messageRepository;
+    private final ApplicationEventPublisher events;
 
     /**
      * @return true if the message was newly stored, false if it was a redelivery
@@ -75,6 +78,12 @@ public class InboundMessageWriter {
 
         conversation.registerInbound(receivedAt);
         conversationRepository.save(conversation);
+
+        // Published inside this transaction so AFTER_COMMIT listeners fire only once the
+        // message is durable. Replying is their problem; storing was ours.
+        events.publishEvent(new InboundMessageStoredEvent(
+                entity.getId(), conversation.getId(), message.from(),
+                entity.getBody(), entity.getMessageType()));
 
         log.info("Stored inbound {} message from {} {}",
                 entity.getMessageType(),
