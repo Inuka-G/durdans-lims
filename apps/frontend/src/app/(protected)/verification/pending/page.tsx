@@ -7,6 +7,7 @@ import {
     ChevronDown,
     ClipboardCheck,
     Clock,
+    ListChecks,
     RefreshCw,
     Search,
     ShieldCheck,
@@ -24,15 +25,13 @@ import EmptyState from '@/components/ui/EmptyState';
 import SegmentedControl from '@/components/ui/SegmentedControl';
 import StatusChip, { type ChipTone } from '@/components/ui/StatusChip';
 import Pagination from '@/components/ui/Pagination';
-import { InputField } from '@/components/ui/Field';
+import { InputField, SelectField } from '@/components/ui/Field';
 import StatCard from '@/components/shared/StatCard';
 import PriorityBadge from '@/components/shared/PriorityBadge';
 import { formatAuditTime } from '@/components/patient-dashboard/dashboard-data';
 
 const PAGE_SIZE = 10;
 const SKELETON_ROWS = 6;
-
-type StatusFilter = 'ALL' | 'PENDING' | 'RETURNED_TO_SUPERVISOR' | 'CRITICAL';
 
 /** Any non-normal analyte flag needs supervisor attention. */
 const hasCriticalTriage = (result: TestResultSummary) => {
@@ -42,6 +41,118 @@ const hasCriticalTriage = (result: TestResultSummary) => {
     const flag = result.flag?.toUpperCase();
     return Boolean(flag && flag !== 'NORMAL');
 };
+
+/** Panic-range findings only, so "Critical" stays a strict subset of "Flagged". */
+const hasCriticalRange = (result: TestResultSummary) => {
+    if (result.hasCriticalFinding === true) {
+        return true;
+    }
+    const flag = result.flag?.toUpperCase();
+    return flag === 'CRITICAL_HIGH' || flag === 'CRITICAL_LOW';
+};
+
+type StatusFilter = 'ALL' | 'PENDING' | 'RETURNED_TO_SUPERVISOR';
+type PriorityFilter = 'ALL' | 'STAT' | 'URGENT' | 'NORMAL';
+type FlagFilter = 'ALL' | 'CRITICAL' | 'FLAGGED' | 'NORMAL';
+
+interface FilterCriteria {
+    search: string;
+    status: StatusFilter;
+    priority: PriorityFilter;
+    flag: FlagFilter;
+}
+
+const matchesSearchQuery = (result: TestResultSummary, query: string) => {
+    if (query.length === 0) {
+        return true;
+    }
+
+    const displayResultId = formatDisplayId(result.resultId, 'RES').toLowerCase();
+
+    return (
+        result.resultId.toLowerCase().includes(query) ||
+        displayResultId.includes(query) ||
+        (result.patientCode ?? '').toLowerCase().includes(query) ||
+        (result.patientName ?? '').toLowerCase().includes(query) ||
+        (result.testType ?? '').toLowerCase().includes(query) ||
+        (result.mltName ?? result.technicianName ?? '').toLowerCase().includes(query) ||
+        (result.priorityLevel ?? '').toLowerCase().includes(query) ||
+        (result.flag ?? '').toLowerCase().includes(query)
+    );
+};
+
+const matchesStatusFilter = (result: TestResultSummary, status: StatusFilter) => {
+    if (status === 'ALL') {
+        return true;
+    }
+
+    if (status === 'PENDING') {
+        return result.status === 'ENTERED';
+    }
+
+    return result.status === 'RETURNED_FOR_RECHECK';
+};
+
+const matchesPriorityFilter = (result: TestResultSummary, priority: PriorityFilter) =>
+    priority === 'ALL' || (result.priorityLevel ?? '').toUpperCase() === priority;
+
+const matchesFlagFilter = (result: TestResultSummary, flag: FlagFilter) => {
+    if (flag === 'ALL') {
+        return true;
+    }
+
+    if (flag === 'CRITICAL') {
+        return hasCriticalRange(result);
+    }
+
+    if (flag === 'FLAGGED') {
+        return hasCriticalTriage(result);
+    }
+
+    return !hasCriticalTriage(result);
+};
+
+const filterResults = (results: TestResultSummary[], criteria: FilterCriteria) =>
+    results.filter(
+        (result) =>
+            matchesSearchQuery(result, criteria.search) &&
+            matchesStatusFilter(result, criteria.status) &&
+            matchesPriorityFilter(result, criteria.priority) &&
+            matchesFlagFilter(result, criteria.flag)
+    );
+
+type FilterOption<T extends string> = { value: T; label: string; count: number };
+
+const buildFilterOptions = <T extends string>(
+    scope: TestResultSummary[],
+    options: ReadonlyArray<{ value: T; label: string }>,
+    matches: (result: TestResultSummary, value: T) => boolean
+): FilterOption<T>[] =>
+    options.map((option) => ({
+        value: option.value,
+        label: option.label,
+        count: scope.filter((result) => matches(result, option.value)).length
+    }));
+
+const STATUS_FILTER_OPTIONS: ReadonlyArray<{ value: StatusFilter; label: string }> = [
+    { value: 'ALL', label: 'All' },
+    { value: 'PENDING', label: 'Pending' },
+    { value: 'RETURNED_TO_SUPERVISOR', label: 'Returned' }
+];
+
+const PRIORITY_FILTER_OPTIONS: ReadonlyArray<{ value: PriorityFilter; label: string }> = [
+    { value: 'ALL', label: 'All priorities' },
+    { value: 'STAT', label: 'STAT' },
+    { value: 'URGENT', label: 'Urgent' },
+    { value: 'NORMAL', label: 'Normal' }
+];
+
+const FLAG_FILTER_OPTIONS: ReadonlyArray<{ value: FlagFilter; label: string }> = [
+    { value: 'ALL', label: 'All flags' },
+    { value: 'CRITICAL', label: 'Critical' },
+    { value: 'FLAGGED', label: 'Flagged' },
+    { value: 'NORMAL', label: 'Normal' }
+];
 
 const RESULT_FLAG_CONFIG: Record<string, { label: string; tone: ChipTone }> = {
     NORMAL: { label: 'NORMAL', tone: 'neutral' },
@@ -126,16 +237,14 @@ const getVerificationLabel = (status?: string | null) => {
 const getVerificationTone = (status?: string | null): ChipTone =>
     status === 'RETURNED_FOR_RECHECK' ? 'pending' : 'info';
 
-const CHECKBOX_CLASS =
-    'h-4 w-4 shrink-0 rounded border-edge-strong accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-50';
-
 export default function PendingVerificationPage() {
     const router = useRouter();
     const pathname = usePathname();
     const [results, setResults] = useState<TestResultSummary[]>([]);
     const [searchQuery, setSearchQuery] = useState('');
     const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
-    const [selectedIds, setSelectedIds] = useState<string[]>([]);
+    const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>('ALL');
+    const [flagFilter, setFlagFilter] = useState<FlagFilter>('ALL');
     const [expandedReason, setExpandedReason] = useState<string | null>(null);
     const [currentPage, setCurrentPage] = useState(1);
     const [totalElements, setTotalElements] = useState(0);
@@ -155,7 +264,6 @@ export default function PendingVerificationPage() {
             setTotalElements(response.totalElements ?? 0);
             setTotalPages(Math.max(response.totalPages ?? 1, 1));
             setIsLastPage(response.last ?? true);
-            setSelectedIds([]);
             setExpandedReason(null);
         } catch (loadError) {
             console.error('Failed to load pending verification results', loadError);
@@ -164,7 +272,6 @@ export default function PendingVerificationPage() {
             setTotalElements(0);
             setTotalPages(1);
             setIsLastPage(true);
-            setSelectedIds([]);
         } finally {
             setLoading(false);
         }
@@ -174,58 +281,66 @@ export default function PendingVerificationPage() {
         void loadPendingResults();
     }, [loadPendingResults, pathname]);
 
-    const filteredResults = useMemo(() => {
-        const query = searchQuery.trim().toLowerCase();
+    const criteria = useMemo<FilterCriteria>(
+        () => ({
+            search: searchQuery.trim().toLowerCase(),
+            status: statusFilter,
+            priority: priorityFilter,
+            flag: flagFilter
+        }),
+        [searchQuery, statusFilter, priorityFilter, flagFilter]
+    );
 
-        return results.filter((result) => {
-            const displayResultId = formatDisplayId(result.resultId, 'RES').toLowerCase();
-            const matchesSearch =
-                query.length === 0 ||
-                result.resultId.toLowerCase().includes(query) ||
-                displayResultId.includes(query) ||
-                (result.patientCode ?? '').toLowerCase().includes(query) ||
-                (result.patientName ?? '').toLowerCase().includes(query) ||
-                (result.testType ?? '').toLowerCase().includes(query) ||
-                (result.mltName ?? result.technicianName ?? '').toLowerCase().includes(query) ||
-                (result.priorityLevel ?? '').toLowerCase().includes(query) ||
-                (result.flag ?? '').toLowerCase().includes(query);
+    const filteredResults = useMemo(() => filterResults(results, criteria), [results, criteria]);
 
-            const matchesStatus =
-                statusFilter === 'ALL' ||
-                (statusFilter === 'PENDING' && result.status === 'ENTERED') ||
-                (statusFilter === 'RETURNED_TO_SUPERVISOR' &&
-                    result.status === 'RETURNED_FOR_RECHECK') ||
-                (statusFilter === 'CRITICAL' && hasCriticalTriage(result));
+    // Each filter counts against the rows the other two filters and the search already allow,
+    // so an option's number is what picking it would actually show.
+    const statusOptions = useMemo(
+        () =>
+            buildFilterOptions(
+                filterResults(results, { ...criteria, status: 'ALL' }),
+                STATUS_FILTER_OPTIONS,
+                matchesStatusFilter
+            ),
+        [results, criteria]
+    );
 
-            return matchesSearch && matchesStatus;
-        });
-    }, [results, searchQuery, statusFilter]);
+    const priorityOptions = useMemo(
+        () =>
+            buildFilterOptions(
+                filterResults(results, { ...criteria, priority: 'ALL' }),
+                PRIORITY_FILTER_OPTIONS,
+                matchesPriorityFilter
+            ),
+        [results, criteria]
+    );
+
+    const flagOptions = useMemo(
+        () =>
+            buildFilterOptions(
+                filterResults(results, { ...criteria, flag: 'ALL' }),
+                FLAG_FILTER_OPTIONS,
+                matchesFlagFilter
+            ),
+        [results, criteria]
+    );
 
     const totalPending = results.filter((result) => result.status === 'ENTERED').length;
     const returnedToSupervisorCount = results.filter(
         (result) => result.status === 'RETURNED_FOR_RECHECK'
     ).length;
-    const criticalPending = results.filter((result) => hasCriticalTriage(result)).length;
-    const isFiltering = searchQuery.trim().length > 0 || statusFilter !== 'ALL';
+    const criticalPending = results.filter((result) => hasCriticalRange(result)).length;
+    const isFiltering =
+        searchQuery.trim().length > 0 ||
+        statusFilter !== 'ALL' ||
+        priorityFilter !== 'ALL' ||
+        flagFilter !== 'ALL';
 
-    const allVisibleSelected =
-        filteredResults.length > 0 && filteredResults.every((result) => selectedIds.includes(result.resultId));
-
-    const handleToggleSelectAll = () => {
-        if (allVisibleSelected) {
-            setSelectedIds([]);
-            return;
-        }
-
-        setSelectedIds(filteredResults.map((result) => result.resultId));
-    };
-
-    const handleToggleSelectOne = (resultId: string) => {
-        setSelectedIds((previous) =>
-            previous.includes(resultId)
-                ? previous.filter((id) => id !== resultId)
-                : [...previous, resultId]
-        );
+    const handleClearFilters = () => {
+        setSearchQuery('');
+        setStatusFilter('ALL');
+        setPriorityFilter('ALL');
+        setFlagFilter('ALL');
     };
 
     const handleReview = (resultId: string) => {
@@ -241,13 +356,6 @@ export default function PendingVerificationPage() {
         }
         setCurrentPage(Math.min(Math.max(page, 1), totalPages));
     };
-
-    const filterOptions: { value: StatusFilter; label: string; count: number }[] = [
-        { value: 'ALL', label: 'All', count: results.length },
-        { value: 'PENDING', label: 'Pending', count: totalPending },
-        { value: 'RETURNED_TO_SUPERVISOR', label: 'Returned', count: returnedToSupervisorCount },
-        { value: 'CRITICAL', label: 'Critical', count: criticalPending }
-    ];
 
     const showFooter = !error && (loading || results.length > 0);
 
@@ -271,15 +379,20 @@ export default function PendingVerificationPage() {
                     </>
                 }
                 actions={
-                    <Button
-                        icon={RefreshCw}
-                        onClick={() => {
-                            void loadPendingResults();
-                        }}
-                        loading={loading && results.length > 0}
-                    >
-                        Refresh
-                    </Button>
+                    <>
+                        <Button href="/verification/bulk-approval" icon={ListChecks}>
+                            Bulk approval
+                        </Button>
+                        <Button
+                            icon={RefreshCw}
+                            onClick={() => {
+                                void loadPendingResults();
+                            }}
+                            loading={loading && results.length > 0}
+                        >
+                            Refresh
+                        </Button>
+                    </>
                 }
             />
 
@@ -289,7 +402,7 @@ export default function PendingVerificationPage() {
                     ? 'Loading pending verification results'
                     : error
                       ? 'Pending verification results failed to load'
-                      : `Showing ${filteredResults.length} of ${results.length} results on page ${currentPage} of ${totalPages}.${selectedIds.length > 0 ? ` ${selectedIds.length} selected.` : ''}`}
+                      : `Showing ${filteredResults.length} of ${results.length} results on page ${currentPage} of ${totalPages}.`}
             </p>
 
             {/* Stat row — counts reflect the results on the current page */}
@@ -321,17 +434,43 @@ export default function PendingVerificationPage() {
             </div>
 
             <SectionCard title="Results" count={totalElements.toLocaleString()} flush>
-                {/* Filter toolbar */}
+                {/* Filter toolbar — status, priority and flag narrow the same page of results */}
                 <div className="flex flex-wrap items-center gap-2 border-b border-edge bg-surface-muted px-3 py-2">
                     <SegmentedControl<StatusFilter>
-                        ariaLabel="Filter results by status"
+                        ariaLabel="Filter results by verification status"
                         value={statusFilter}
-                        onChange={(next) => {
-                            setStatusFilter(next);
-                            setSelectedIds([]);
-                        }}
-                        options={filterOptions}
+                        onChange={setStatusFilter}
+                        options={statusOptions}
                     />
+
+                    <SelectField
+                        label="Filter by priority"
+                        hideLabel
+                        value={priorityFilter}
+                        onChange={(event) => setPriorityFilter(event.target.value as PriorityFilter)}
+                        className="w-full sm:w-44"
+                    >
+                        {priorityOptions.map((option) => (
+                            <option key={option.value} value={option.value}>
+                                {option.label} ({option.count})
+                            </option>
+                        ))}
+                    </SelectField>
+
+                    <SelectField
+                        label="Filter by result flag"
+                        hideLabel
+                        value={flagFilter}
+                        onChange={(event) => setFlagFilter(event.target.value as FlagFilter)}
+                        className="w-full sm:w-44"
+                    >
+                        {flagOptions.map((option) => (
+                            <option key={option.value} value={option.value}>
+                                {option.label} ({option.count})
+                            </option>
+                        ))}
+                    </SelectField>
+
                     <InputField
                         label="Search pending results"
                         hideLabel
@@ -342,20 +481,11 @@ export default function PendingVerificationPage() {
                         autoComplete="off"
                         className="min-w-[220px] flex-1"
                     />
-                    {selectedIds.length > 0 && (
-                        <div className="flex items-center gap-1 text-xs text-fg-secondary">
-                            <span className="tabular-nums">
-                                {selectedIds.length} selected
-                            </span>
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                icon={X}
-                                onClick={() => setSelectedIds([])}
-                            >
-                                Clear selection
-                            </Button>
-                        </div>
+
+                    {isFiltering && (
+                        <Button variant="ghost" size="sm" icon={X} onClick={handleClearFilters}>
+                            Clear
+                        </Button>
                     )}
                 </div>
 
@@ -364,7 +494,6 @@ export default function PendingVerificationPage() {
                     <ul aria-hidden="true" className="divide-y divide-edge">
                         {Array.from({ length: SKELETON_ROWS }).map((_, index) => (
                             <li key={index} className="flex items-center gap-3 px-4 py-2.5">
-                                <span className="h-4 w-4 shrink-0 rounded bg-skeleton" />
                                 <span className="h-4 w-24 shrink-0 rounded bg-skeleton" />
                                 <span className="h-3 w-32 shrink-0 rounded bg-skeleton" />
                                 <span className="hidden h-3 w-28 rounded bg-skeleton md:block" />
@@ -398,17 +527,9 @@ export default function PendingVerificationPage() {
                         <EmptyState
                             icon={Search}
                             title="No cases match"
-                            description="Try a different search term or status filter."
+                            description="Try a different search term, or clear the status, priority and flag filters."
                             action={
-                                <Button
-                                    size="sm"
-                                    icon={X}
-                                    onClick={() => {
-                                        setSearchQuery('');
-                                        setStatusFilter('ALL');
-                                        setSelectedIds([]);
-                                    }}
-                                >
+                                <Button size="sm" icon={X} onClick={handleClearFilters}>
                                     Clear filters
                                 </Button>
                             }
@@ -422,45 +543,36 @@ export default function PendingVerificationPage() {
                     )
                 ) : (
                     <div className="overflow-x-auto">
-                        <table className="w-full min-w-[960px] table-fixed text-left text-[13px]">
+                        {/* table-fixed widths sum to 100% at lg; MLT drops below lg and the rest share its 10% */}
+                        <table className="w-full min-w-[1000px] table-fixed text-left text-[13px]">
                             <caption className="sr-only">Results pending technical verification</caption>
                             <thead>
                                 <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
-                                    <th scope="col" className="w-10 py-2 pl-4 pr-2">
-                                        <input
-                                            type="checkbox"
-                                            checked={allVisibleSelected}
-                                            onChange={handleToggleSelectAll}
-                                            disabled={filteredResults.length === 0}
-                                            aria-label="Select all visible results"
-                                            className={CHECKBOX_CLASS}
-                                        />
-                                    </th>
-                                    <th scope="col" className="w-[12%] px-3 py-2 font-medium">
+                                    <th scope="col" className="w-[13%] py-2 pl-4 pr-3 font-medium">
                                         Result ID
                                     </th>
                                     <th scope="col" className="w-[13%] px-3 py-2 font-medium">
                                         Patient
                                     </th>
-                                    <th scope="col" className="w-[11%] px-3 py-2 font-medium">
+                                    <th scope="col" className="w-[12%] px-3 py-2 font-medium">
                                         Test type
                                     </th>
-                                    <th scope="col" className="hidden w-[9%] px-3 py-2 font-medium lg:table-cell">
+                                    <th scope="col" className="hidden w-[10%] px-3 py-2 font-medium lg:table-cell">
                                         MLT
                                     </th>
                                     <th scope="col" className="w-[7%] px-3 py-2 font-medium">
                                         QC
                                     </th>
-                                    <th scope="col" className="w-[12%] px-3 py-2 font-medium">
+                                    <th scope="col" className="w-[11%] px-3 py-2 font-medium">
                                         Flag
                                     </th>
-                                    <th scope="col" className="w-[8%] px-3 py-2 font-medium">
+                                    <th scope="col" className="w-[9%] px-3 py-2 font-medium">
                                         Priority
                                     </th>
                                     <th scope="col" className="w-[13%] px-3 py-2 font-medium">
                                         Status
                                     </th>
-                                    <th scope="col" className="w-[10%] py-2 pl-2 pr-3 text-right font-medium">
+                                    <th scope="col" className="w-[12%] py-2 pl-2 pr-3 text-right font-medium">
                                         <span className="sr-only">Actions</span>
                                     </th>
                                 </tr>
@@ -470,8 +582,7 @@ export default function PendingVerificationPage() {
                                 {filteredResults.map((result) => {
                                     const isReturned = result.status === 'RETURNED_FOR_RECHECK';
                                     const isExpanded = expandedReason === result.resultId;
-                                    const hasCritical = hasCriticalTriage(result);
-                                    const isSelected = selectedIds.includes(result.resultId);
+                                    const hasCritical = hasCriticalRange(result);
                                     const displayId = formatDisplayId(result.resultId, 'RES');
                                     const qcStatus = getQcStatusConfig(result.qcStatus);
                                     const flag = getResultFlagBadge(result.flag, result.hasCriticalFinding);
@@ -484,28 +595,17 @@ export default function PendingVerificationPage() {
                                             <tr
                                                 className={cn(
                                                     'group cursor-pointer transition-colors hover:bg-surface-hover',
-                                                    hasCritical && 'bg-status-danger-bg',
-                                                    isSelected && !hasCritical && 'bg-primary-soft'
+                                                    hasCritical && 'bg-status-danger-bg'
                                                 )}
                                                 onClick={(event) => {
                                                     const target = event.target as HTMLElement;
-                                                    if (target.closest('button, a, input, label')) {
+                                                    if (target.closest('button, a')) {
                                                         return;
                                                     }
                                                     handleReview(result.resultId);
                                                 }}
                                             >
-                                                <td className="py-2 pl-4 pr-2">
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={isSelected}
-                                                        onChange={() => handleToggleSelectOne(result.resultId)}
-                                                        aria-label={`Select ${displayId}`}
-                                                        className={CHECKBOX_CLASS}
-                                                    />
-                                                </td>
-
-                                                <td className="px-3 py-2">
+                                                <td className="py-2 pl-4 pr-3">
                                                     <button
                                                         type="button"
                                                         onClick={() => handleReview(result.resultId)}
@@ -620,7 +720,7 @@ export default function PendingVerificationPage() {
 
                                             {isReturned && isExpanded && (
                                                 <tr id={panelId} className="bg-surface-muted">
-                                                    <td colSpan={10} className="whitespace-normal py-3 pl-4 pr-3">
+                                                    <td colSpan={9} className="whitespace-normal py-3 pl-4 pr-3">
                                                         <div className="rounded-md border border-status-pending-edge bg-status-pending-bg px-3 py-2.5">
                                                             <p className="text-xs font-semibold text-status-pending-fg">
                                                                 {getVerificationLabel(result.status)}

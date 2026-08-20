@@ -30,6 +30,8 @@ public class SampleResponse {
     private String testType;
     private List<String> testCodes;
     private List<TubeType> tubeTypes;
+    /** Swatch recorded on the tube's inventory row; null when no supply row exists for it yet. */
+    private String tubeColor;
     private long waitTimeMinutes;
     private SampleStatus status;
     private SamplePatientInfo patient;

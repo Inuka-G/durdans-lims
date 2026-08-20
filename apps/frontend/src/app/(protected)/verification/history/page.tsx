@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, History, RefreshCw, Search, X } from "lucide-react";
+import { AlertTriangle, Download, History, Info, RefreshCw, Search, X } from "lucide-react";
 import {
     getVerificationHistory,
     VerificationHistoryItem,
 } from "@/lib/api";
+import { formatStatusLabel } from "@/constants/sample-lifecycle";
+import { downloadCsv } from "@/lib/export-csv";
 import { formatDisplayId } from "@/lib/format-id";
 import {
     HISTORY_DATE_RANGES,
@@ -29,6 +31,13 @@ const PAGE_SIZE = 10;
 const SKELETON_ROWS = 6;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+// The export walks the whole filtered result set in chunks rather than asking for
+// it in one call: a year of history in a single request is a heavy query and a
+// heavy response. EXPORT_MAX_PAGES is the safety valve for a request so wide that
+// even chunked paging would hammer the server.
+const EXPORT_PAGE_SIZE = 1000;
+const EXPORT_MAX_PAGES = 20;
+
 const ACTION_LABELS: Record<string, string> = {
     VERIFICATION_APPROVED: "Approved by Supervisor",
     VERIFICATION_RETURNED_TO_MLT: "Returned to MLT",
@@ -47,6 +56,12 @@ const PERIOD_OPTIONS = HISTORY_DATE_RANGES.map((range) => ({
     value: range.key,
     label: range.label.charAt(0).toUpperCase() + range.label.slice(1).toLowerCase(),
 }));
+
+/** Export banners reuse the status tokens: a truncated export is a warning, a failed one is an error. */
+const EXPORT_NOTICE_STYLES: Record<"error" | "warning", string> = {
+    error: "border-status-danger-edge bg-status-danger-bg text-status-danger-fg",
+    warning: "border-status-pending-edge bg-status-pending-bg text-status-pending-fg",
+};
 
 const resolveActionType = (item: VerificationHistoryItem) => {
     if (item.actionType) {
@@ -68,7 +83,7 @@ const resolveActionType = (item: VerificationHistoryItem) => {
     return "";
 };
 
-/** Full, unambiguous timestamp for tooltips. */
+/** Full, unambiguous timestamp for tooltips and for the CSV export. */
 const formatFullTimestamp = (value?: string | null) => {
     if (!value) {
         return "—";
@@ -123,9 +138,15 @@ export default function VerificationHistoryPage() {
     const [reloadKey, setReloadKey] = useState(0);
     /* Full text of the note the user clicked, shown in a dialog. */
     const [selectedNote, setSelectedNote] = useState<VerificationHistoryItem | null>(null);
+    const [isExporting, setIsExporting] = useState(false);
+    const [exportNotice, setExportNotice] = useState<{
+        tone: "error" | "warning";
+        message: string;
+    } | null>(null);
 
     useEffect(() => {
         setPage(0);
+        setExportNotice(null);
     }, [search, statusFilter, dateRange]);
 
     useEffect(() => {
@@ -174,6 +195,85 @@ export default function VerificationHistoryPage() {
         }
     };
 
+    // Exports every entry matching the active filters, not just the visible page:
+    // an auditor asking for a period needs the whole period, and the table only
+    // ever holds PAGE_SIZE rows.
+    const handleExportCsv = async () => {
+        setIsExporting(true);
+        setExportNotice(null);
+
+        try {
+            const exportItems: VerificationHistoryItem[] = [];
+            let matchingCount = 0;
+            let exportPage = 0;
+            let hasMore = true;
+
+            while (hasMore && exportPage < EXPORT_MAX_PAGES) {
+                const historyPage = await getVerificationHistory(exportPage, EXPORT_PAGE_SIZE, {
+                    actionType: statusFilter === "ALL" ? undefined : statusFilter,
+                    search: search.trim() || undefined,
+                    fromTimestamp: resolveFromTimestamp(dateRange),
+                });
+
+                exportItems.push(...historyPage.content);
+                matchingCount = historyPage.totalElements;
+                exportPage += 1;
+                hasMore = exportPage < historyPage.totalPages;
+            }
+
+            if (exportItems.length === 0) {
+                return;
+            }
+
+            const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+
+            downloadCsv(
+                `verification-history-${timestamp}`,
+                [
+                    "Timestamp",
+                    "Priority",
+                    "Patient",
+                    "Patient Code",
+                    "Result ID",
+                    "Test Group",
+                    "Action",
+                    "Performed By",
+                    "Notes",
+                ],
+                exportItems.map((item) => {
+                    const actionType = resolveActionType(item);
+
+                    return [
+                        formatFullTimestamp(item.actionAt ?? item.updatedAt),
+                        item.specimenPriority ? formatStatusLabel(item.specimenPriority) : "",
+                        item.patientName || "Unknown patient",
+                        item.patientCode || "",
+                        formatDisplayId(item.resultId, "RES"),
+                        item.testName || "Unknown Test Group",
+                        item.actionSummary || ACTION_LABELS[actionType] || "Workflow Updated",
+                        item.performedBy || "",
+                        item.notes || "",
+                    ];
+                })
+            );
+
+            if (exportItems.length < matchingCount) {
+                setExportNotice({
+                    tone: "warning",
+                    message: `Exported the ${exportItems.length.toLocaleString()} most recent of ${matchingCount.toLocaleString()} matching entries. Narrow the period or filters to export the rest.`,
+                });
+            }
+        } catch (exportError) {
+            console.error("Failed to export verification history", exportError);
+            setExportNotice({
+                tone: "error",
+                message: "Failed to export verification history. Please try again.",
+            });
+        } finally {
+            setIsExporting(false);
+        }
+    };
+
     return (
         <div className="mx-auto max-w-[1400px]">
             <PageHeader
@@ -194,9 +294,21 @@ export default function VerificationHistoryPage() {
                     </>
                 }
                 actions={
-                    <Button icon={RefreshCw} onClick={retry} loading={loading}>
-                        Refresh
-                    </Button>
+                    <>
+                        {/* Exports the whole filtered set, so it is enabled from any page of the table. */}
+                        <Button
+                            icon={Download}
+                            loading={isExporting}
+                            disabled={totalElements === 0}
+                            onClick={() => void handleExportCsv()}
+                            title="Exports every history entry matching the current search, action and period filters."
+                        >
+                            {isExporting ? "Exporting…" : "Export CSV"}
+                        </Button>
+                        <Button icon={RefreshCw} onClick={retry} loading={loading}>
+                            Refresh
+                        </Button>
+                    </>
                 }
             />
 
@@ -208,6 +320,28 @@ export default function VerificationHistoryPage() {
                       ? "Verification history failed to load"
                       : `Verification history loaded. Showing ${historyItems.length} of ${totalElements} entries, page ${page + 1} of ${totalPages}.`}
             </p>
+
+            {exportNotice && (
+                <div
+                    role="status"
+                    className={`mb-4 flex items-start gap-2 rounded-md border px-4 py-2.5 text-[13px] ${EXPORT_NOTICE_STYLES[exportNotice.tone]}`}
+                >
+                    {exportNotice.tone === "error" ? (
+                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                    ) : (
+                        <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                    )}
+                    <span className="min-w-0 flex-1 break-words">{exportNotice.message}</span>
+                    <Button
+                        size="sm"
+                        variant="ghost"
+                        icon={X}
+                        onClick={() => setExportNotice(null)}
+                        aria-label="Dismiss export message"
+                        className="-my-0.5 -mr-1.5 shrink-0"
+                    />
+                </div>
+            )}
 
             <SectionCard title="Entries" count={!loading && !error ? totalElements.toLocaleString() : undefined} flush>
                 {/* Filter toolbar */}

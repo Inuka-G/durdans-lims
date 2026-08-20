@@ -6,13 +6,19 @@
  * after the fetch would only ever narrow the current page and quietly hide
  * older matches behind pagination.
  */
-export type HistoryDateRange = "ALL" | "TODAY" | "LAST_7_DAYS" | "LAST_30_DAYS";
+export type HistoryDateRange =
+    | "ALL"
+    | "TODAY"
+    | "LAST_7_DAYS"
+    | "LAST_30_DAYS"
+    | "LAST_365_DAYS";
 
 export const HISTORY_DATE_RANGES: { key: HistoryDateRange; label: string }[] = [
     { key: "ALL", label: "All Time" },
     { key: "TODAY", label: "Today" },
-    { key: "LAST_7_DAYS", label: "Last 7 Days" },
-    { key: "LAST_30_DAYS", label: "Last 30 Days" },
+    { key: "LAST_7_DAYS", label: "7 Days" },
+    { key: "LAST_30_DAYS", label: "30 Days" },
+    { key: "LAST_365_DAYS", label: "365 Days" },
 ];
 
 /**
@@ -34,6 +40,8 @@ export function resolveFromTimestamp(range: HistoryDateRange): string | undefine
         from.setDate(from.getDate() - 6);
     } else if (range === "LAST_30_DAYS") {
         from.setDate(from.getDate() - 29);
+    } else if (range === "LAST_365_DAYS") {
+        from.setDate(from.getDate() - 364);
     }
 
     const pad = (value: number) => String(value).padStart(2, "0");

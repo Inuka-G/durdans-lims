@@ -5,17 +5,17 @@ import type {
 } from '@/types/sample-lifecycle';
 
 // ==========================================
-// STATUS / PRIORITY COLORS
-export const TUBE_COLOR_MAP: Record<string, string> = {
-    EDTA_PURPLE: 'bg-purple-500',
-    EDTA_LAVENDER: 'bg-purple-300',
-    SST_GOLD: 'bg-yellow-400',
-    SST_RED: 'bg-red-500',
-    CITRATE_BLUE: 'bg-blue-400',
-    HEPARIN_GREEN: 'bg-green-500',
-    URINE_YELLOW: 'bg-yellow-300',
-    OTHER: 'bg-fg-faint',
-};
+// STATUS LABELS
+// ==========================================
+// No colour lookup maps live here any more:
+//   • status / priority / flag / QC / instrument chips are rendered by
+//     `components/ui/StatusChip` (`STATUS_TONE` + semantic tokens, dark-mode
+//     aware), which replaced PRIORITY_COLORS, SAMPLE_STATUS_COLORS,
+//     FLAG_COLORS, INSTRUMENT_STATUS_CONFIG and QC_STATUS_CONFIG;
+//   • tube cap colours are supplies-inventory data, not a static map — each
+//     sample / label payload carries `tubeColor` from the tube-keyed supplies
+//     inventory and is resolved via `getTubeHexColor`
+//     (`lib/phlebotomy-label-print.ts`), rendered by `shared/TubeIndicator`.
 
 export function formatStatusLabel(s: SampleStatus | string): string {
     return s.replace(/_/g, ' ');

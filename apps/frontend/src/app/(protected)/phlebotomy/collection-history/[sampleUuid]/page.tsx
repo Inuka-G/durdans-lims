@@ -4,9 +4,8 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { useParams, useRouter } from 'next/navigation';
 import { AlertTriangle, ArrowLeft, FileQuestion, Printer, RefreshCw } from 'lucide-react';
-import { TUBE_COLOR_MAP } from '@/constants/sample-lifecycle';
 import { getPhlebotomySampleDetail, printSampleLabel } from '@/lib/api';
-import { getBarcodeBars, openPhlebotomySpecimenLabelPrint } from '@/lib/phlebotomy-label-print';
+import { getBarcodeBars, getTubeHexColor, openPhlebotomySpecimenLabelPrint } from '@/lib/phlebotomy-label-print';
 import { cn } from '@/lib/utils';
 import Button from '@/components/ui/Button';
 import PageHeader from '@/components/ui/PageHeader';
@@ -25,6 +24,8 @@ type SampleDetail = {
     testType?: string | null;
     testCodes?: string[];
     tubeTypes?: string[];
+    /** Hex cap colour of the stocked container this sample was drawn into (supplies inventory). */
+    tubeColor?: string | null;
     collectedAt?: string | null;
     collectedBy?: string | null;
     rejectionReason?: string | null;
@@ -126,6 +127,8 @@ export default function CollectionSampleDetailPage() {
                 pid: detail.patient?.pid ?? '—',
                 testCodes: Array.isArray(detail.testCodes) ? detail.testCodes : [],
                 tubeTypeLabel: String(tubeCode),
+                // Printed strip/dot must match the physical cap the specimen is in.
+                tubeColor: detail.tubeColor,
             });
             if (!opened) {
                 toast.error('Print window was blocked. Allow pop-ups for this site and try again.');
@@ -212,7 +215,12 @@ export default function CollectionSampleDetailPage() {
     }
 
     const tubeCode = detail.tubeTypes?.[0] ?? 'OTHER';
-    const tubeColorClass = TUBE_COLOR_MAP[String(tubeCode)] ?? TUBE_COLOR_MAP.OTHER;
+    /* Cap colour comes from the stocked tube in supplies, not from the tube code, so a branch
+       that stocks a different container shows the tube the phlebotomist actually holds.
+       Physical cap colours stay literal in both themes (see DESIGN.md); the helper falls back
+       to neutral grey when no stocked container carries a colour. */
+    const tubeColor = getTubeHexColor(detail.tubeColor);
+    const tubeLabel = String(tubeCode).replace(/_/g, ' ');
     const sampleLabel = detail.sampleId ?? sampleUuid;
     const statusKey = detail.status ?? '';
     const printCount = detail.printCount ?? 0;
@@ -315,8 +323,12 @@ export default function CollectionSampleDetailPage() {
                             </DetailItem>
                             <DetailItem label="Required tube">
                                 <span className="inline-flex items-center gap-2">
-                                    <span className={cn('h-8 w-3 shrink-0 rounded-full', tubeColorClass)} aria-hidden="true" />
-                                    <span className="font-medium">{String(tubeCode).replace(/_/g, ' ')}</span>
+                                    <span
+                                        aria-hidden="true"
+                                        className="h-8 w-3 shrink-0 rounded-full ring-1 ring-inset ring-edge"
+                                        style={{ backgroundColor: tubeColor }}
+                                    />
+                                    <span className="font-medium">{tubeLabel}</span>
                                 </span>
                             </DetailItem>
                         </dl>
@@ -361,8 +373,13 @@ export default function CollectionSampleDetailPage() {
                     </SectionCard>
 
                     <SectionCard title="Label preview">
+                        {/* Mirrors the printed bedside label, so the strip carries the same stocked-tube hex. */}
                         <div className="flex items-center gap-3 rounded-md border border-edge bg-surface-muted p-3">
-                            <span className={cn('h-12 w-3 shrink-0 rounded-full', tubeColorClass)} aria-hidden="true" />
+                            <span
+                                aria-hidden="true"
+                                className="h-12 w-3 shrink-0 rounded-full ring-1 ring-inset ring-edge"
+                                style={{ backgroundColor: tubeColor }}
+                            />
                             <div className="min-w-0 flex-1">
                                 <p className="truncate text-xs font-semibold text-fg tabular-nums">{detail.sampleId}</p>
                                 <p className="truncate text-[11px] text-fg-muted">{detail.patient?.name}</p>
@@ -380,6 +397,7 @@ export default function CollectionSampleDetailPage() {
                                 ))}
                             </div>
                         </div>
+                        <p className="mt-2 text-[11px] text-fg-muted">Cap colour reflects the tube stocked at this branch.</p>
                         {detail.status !== 'COLLECTED' && (
                             <p className="mt-3 text-xs text-status-pending-fg">
                                 Labels are only issued for collected specimens. Rejected tubes follow your laboratory&apos;s discard / documentation SOP.

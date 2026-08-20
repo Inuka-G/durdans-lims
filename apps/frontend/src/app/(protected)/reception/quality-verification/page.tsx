@@ -38,10 +38,8 @@ const DEFAULT_REASON: RejectionReason = 'HEMOLYZED';
 const REJECTION_REASONS: RejectionReason[] = [
     'HEMOLYZED',
     'INSUFFICIENT_VOLUME',
-    'WRONG_CONTAINER',
     'CLOTTED',
     'CONTAMINATED',
-    'UNLABELED',
     'OTHER',
 ];
 
@@ -239,6 +237,7 @@ export default function QualityVerificationPage() {
 
     const allRequiredPassed = REQUIRED_CHECKS.every((id) => checks[id]);
     const progress = Object.values(checks).filter(Boolean).length;
+    const requiresCustomMessage = rejectReason === 'OTHER';
 
     const patientDisplayName = patient?.firstName
         ? [patient.title, patient.firstName, patient.lastName].filter(Boolean).join(' ').trim()
@@ -303,8 +302,8 @@ export default function QualityVerificationPage() {
             return;
         }
 
-        if (rejectReason === 'OTHER' && notes.trim().length === 0) {
-            setError('Add rejection notes when the reason is OTHER.');
+        if (requiresCustomMessage && notes.trim().length === 0) {
+            setError('A custom rejection message is required when the reason is Other.');
             return;
         }
 
@@ -338,7 +337,6 @@ export default function QualityVerificationPage() {
     };
 
     const selectedSampleIsBusy = submittingAction !== null;
-    const notesRequired = rejectReason === 'OTHER';
     const progressPercent = checklist.length > 0 ? Math.round((progress / checklist.length) * 100) : 0;
 
     return (
@@ -682,7 +680,10 @@ export default function QualityVerificationPage() {
                                         label="Rejection reason"
                                         required
                                         value={rejectReason}
-                                        onChange={(event) => setRejectReason(event.target.value as RejectionReason)}
+                                        onChange={(event) => {
+                                            setRejectReason(event.target.value as RejectionReason);
+                                            setError(null);
+                                        }}
                                     >
                                         {REJECTION_REASONS.map((reason) => (
                                             <option key={reason} value={reason}>
@@ -691,13 +692,21 @@ export default function QualityVerificationPage() {
                                         ))}
                                     </SelectField>
                                     <TextareaField
-                                        label="Observations / notes"
-                                        required={notesRequired}
-                                        hint={notesRequired ? 'Required when the reason is Other' : 'Optional'}
+                                        label={requiresCustomMessage ? 'Custom message' : 'Message'}
+                                        required={requiresCustomMessage}
+                                        hint={
+                                            requiresCustomMessage
+                                                ? 'Required when the reason is Other'
+                                                : 'Optional'
+                                        }
                                         rows={3}
                                         value={notes}
                                         onChange={(event) => setNotes(event.target.value)}
-                                        placeholder="Enter rejection notes"
+                                        placeholder={
+                                            requiresCustomMessage
+                                                ? 'Describe why this sample is being rejected…'
+                                                : 'Optional notes to record with this rejection…'
+                                        }
                                     />
                                 </section>
                             )}

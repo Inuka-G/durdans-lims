@@ -43,6 +43,22 @@ const REVIEW_CRUMBS: Crumb[] = [
     { label: 'Pending', href: '/verification/pending' },
 ];
 
+/** Same control anatomy as the pending / bulk-approval worklists. */
+const CHECKBOX_CLASS =
+    'h-4 w-4 shrink-0 rounded border-edge-strong accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-50';
+
+/** Supervisor gate — every check must be confirmed before a case can be approved. */
+const SUPERVISOR_CHECKLIST = [
+    { id: 'patientTestMatch', label: 'Patient and test group match confirmed' },
+    { id: 'allParametersEntered', label: 'All required parameters are entered' },
+    { id: 'flagsReviewed', label: 'Abnormal and critical flags have been reviewed' },
+    { id: 'qcReviewed', label: 'QC status and instrument output reviewed' },
+    { id: 'notesReviewed', label: 'MLT notes and any return/recheck context reviewed' },
+] as const;
+
+const createEmptyChecklist = (): Record<string, boolean> =>
+    Object.fromEntries(SUPERVISOR_CHECKLIST.map((item) => [item.id, false]));
+
 const formatReferenceRange = (low?: number | null, high?: number | null) => {
     if (low == null || high == null) {
         return '—';
@@ -136,6 +152,8 @@ const initialsFor = (name: string | null | undefined, fallback: string) =>
 const REVIEWED_NOTICE =
     'This case has already been processed. Actions reopen only after a clinical return for recheck.';
 
+const CHECKLIST_NOTICE = 'Complete all supervisor verification checks before approving this case.';
+
 export default function ReviewCasePage() {
     const router = useRouter();
     const { user } = useAuth();
@@ -150,6 +168,7 @@ export default function ReviewCasePage() {
     const [returnReason, setReturnReason] = useState('');
     const [returnError, setReturnError] = useState<string | null>(null);
     const [approveNote, setApproveNote] = useState('');
+    const [reviewChecklist, setReviewChecklist] = useState<Record<string, boolean>>(createEmptyChecklist);
     const [submitError, setSubmitError] = useState<string | null>(null);
     const [requiresQcOverride, setRequiresQcOverride] = useState(false);
 
@@ -172,6 +191,11 @@ export default function ReviewCasePage() {
             void loadResultDetails();
         }
     }, [resultId, loadResultDetails]);
+
+    // Each case must be confirmed on its own evidence, never on the previous case's ticks.
+    useEffect(() => {
+        setReviewChecklist(createEmptyChecklist());
+    }, [resultId]);
 
     const labResults = useMemo(() => {
         return (resultDetail?.parameters ?? []).map((parameter) => {
@@ -217,6 +241,8 @@ export default function ReviewCasePage() {
     const reviewerRole = 'Lab Supervisor';
     const canReviewActions =
         resultDetail?.status === 'ENTERED' || resultDetail?.status === 'RETURNED_FOR_RECHECK';
+    const completedChecklistCount = SUPERVISOR_CHECKLIST.filter((item) => reviewChecklist[item.id]).length;
+    const isChecklistComplete = completedChecklistCount === SUPERVISOR_CHECKLIST.length;
     const displayId = formatDisplayId(resultId, 'RES');
 
     const resolveSubmitErrorMessage = (
@@ -247,6 +273,16 @@ export default function ReviewCasePage() {
         router.push('/verification/pending');
     };
 
+    const toggleChecklistItem = (itemId: string) => {
+        setReviewChecklist((current) => ({
+            ...current,
+            [itemId]: !current[itemId],
+        }));
+        if (submitError) {
+            setSubmitError(null);
+        }
+    };
+
     // Stable references so the Modal's focus/keyboard effect doesn't re-run every render.
     const closeReturnModal = useCallback(() => {
         setShowReturnModal(false);
@@ -258,6 +294,7 @@ export default function ReviewCasePage() {
     const closeApproveModal = useCallback(() => {
         setShowApproveModal(false);
         setApproveNote('');
+        setReviewChecklist(createEmptyChecklist());
         setRequiresQcOverride(false);
         setSubmitError(null);
     }, []);
@@ -277,6 +314,10 @@ export default function ReviewCasePage() {
             setSubmitError(REVIEWED_NOTICE);
             return;
         }
+        if (!isChecklistComplete) {
+            setSubmitError(CHECKLIST_NOTICE);
+            return;
+        }
         setShowApproveModal(true);
         setSubmitError(null);
     };
@@ -284,6 +325,10 @@ export default function ReviewCasePage() {
     const handleApprove = async () => {
         if (!canReviewActions) {
             setSubmitError(REVIEWED_NOTICE);
+            return;
+        }
+        if (!isChecklistComplete) {
+            setSubmitError(CHECKLIST_NOTICE);
             return;
         }
         const trimmedSupervisorNote = approveNote.trim();
@@ -308,6 +353,7 @@ export default function ReviewCasePage() {
             });
             setShowApproveModal(false);
             setApproveNote('');
+            setReviewChecklist(createEmptyChecklist());
             setRequiresQcOverride(false);
             router.push('/verification/pending');
         } catch (submitError) {
@@ -380,6 +426,14 @@ export default function ReviewCasePage() {
                             </div>
                         </div>
                         <div className="space-y-4">
+                            <div className="rounded-lg border border-edge bg-surface p-4">
+                                <span className="block h-4 w-36 rounded bg-skeleton" />
+                                <div className="mt-4 space-y-2">
+                                    {Array.from({ length: 5 }).map((_, i) => (
+                                        <span key={i} className="block h-9 rounded bg-skeleton" />
+                                    ))}
+                                </div>
+                            </div>
                             <div className="rounded-lg border border-edge bg-surface p-4">
                                 <span className="block h-4 w-28 rounded bg-skeleton" />
                                 <div className="mt-4 space-y-2">
@@ -461,7 +515,7 @@ export default function ReviewCasePage() {
                             variant="primary"
                             icon={CheckCircle2}
                             onClick={openApproveModal}
-                            disabled={isSubmitting || !canReviewActions}
+                            disabled={isSubmitting || !canReviewActions || !isChecklistComplete}
                         >
                             Approve and release
                         </Button>
@@ -610,6 +664,60 @@ export default function ReviewCasePage() {
 
                 {/* Side panels */}
                 <div className="flex min-w-0 flex-col gap-4">
+                    {/* Supervisor checklist — gates the approve action */}
+                    <SectionCard
+                        title="Supervisor checklist"
+                        actions={
+                            <StatusChip tone={isChecklistComplete ? 'success' : 'pending'} size="sm">
+                                {completedChecklistCount}/{SUPERVISOR_CHECKLIST.length} checked
+                            </StatusChip>
+                        }
+                        flush
+                    >
+                        <ul className="divide-y divide-edge">
+                            {SUPERVISOR_CHECKLIST.map((item) => {
+                                const checked = reviewChecklist[item.id] ?? false;
+                                const checkboxId = `checklist-${item.id}`;
+
+                                return (
+                                    <li
+                                        key={item.id}
+                                        className={`flex items-start gap-3 px-4 py-2.5 transition-colors ${
+                                            checked ? 'bg-status-verified-bg' : ''
+                                        } ${canReviewActions ? 'hover:bg-surface-hover' : 'opacity-60'}`}
+                                    >
+                                        <input
+                                            id={checkboxId}
+                                            type="checkbox"
+                                            checked={checked}
+                                            disabled={!canReviewActions}
+                                            onChange={() => toggleChecklistItem(item.id)}
+                                            className={`mt-0.5 ${CHECKBOX_CLASS} ${
+                                                canReviewActions ? 'cursor-pointer' : ''
+                                            }`}
+                                        />
+                                        <label
+                                            htmlFor={checkboxId}
+                                            className={`min-w-0 flex-1 break-words text-[13px] font-medium leading-5 ${
+                                                canReviewActions ? 'cursor-pointer' : 'cursor-not-allowed'
+                                            } ${checked ? 'text-status-verified-fg' : 'text-fg-secondary'}`}
+                                        >
+                                            {item.label}
+                                        </label>
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                        {!isChecklistComplete && canReviewActions && (
+                            <p
+                                role="status"
+                                className="border-t border-edge bg-surface-muted px-4 py-2.5 text-xs text-status-pending-fg"
+                            >
+                                Approve stays locked until every check is confirmed.
+                            </p>
+                        )}
+                    </SectionCard>
+
                     <SectionCard title="Previous visits" count={resultDetail.previousVisits?.length ?? 0} flush>
                         {resultDetail.previousVisits && resultDetail.previousVisits.length > 0 ? (
                             <ul className="divide-y divide-edge">
@@ -755,7 +863,13 @@ export default function ReviewCasePage() {
                         <Button onClick={closeApproveModal} disabled={isSubmitting}>
                             Cancel
                         </Button>
-                        <Button variant="primary" icon={CheckCircle2} onClick={handleApprove} loading={isSubmitting}>
+                        <Button
+                            variant="primary"
+                            icon={CheckCircle2}
+                            onClick={handleApprove}
+                            loading={isSubmitting}
+                            disabled={!isChecklistComplete}
+                        >
                             Confirm approval
                         </Button>
                     </>
@@ -766,6 +880,17 @@ export default function ReviewCasePage() {
                         <MessageSquare className="mt-0.5 h-4 w-4 shrink-0 text-fg-faint" aria-hidden="true" />
                         <p className="text-fg-secondary">
                             Signing as <span className="font-medium text-fg">{reviewerName}</span> ({reviewerRole}).
+                        </p>
+                    </div>
+                    <div className="flex items-start gap-2 rounded-md border border-edge bg-surface-muted px-3 py-2 text-xs">
+                        <ListChecks className="mt-px h-4 w-4 shrink-0 text-fg-faint" aria-hidden="true" />
+                        <p className="min-w-0 text-fg-secondary">
+                            Supervisor checklist{' '}
+                            <span className="font-medium tabular-nums text-fg">
+                                {completedChecklistCount}/{SUPERVISOR_CHECKLIST.length}
+                            </span>{' '}
+                            confirmed.
+                            {!isChecklistComplete && ' Complete every check before approving this case.'}
                         </p>
                     </div>
                     <TextareaField

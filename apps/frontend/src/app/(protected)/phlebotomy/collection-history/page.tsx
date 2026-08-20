@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { AlertTriangle, CheckCircle2, History, RefreshCw, X, XCircle } from 'lucide-react';
+import { formatStatusLabel } from '@/constants/sample-lifecycle';
 import { getCollectionHistory } from '@/lib/api';
 import type { CollectionHistoryEntry } from '@/types/sample-lifecycle';
 import { cn } from '@/lib/utils';
@@ -30,6 +31,9 @@ const STATUS_OPTIONS: { value: string; label: string }[] = [
     { value: 'IN_TRANSIT', label: 'In transit' },
 ];
 
+/** The API now returns a coded rejection reason alongside the free-text notes. */
+type CollectionHistoryRow = CollectionHistoryEntry & { rejectionReason?: string };
+
 type RawCollectionHistoryItem = {
     id?: string | number;
     sampleId?: string | number;
@@ -42,6 +46,7 @@ type RawCollectionHistoryItem = {
     collectedAt?: string;
     collectedBy?: string;
     waitTime?: number | string;
+    rejectionReason?: string;
     rejectionNotes?: string;
     printCount?: number;
 };
@@ -86,8 +91,8 @@ export default function CollectionHistoryPage() {
     const [searchQuery, setSearchQuery] = useState('');
     const [statusFilter, setStatusFilter] = useState(ALL_STATUSES);
     const [currentPage, setCurrentPage] = useState(1);
-    const [collectionHistory, setCollectionHistory] = useState<CollectionHistoryEntry[]>([]);
-    const [selectedRejection, setSelectedRejection] = useState<CollectionHistoryEntry | null>(null);
+    const [collectionHistory, setCollectionHistory] = useState<CollectionHistoryRow[]>([]);
+    const [selectedRejection, setSelectedRejection] = useState<CollectionHistoryRow | null>(null);
     const [loading, setLoading] = useState(true);
     const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -98,7 +103,7 @@ export default function CollectionHistoryPage() {
             const data = await getCollectionHistory(0, 100);
             const rawItems = data as { content?: RawCollectionHistoryItem[] } | RawCollectionHistoryItem[] | null | undefined;
             const items: RawCollectionHistoryItem[] = Array.isArray(rawItems) ? rawItems : rawItems?.content ?? [];
-            const rows: CollectionHistoryEntry[] = [...items].map((item) => ({
+            const rows: CollectionHistoryRow[] = [...items].map((item) => ({
                 id: String(item?.id ?? item?.sampleId ?? ''),
                 sampleId: String(item?.sampleId ?? '-'),
                 patientName: item?.patientName ?? '-',
@@ -110,6 +115,7 @@ export default function CollectionHistoryPage() {
                 collectedAt: formatEventDateTime(item?.collectedAt),
                 collectedBy: item?.collectedBy ?? '-',
                 waitTime: Number(item?.waitTime ?? 0),
+                rejectionReason: item?.rejectionReason ? String(item.rejectionReason) : undefined,
                 rejectionNotes: item?.rejectionNotes,
                 printCount: Number(item?.printCount ?? 0),
             }));
@@ -153,6 +159,11 @@ export default function CollectionHistoryPage() {
         setCurrentPage(1);
     };
 
+    // OTHER carries the phlebotomist's own wording in the notes; every other reason is the message itself.
+    const rejectionReasonLabel = selectedRejection?.rejectionReason && selectedRejection.rejectionReason !== 'OTHER'
+        ? formatStatusLabel(selectedRejection.rejectionReason)
+        : null;
+
     return (
         <div className="mx-auto w-full min-w-0 max-w-[1400px]">
             <PageHeader
@@ -194,9 +205,24 @@ export default function CollectionHistoryPage() {
                     </Button>
                 }
             >
-                {/* Free text typed by staff: keep real newlines, but still wrap a long unbroken token. */}
-                <div className="whitespace-pre-wrap break-words rounded-md bg-status-danger-bg p-3 text-sm text-status-danger-fg ring-1 ring-inset ring-status-danger-edge">
-                    {selectedRejection?.rejectionNotes || 'No rejection message recorded.'}
+                {/* Coded reason leads; the phlebotomist's free text follows. Free text keeps its
+                    real newlines, but a long unbroken token still has to wrap. */}
+                <div className="break-words rounded-md bg-status-danger-bg p-3 text-sm text-status-danger-fg ring-1 ring-inset ring-status-danger-edge">
+                    {rejectionReasonLabel ? (
+                        <>
+                            {/* Reason codes arrive SCREAMING_SNAKE; the design system is sentence case. */}
+                            <p className="font-semibold lowercase first-letter:uppercase">{rejectionReasonLabel}</p>
+                            {selectedRejection?.rejectionNotes && (
+                                <p className="mt-1 whitespace-pre-wrap break-words opacity-90">
+                                    {selectedRejection.rejectionNotes}
+                                </p>
+                            )}
+                        </>
+                    ) : (
+                        <p className="whitespace-pre-wrap break-words">
+                            {selectedRejection?.rejectionNotes || 'No rejection message recorded.'}
+                        </p>
+                    )}
                 </div>
             </Modal>
 

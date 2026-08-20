@@ -58,21 +58,33 @@ const normalizeLabTest = (test: any) => {
     };
 };
 
+// Inventory is counted per tube, so the offline catalog carries only the stock a tube maps to.
+const DEFAULT_SUPPLY_TUBE_TYPES: Record<string, string> = {
+    EDTA_PURPLE_TUBE: 'EDTA_PURPLE',
+    SST_GOLD_TUBE: 'SST_GOLD',
+    CITRATE_BLUE_TUBE: 'CITRATE_BLUE',
+    HEPARIN_GREEN_TUBE: 'HEPARIN_GREEN',
+    URINE_CONTAINER: 'URINE_YELLOW',
+};
+
 const getDefaultSupplies = () =>
-    limsLabWorkflowData.supplies.map((item: any, index: number) => ({
-        id: item.key,
-        itemNo: item.itemNo ?? `SUP-${String(index + 1).padStart(4, '0')}`,
-        itemNumber: item.itemNo ?? `SUP-${String(index + 1).padStart(4, '0')}`,
-        name: item.label,
-        category: item.category,
-        tubeColor: item.tubeColor,
-        currentStock: Number(item.currentStock ?? item.reorderStock ?? item.minStock ?? 0),
-        minStock: Number(item.minStock ?? 0),
-        maxStock: Number(item.maxStock ?? (Number(item.reorderStock ?? item.minStock ?? 0) * 2)),
-        unit: item.unit ?? 'units',
-        lastRestocked: item.lastRestocked ?? new Date().toISOString().slice(0, 10),
-        expiryDate: '-',
-    }));
+    limsLabWorkflowData.supplies
+        .filter((item: any) => Boolean(DEFAULT_SUPPLY_TUBE_TYPES[String(item.key)]))
+        .map((item: any, index: number) => ({
+            id: item.key,
+            itemNo: item.itemNo ?? `SUP-${String(index + 1).padStart(4, '0')}`,
+            itemNumber: item.itemNo ?? `SUP-${String(index + 1).padStart(4, '0')}`,
+            name: item.label,
+            category: item.category,
+            tubeType: DEFAULT_SUPPLY_TUBE_TYPES[String(item.key)],
+            tubeColor: item.tubeColor,
+            currentStock: Number(item.currentStock ?? item.reorderStock ?? item.minStock ?? 0),
+            minStock: Number(item.minStock ?? 0),
+            maxStock: Number(item.maxStock ?? (Number(item.reorderStock ?? item.minStock ?? 0) * 2)),
+            unit: item.unit ?? 'units',
+            lastRestocked: item.lastRestocked ?? new Date().toISOString().slice(0, 10),
+            expiryDate: '-',
+        }));
 
 export const getPatients = async (params?: Record<string, unknown>) => {
     // Backend search expects keyword, fullName, phone, identityNumber, email, etc.
@@ -713,10 +725,8 @@ export const returnForRecheck = async (resultId: string, payload: ReturnToMltPay
 export type RejectionReason =
     | 'HEMOLYZED'
     | 'INSUFFICIENT_VOLUME'
-    | 'WRONG_CONTAINER'
     | 'CLOTTED'
     | 'CONTAMINATED'
-    | 'UNLABELED'
     | 'OTHER';
 
 export interface MltWorklistItem {
@@ -830,6 +840,8 @@ export interface SamplePrintItem {
     testType: string | null;
     testCodes: string[] | null;
     tubeTypes: string[] | null;
+    /** Swatch recorded on the tube's supply row; null when no supply row stocks that tube yet. */
+    tubeColor: string | null;
     waitTimeMinutes: number;
     status: string;
     patient: {
@@ -1142,7 +1154,10 @@ export const getSupplies = async () => {
     } catch (err: any) {
         if (typeof window !== 'undefined') {
             const cached = localStorage.getItem('lims_supplies_cache');
-            return cached ? JSON.parse(cached) : defaultSupplies;
+            if (cached) return JSON.parse(cached);
+            // Seed the cache as the success path does, so a later offline adjustment has rows to work on.
+            localStorage.setItem('lims_supplies_cache', JSON.stringify(defaultSupplies));
+            return defaultSupplies;
         }
         if (err?.response?.status) throw err;
         return defaultSupplies;
@@ -1183,6 +1198,46 @@ export const updateSupply = async (id: string, data: Record<string, unknown>) =>
             );
             localStorage.setItem('lims_supplies_cache', JSON.stringify(next));
             return next.find((item: any) => String(item?.id) === id);
+        }
+        throw err;
+    }
+};
+
+export interface SupplyResponse {
+    id: string;
+    itemNo?: string;
+    name?: string;
+    category?: string;
+    tubeType?: string;
+    tubeColor?: string;
+    currentStock: number;
+    minStock: number;
+    maxStock: number;
+    unit?: string;
+    lastRestocked?: string;
+    version?: number;
+}
+
+export const adjustSupplyStock = async (id: string, delta: number): Promise<SupplyResponse> => {
+    try {
+        const response = await axiosInstance.post(`/api/v1/supplies/${id}/stock-adjustments`, { delta });
+        return response.data.data;
+    } catch (err: any) {
+        // A refusal is the server's answer about the shelf, not a lost connection, so it must reach the caller.
+        if (err?.response?.status) throw err;
+        if (typeof window !== 'undefined') {
+            const cached = localStorage.getItem('lims_supplies_cache');
+            const list = cached ? JSON.parse(cached) : [];
+            const next = (Array.isArray(list) ? list : []).map((item: any) =>
+                String(item?.id) === id
+                    ? { ...item, currentStock: Math.max(0, Number(item?.currentStock ?? 0) + delta) }
+                    : item
+            );
+            const adjusted: SupplyResponse | undefined = next.find((item: any) => String(item?.id) === id);
+            // Without a cached row there is nothing to move, and a silent undefined would read as a successful refill.
+            if (!adjusted) throw new Error('Cannot adjust stock offline: this item is not in the local supplies cache.');
+            localStorage.setItem('lims_supplies_cache', JSON.stringify(next));
+            return adjusted;
         }
         throw err;
     }

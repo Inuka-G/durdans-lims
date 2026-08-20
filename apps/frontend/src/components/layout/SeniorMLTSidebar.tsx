@@ -1,9 +1,14 @@
 "use client";
 
-import { ClipboardClock, FileSearch, History, ListChecks, TriangleAlert } from "lucide-react";
+import { ClipboardClock, FileSearch, History, ListChecks } from "lucide-react";
 import ModuleSidebar, { type SidebarGroup } from "@/components/ui/ModuleSidebar";
 
-/** Senior MLT (verification) module navigation. Also covers /critical-values. */
+/**
+ * Senior MLT (verification) module navigation.
+ *
+ * The Critical Values dashboard was removed — its route no longer exists, so it
+ * is deliberately absent here (TopNav also filters the backend-served nav row).
+ */
 const GROUPS: SidebarGroup[] = [
     {
         label: "Verification",
@@ -12,7 +17,6 @@ const GROUPS: SidebarGroup[] = [
             { name: "Bulk approval", icon: ListChecks, href: "/verification/bulk-approval" },
             { name: "Verification history", icon: History, href: "/verification/history" },
             { name: "Review case", icon: FileSearch, href: "/verification/review" },
-            { name: "Critical values", icon: TriangleAlert, href: "/critical-values" },
         ],
     },
 ];

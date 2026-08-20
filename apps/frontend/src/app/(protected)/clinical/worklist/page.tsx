@@ -17,6 +17,7 @@ import {
     TestResultSummary,
 } from "@/lib/api";
 import { formatDisplayId } from "@/lib/format-id";
+import { cn } from "@/lib/utils";
 import Button from "@/components/ui/Button";
 import PageHeader from "@/components/ui/PageHeader";
 import KpiTile from "@/components/ui/KpiTile";
@@ -66,8 +67,14 @@ const getClinicalStatusBadge = (status?: string | null) => {
     return <StatusChip tone="neutral">{status ? humanizeStatus(status) : "Unknown"}</StatusChip>;
 };
 
+const isFlaggedResult = (flag?: string | null): flag is string =>
+    Boolean(flag) && flag !== "NORMAL";
+
+const isCriticalFlag = (flag?: string | null) =>
+    flag === "CRITICAL_HIGH" || flag === "CRITICAL_LOW";
+
 const getFlagBadge = (flag?: string | null) => {
-    if (!flag || flag === "NORMAL") {
+    if (!isFlaggedResult(flag)) {
         return (
             <StatusChip tone="success" dot>
                 Normal
@@ -75,7 +82,7 @@ const getFlagBadge = (flag?: string | null) => {
         );
     }
 
-    if (flag === "CRITICAL_HIGH" || flag === "CRITICAL_LOW") {
+    if (isCriticalFlag(flag)) {
         return (
             <StatusChip tone="danger" dot>
                 {flag === "CRITICAL_HIGH" ? "Critical high" : "Critical low"}
@@ -90,8 +97,89 @@ const getFlagBadge = (flag?: string | null) => {
     );
 };
 
+/* ------------------------------------------------------------------ */
+/*  Filtering — three independent dimensions plus free-text search      */
+/* ------------------------------------------------------------------ */
+
 type FlagFilter = "ALL" | "FLAGGED" | "CRITICAL" | "HIGH" | "LOW" | "NORMAL";
 type PriorityFilter = "ALL" | "STAT" | "URGENT" | "NORMAL";
+type StatusFilter = "ALL" | "PENDING";
+
+type FilterOption<TValue extends string> = {
+    value: TValue;
+    label: string;
+};
+
+const STATUS_OPTIONS: readonly FilterOption<StatusFilter>[] = [
+    { value: "ALL", label: "All statuses" },
+    { value: "PENDING", label: "Pending review" },
+];
+
+const PRIORITY_OPTIONS: readonly FilterOption<PriorityFilter>[] = [
+    { value: "ALL", label: "All priorities" },
+    { value: "STAT", label: "STAT" },
+    { value: "URGENT", label: "Urgent" },
+    { value: "NORMAL", label: "Normal" },
+];
+
+const FLAG_OPTIONS: readonly FilterOption<FlagFilter>[] = [
+    { value: "ALL", label: "All flags" },
+    { value: "FLAGGED", label: "Flagged" },
+    { value: "CRITICAL", label: "Critical" },
+    { value: "HIGH", label: "High" },
+    { value: "LOW", label: "Low" },
+    { value: "NORMAL", label: "Normal" },
+];
+
+const matchesStatus = (result: TestResultSummary, filter: StatusFilter) =>
+    filter === "ALL" || result.status === "TECHNICALLY_VERIFIED";
+
+const matchesPriority = (result: TestResultSummary, filter: PriorityFilter) =>
+    filter === "ALL" || result.priorityLevel === filter;
+
+const matchesFlag = (result: TestResultSummary, filter: FlagFilter) => {
+    const resultFlag = result.flag ?? "NORMAL";
+
+    return (
+        filter === "ALL" ||
+        (filter === "NORMAL" && resultFlag === "NORMAL") ||
+        (filter === "FLAGGED" && isFlaggedResult(resultFlag)) ||
+        (filter === "CRITICAL" && isCriticalFlag(resultFlag)) ||
+        (filter === "HIGH" && (resultFlag === "HIGH" || resultFlag === "CRITICAL_HIGH")) ||
+        (filter === "LOW" && (resultFlag === "LOW" || resultFlag === "CRITICAL_LOW"))
+    );
+};
+
+const matchesSearch = (result: TestResultSummary, query: string) => {
+    if (query.length === 0) {
+        return true;
+    }
+
+    const displayResultId = formatDisplayId(result.resultId, "RES").toLowerCase();
+
+    return (
+        result.resultId.toLowerCase().includes(query) ||
+        displayResultId.includes(query) ||
+        (result.patientName ?? "").toLowerCase().includes(query) ||
+        (result.testType ?? "").toLowerCase().includes(query) ||
+        (result.technicianName ?? "").toLowerCase().includes(query) ||
+        (result.priorityLevel ?? "").toLowerCase().includes(query)
+    );
+};
+
+const buildFilterOptions = <TValue extends string>(
+    rows: TestResultSummary[],
+    options: readonly FilterOption<TValue>[],
+    matches: (result: TestResultSummary, value: TValue) => boolean
+) =>
+    options.map((option) => ({
+        ...option,
+        count: rows.filter((row) => matches(row, option.value)).length,
+    }));
+
+/* ------------------------------------------------------------------ */
+/*  Page                                                               */
+/* ------------------------------------------------------------------ */
 
 export default function ClinicalWorklistPage() {
     const router = useRouter();
@@ -100,6 +188,7 @@ export default function ClinicalWorklistPage() {
     const [error, setError] = useState<string | null>(null);
     const [flagFilter, setFlagFilter] = useState<FlagFilter>("ALL");
     const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>("ALL");
+    const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
     const [search, setSearch] = useState("");
     const [page, setPage] = useState(0);
     const [reloadKey, setReloadKey] = useState(0);
@@ -156,54 +245,67 @@ export default function ClinicalWorklistPage() {
     const retry = useCallback(() => setReloadKey((key) => key + 1), []);
 
     const pendingCount = results.filter((result) => result.status === "TECHNICALLY_VERIFIED").length;
-    const flaggedCount = results.filter((result) => result.flag && result.flag !== "NORMAL").length;
-    const criticalCount = results.filter(
-        (result) => result.flag === "CRITICAL_HIGH" || result.flag === "CRITICAL_LOW"
-    ).length;
-    const highCount = results.filter(
-        (result) => result.flag === "HIGH" || result.flag === "CRITICAL_HIGH"
-    ).length;
-    const lowCount = results.filter(
-        (result) => result.flag === "LOW" || result.flag === "CRITICAL_LOW"
-    ).length;
-    const normalCount = results.filter((result) => !result.flag || result.flag === "NORMAL").length;
-    const priorityCounts = {
-        STAT: results.filter((result) => result.priorityLevel === "STAT").length,
-        URGENT: results.filter((result) => result.priorityLevel === "URGENT").length,
-        NORMAL: results.filter((result) => result.priorityLevel === "NORMAL").length,
-    };
+    const flaggedCount = results.filter((result) => isFlaggedResult(result.flag)).length;
+    const criticalCount = results.filter((result) => isCriticalFlag(result.flag)).length;
 
-    const filteredResults = useMemo(() => {
+    const searchedResults = useMemo(() => {
         const query = search.trim().toLowerCase();
 
-        return results.filter((result) => {
-            const resultFlag = result.flag ?? "NORMAL";
-            const matchesFlag =
-                flagFilter === "ALL" ||
-                (flagFilter === "NORMAL" && resultFlag === "NORMAL") ||
-                (flagFilter === "FLAGGED" && resultFlag !== "NORMAL") ||
-                (flagFilter === "CRITICAL" &&
-                    (resultFlag === "CRITICAL_HIGH" || resultFlag === "CRITICAL_LOW")) ||
-                (flagFilter === "HIGH" && (resultFlag === "HIGH" || resultFlag === "CRITICAL_HIGH")) ||
-                (flagFilter === "LOW" && (resultFlag === "LOW" || resultFlag === "CRITICAL_LOW"));
+        return results.filter((result) => matchesSearch(result, query));
+    }, [results, search]);
 
-            const matchesPriority =
-                priorityFilter === "ALL" || result.priorityLevel === priorityFilter;
+    // Each control counts the rows left by the other two controls, so a number
+    // always previews how many rows picking that option would actually show.
+    const statusOptions = useMemo(
+        () =>
+            buildFilterOptions(
+                searchedResults.filter(
+                    (result) =>
+                        matchesPriority(result, priorityFilter) && matchesFlag(result, flagFilter)
+                ),
+                STATUS_OPTIONS,
+                matchesStatus
+            ),
+        [flagFilter, priorityFilter, searchedResults]
+    );
 
-            const displayResultId = formatDisplayId(result.resultId, "RES").toLowerCase();
+    const priorityOptions = useMemo(
+        () =>
+            buildFilterOptions(
+                searchedResults.filter(
+                    (result) =>
+                        matchesStatus(result, statusFilter) && matchesFlag(result, flagFilter)
+                ),
+                PRIORITY_OPTIONS,
+                matchesPriority
+            ),
+        [flagFilter, searchedResults, statusFilter]
+    );
 
-            const matchesSearch =
-                query.length === 0 ||
-                result.resultId.toLowerCase().includes(query) ||
-                displayResultId.includes(query) ||
-                (result.patientName ?? "").toLowerCase().includes(query) ||
-                (result.testType ?? "").toLowerCase().includes(query) ||
-                (result.technicianName ?? "").toLowerCase().includes(query) ||
-                (result.priorityLevel ?? "").toLowerCase().includes(query);
+    const flagOptions = useMemo(
+        () =>
+            buildFilterOptions(
+                searchedResults.filter(
+                    (result) =>
+                        matchesStatus(result, statusFilter) &&
+                        matchesPriority(result, priorityFilter)
+                ),
+                FLAG_OPTIONS,
+                matchesFlag
+            ),
+        [priorityFilter, searchedResults, statusFilter]
+    );
 
-            return matchesFlag && matchesPriority && matchesSearch;
-        });
-    }, [flagFilter, priorityFilter, results, search]);
+    const filteredResults = useMemo(
+        () =>
+            searchedResults.filter(
+                (result) =>
+                    matchesStatus(result, statusFilter) &&
+                    matchesPriority(result, priorityFilter) &&
+                    matchesFlag(result, flagFilter)
+            ),
+        [flagFilter, priorityFilter, searchedResults, statusFilter]
+    );
 
     const totalPages = Math.max(1, Math.ceil(filteredResults.length / PAGE_SIZE));
     const paginatedResults = useMemo(() => {
@@ -213,7 +315,7 @@ export default function ClinicalWorklistPage() {
 
     useEffect(() => {
         setPage(0);
-    }, [flagFilter, priorityFilter, search]);
+    }, [flagFilter, priorityFilter, search, statusFilter]);
 
     useEffect(() => {
         if (page > totalPages - 1) {
@@ -225,29 +327,18 @@ export default function ClinicalWorklistPage() {
         router.push(`/clinical/review/${result.resultId}`);
     };
 
-    const hasFilters = flagFilter !== "ALL" || priorityFilter !== "ALL" || search.trim().length > 0;
+    const hasFilters =
+        statusFilter !== "ALL" ||
+        priorityFilter !== "ALL" ||
+        flagFilter !== "ALL" ||
+        search.trim().length > 0;
 
     const clearFilters = () => {
-        setFlagFilter("ALL");
+        setStatusFilter("ALL");
         setPriorityFilter("ALL");
+        setFlagFilter("ALL");
         setSearch("");
     };
-
-    const flagOptions: { value: FlagFilter; label: string; count: number }[] = [
-        { value: "ALL", label: "All", count: results.length },
-        { value: "FLAGGED", label: "Flagged", count: flaggedCount },
-        { value: "CRITICAL", label: "Critical", count: criticalCount },
-        { value: "HIGH", label: "High", count: highCount },
-        { value: "LOW", label: "Low", count: lowCount },
-        { value: "NORMAL", label: "Normal", count: normalCount },
-    ];
-
-    const priorityOptions: { value: PriorityFilter; label: string; count: number }[] = [
-        { value: "ALL", label: "All priorities", count: results.length },
-        { value: "STAT", label: "STAT", count: priorityCounts.STAT },
-        { value: "URGENT", label: "Urgent", count: priorityCounts.URGENT },
-        { value: "NORMAL", label: "Normal", count: priorityCounts.NORMAL },
-    ];
 
     return (
         <div className="mx-auto max-w-[1400px]">
@@ -312,19 +403,27 @@ export default function ClinicalWorklistPage() {
             </div>
 
             <SectionCard title="Results" count={loading ? undefined : filteredResults.length} flush>
-                {/* Filter toolbar */}
+                {/* Filter toolbar — status, priority and flag are independent dimensions.
+                    Each control's counts are computed against the other two, so a number
+                    previews how many rows that option would leave. */}
                 <div className="flex flex-wrap items-center gap-2 border-b border-edge bg-surface-muted px-3 py-2">
-                    <SegmentedControl<FlagFilter>
-                        ariaLabel="Filter by flag"
-                        value={flagFilter}
-                        onChange={setFlagFilter}
-                        options={flagOptions}
+                    <SegmentedControl<StatusFilter>
+                        ariaLabel="Filter by status"
+                        value={statusFilter}
+                        onChange={setStatusFilter}
+                        options={statusOptions}
                     />
                     <SegmentedControl<PriorityFilter>
                         ariaLabel="Filter by priority"
                         value={priorityFilter}
                         onChange={setPriorityFilter}
                         options={priorityOptions}
+                    />
+                    <SegmentedControl<FlagFilter>
+                        ariaLabel="Filter by flag state"
+                        value={flagFilter}
+                        onChange={setFlagFilter}
+                        options={flagOptions}
                     />
                     <InputField
                         label="Search worklist"
@@ -338,7 +437,7 @@ export default function ClinicalWorklistPage() {
                     />
                     {hasFilters && (
                         <Button variant="ghost" icon={X} onClick={clearFilters}>
-                            Clear filters
+                            Clear all
                         </Button>
                     )}
                 </div>
@@ -374,10 +473,10 @@ export default function ClinicalWorklistPage() {
                         <EmptyState
                             icon={Search}
                             title="No results match"
-                            description="Try a different flag, priority or search term."
+                            description="Try a different status, priority, flag or search term."
                             action={
                                 <Button size="sm" icon={X} onClick={clearFilters}>
-                                    Clear filters
+                                    Clear all
                                 </Button>
                             }
                         />
@@ -427,10 +526,18 @@ export default function ClinicalWorklistPage() {
                                 {paginatedResults.map((result) => {
                                     const displayId = formatDisplayId(result.resultId, "RES");
                                     const updatedAt = result.updatedAt ?? result.createdAt;
+                                    // Critical results stay tinted so the row still reads as
+                                    // urgent once the eye leaves the flag column.
+                                    const critical = isCriticalFlag(result.flag);
                                     return (
                                         <tr
                                             key={result.resultId}
-                                            className="transition-colors hover:bg-surface-hover"
+                                            className={cn(
+                                                "transition-colors",
+                                                critical
+                                                    ? "bg-status-danger-bg hover:bg-status-danger-edge/60"
+                                                    : "hover:bg-surface-hover"
+                                            )}
                                         >
                                             <td className="py-2 pl-4 pr-3">
                                                 <div className="truncate font-mono text-xs font-medium text-fg" title={displayId}>

@@ -142,6 +142,8 @@ export default function BulkApprovalPage() {
         );
     };
 
+    // Deliberately replaces the selection rather than adding to it: a supervisor
+    // must never approve a batch that the current filters have scrolled off screen.
     const selectAll = () => {
         setBatches((previous) =>
             previous.map((batch) => ({
@@ -551,6 +553,8 @@ export default function BulkApprovalPage() {
                     aria-label="Selection summary"
                     className="sticky bottom-0 z-20 mt-4 rounded-lg border border-edge bg-surface p-3 sm:p-4"
                 >
+                    {/* Wraps instead of overflowing on narrow viewports; sitting in normal
+                        flow (not fixed) means it never has to guess the sidebar's width. */}
                     <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
                         <dl className="flex flex-wrap gap-x-6 gap-y-2">
                             <div>

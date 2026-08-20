@@ -25,6 +25,7 @@ import {
     TestResultDetail,
 } from '@/lib/api';
 import type { PatientDocument } from '@/lib/api';
+import { formatDisplayId } from '@/lib/format-id';
 import { cn } from '@/lib/utils';
 import Button from '@/components/ui/Button';
 import PageHeader from '@/components/ui/PageHeader';
@@ -130,6 +131,8 @@ export default function ClinicalReviewPage() {
     const params = useParams<{ sampleId: string }>();
     const sampleId = Array.isArray(params.sampleId) ? params.sampleId[0] : params.sampleId;
     const resultId = sampleId;
+    /** Short, human-readable case reference (RES-xxxxxxxx); the raw id stays in the title attribute. */
+    const displayId = formatDisplayId(sampleId, 'RES');
 
     const [data, setData] = useState<TestResultDetail | null>(null);
     const [loading, setLoading] = useState(true);
@@ -448,6 +451,14 @@ export default function ClinicalReviewPage() {
                 <PageHeader
                     crumbs={crumbs}
                     title="Clinical review"
+                    meta={
+                        <>
+                            <span>Case</span>
+                            <span className="min-w-0 break-words font-mono text-fg-secondary" title={sampleId}>
+                                {displayId}
+                            </span>
+                        </>
+                    }
                     actions={
                         <Button icon={ArrowLeft} onClick={handleBack}>
                             Back
@@ -579,7 +590,9 @@ export default function ClinicalReviewPage() {
                 meta={
                     <>
                         <span>Case</span>
-                        <span className="min-w-0 break-words font-mono text-fg-secondary">{sampleId}</span>
+                        <span className="min-w-0 break-words font-mono text-fg-secondary" title={sampleId}>
+                            {displayId}
+                        </span>
                         <span aria-hidden="true" className="text-fg-faint">·</span>
                         <StatusChip tone={getStatusTone(data.status)} dot size="sm">
                             {getStatusLabel(data.status)}

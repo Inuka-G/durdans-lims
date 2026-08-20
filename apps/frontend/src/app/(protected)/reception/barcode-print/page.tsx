@@ -26,6 +26,7 @@ import {
     type Patient,
     type SamplePrintItem,
 } from '@/lib/api';
+import { getTubeHexColor } from '@/lib/phlebotomy-label-print';
 import { cn } from '@/lib/utils';
 import Button from '@/components/ui/Button';
 import PageHeader from '@/components/ui/PageHeader';
@@ -39,16 +40,6 @@ import { formatRegistered } from '@/components/patient-dashboard/dashboard-data'
 /* ------------------------------------------------------------------ */
 /*  Constants / helpers                                                */
 /* ------------------------------------------------------------------ */
-
-/** Specimen tube colours are physical (cap colour) so they stay literal in both themes. */
-const TUBE_COLOR_CLASS: Record<string, string> = {
-    EDTA_PURPLE: 'bg-purple-500',
-    PLAIN_RED: 'bg-red-500',
-    SODIUM_CITRATE_BLUE: 'bg-blue-500',
-    SERUM_SEPARATOR_GOLD: 'bg-amber-400',
-    FLUORIDE_OXALATE_GRAY: 'bg-neutral-400',
-};
-const UNKNOWN_TUBE_CLASS = 'bg-fg-faint';
 
 /**
  * Reception-specific sample statuses that are not (yet) in the shared
@@ -135,9 +126,13 @@ function BarcodePrintPageInner() {
         return selectedResult.patient?.pid ?? 'Unknown patient';
     }, [selectedPatient, selectedResult]);
 
-    const tubeColorClass = selectedResult?.tubeTypes?.[0]
-        ? TUBE_COLOR_CLASS[selectedResult.tubeTypes[0]] ?? UNKNOWN_TUBE_CLASS
-        : UNKNOWN_TUBE_CLASS;
+    /**
+     * Specimen tube cap colour, read from the stocked tube in supplies and carried on the
+     * sample payload. It mirrors a physical object, so it stays a literal colour in both
+     * themes; `getTubeHexColor` validates the shape and falls back to the neutral grey that
+     * flags "no stocked container to read a colour from".
+     */
+    const tubeColor = getTubeHexColor(selectedResult?.tubeColor);
 
     const handleSearch = async () => {
         if (!searchQuery.trim()) {
@@ -230,7 +225,7 @@ function BarcodePrintPageInner() {
                 testType: selectedResult.testType ?? 'Unknown test',
                 testCodes: selectedResult.testCodes ?? [],
                 tubeTypes: selectedResult.tubeTypes ?? [],
-                tubeColorClass,
+                tubeColor,
             });
 
             if (!opened) {
@@ -502,7 +497,12 @@ function BarcodePrintPageInner() {
                             <div className="mb-4 rounded-md border border-dashed border-edge-strong bg-white p-4 text-black">
                                 <span className="sr-only">Label preview: </span>
                                 <div className="flex items-start gap-3">
-                                    <span className={cn('h-16 w-3 shrink-0 rounded-full', tubeColorClass)} aria-hidden="true" />
+                                    {/* Tube cap colour comes from the stocked supply row — a physical colour, not a theme token. */}
+                                    <span
+                                        className="h-16 w-3 shrink-0 rounded-full"
+                                        style={{ backgroundColor: tubeColor }}
+                                        aria-hidden="true"
+                                    />
                                     <div className="min-w-0 flex-1">
                                         <div className="mb-1.5 flex items-center justify-between gap-2">
                                             <p className="truncate font-mono text-sm font-bold">{selectedResult.sampleId}</p>
@@ -639,7 +639,8 @@ type PrintWindowPayload = {
     testType: string;
     testCodes: string[];
     tubeTypes: string[];
-    tubeColorClass: string;
+    /** Hex tube cap colour, already shape-checked by `getTubeHexColor`. */
+    tubeColor: string;
 };
 
 function openPrintWindow(payload: PrintWindowPayload) {
@@ -648,7 +649,6 @@ function openPrintWindow(payload: PrintWindowPayload) {
         return false;
     }
 
-    const tubeColor = resolveTubeColor(payload.tubeColorClass);
     const barcodeBars = buildBarcodePattern(payload.sampleId)
         .map((width) => `<div style="width:${width}px;height:42px;background:#0f172a;border-radius:1px;"></div>`)
         .join('');
@@ -687,7 +687,7 @@ function openPrintWindow(payload: PrintWindowPayload) {
       width: 14px;
       height: 78px;
       border-radius: 999px;
-      background: ${tubeColor};
+      background: ${escapeHtml(payload.tubeColor)};
       flex-shrink: 0;
     }
     .top {
@@ -751,7 +751,7 @@ function openPrintWindow(payload: PrintWindowPayload) {
       <div style="flex:1;">
         <div class="top">
           <div class="title">${escapeHtml(payload.sampleId)}</div>
-          <div style="font-size:13px;color:#94a3b8;">${escapeHtml(payload.orderId)}</div>
+          <div style="font-size:13px;color:#64748b;">${escapeHtml(payload.orderId)}</div>
         </div>
         <p class="meta">${escapeHtml(payload.patientName)} • ${escapeHtml(payload.patientCode)}</p>
         <p class="sub">${escapeHtml(payload.testType)}</p>
@@ -773,23 +773,6 @@ function openPrintWindow(payload: PrintWindowPayload) {
     printWindow.document.write(html);
     printWindow.document.close();
     return true;
-}
-
-function resolveTubeColor(colorClass: string) {
-    switch (colorClass) {
-        case 'bg-purple-500':
-            return '#a855f7';
-        case 'bg-red-500':
-            return '#ef4444';
-        case 'bg-blue-500':
-            return '#3b82f6';
-        case 'bg-amber-400':
-            return '#fbbf24';
-        case 'bg-neutral-400':
-            return '#a3a3a3';
-        default:
-            return '#94a3b8';
-    }
 }
 
 function escapeHtml(value: string) {

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Package, PackagePlus, Plus, RefreshCw, Search, X, XCircle } from 'lucide-react';
 import type { Supply } from '@/types/sample-lifecycle';
-import { createSupply, getSupplies, updateSupply } from '@/lib/api';
+import { adjustSupplyStock, createSupply, getLabTests, getSupplies } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import Button from '@/components/ui/Button';
 import PageHeader from '@/components/ui/PageHeader';
@@ -22,6 +22,7 @@ type RawSupply = {
     itemNumber?: string | number;
     name?: string;
     category?: string;
+    tubeType?: string;
     tubeColor?: string;
     currentStock?: number | string;
     stockQuantity?: number | string;
@@ -35,12 +36,27 @@ type RawSupply = {
     expiryDate?: string;
 };
 
+type RawLabTest = {
+    id?: string | number;
+    testName?: string;
+    name?: string;
+    testCode?: string;
+    tubeType?: string;
+};
+
+type CatalogTest = {
+    id: string;
+    name: string;
+    tubeType: string;
+};
+
 type InventorySupply = Supply & {
     itemNo?: string;
+    tubeType?: string;
 };
 
 const DEFAULT_UNIT = 'units';
-const ALL_CATEGORIES = 'All Categories';
+const ALL_TUBES = 'All Tubes';
 const SKELETON_ROWS = 6;
 
 type StockStatus = { label: string; tone: ChipTone; bar: string };
@@ -72,12 +88,22 @@ function formatRestocked(value?: string) {
     return formatRegistered(date);
 }
 
+/** "EDTA_PURPLE" → "Edta Purple" — tube codes are sentence-cased before they reach the UI. */
+function formatTubeType(tubeType: string) {
+    return tubeType
+        .toLowerCase()
+        .split('_')
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(' ');
+}
+
 function normalizeSupplies(list: RawSupply[]): InventorySupply[] {
     return list.map((item) => ({
         id: String(item?.id ?? item?.supplyId ?? ''),
         itemNo: item?.itemNo || item?.itemNumber ? String(item.itemNo ?? item.itemNumber) : undefined,
         name: String(item?.name ?? 'Unnamed Supply'),
         category: String(item?.category ?? 'Other'),
+        tubeType: item?.tubeType ? String(item.tubeType) : undefined,
         tubeColor: item?.tubeColor ? String(item.tubeColor) : undefined,
         currentStock: Number(item?.currentStock ?? item?.stockQuantity ?? 0),
         minStock: Number(item?.minStock ?? item?.minimumStock ?? 0),
@@ -86,6 +112,17 @@ function normalizeSupplies(list: RawSupply[]): InventorySupply[] {
         lastRestocked: String(item?.lastRestocked ?? item?.updatedAt ?? '-'),
         expiryDate: String(item?.expiryDate ?? '-'),
     }));
+}
+
+// Tests without a tube cannot be stocked and can never match an inventory row.
+function normalizeLabTests(list: RawLabTest[]): CatalogTest[] {
+    return list
+        .filter((item) => Boolean(item?.tubeType))
+        .map((item) => ({
+            id: String(item?.id ?? ''),
+            name: String(item?.testName ?? item?.name ?? item?.testCode ?? 'Unnamed Test'),
+            tubeType: String(item.tubeType),
+        }));
 }
 
 function generateNextItemNo(supplies: InventorySupply[]) {
@@ -108,6 +145,13 @@ function generateColor(seed: number) {
 
 const FALLBACK_ITEM_COLOR = '#64748b';
 
+// A refused stock movement carries the shelf count that refused it, which is the only useful thing to show.
+function resolveErrorMessage(err: unknown, fallback: string) {
+    const backendMessage = (err as { response?: { data?: { message?: unknown } } })?.response?.data?.message;
+    if (typeof backendMessage === 'string' && backendMessage.trim()) return backendMessage;
+    return err instanceof Error ? err.message : fallback;
+}
+
 function getNextAvailableColor(supplies: InventorySupply[]) {
     const used = new Set(supplies.map((supply) => supply.tubeColor?.toLowerCase()).filter(Boolean));
     for (let index = supplies.length + 1; index < supplies.length + 256; index += 1) {
@@ -117,14 +161,29 @@ function getNextAvailableColor(supplies: InventorySupply[]) {
     return FALLBACK_ITEM_COLOR;
 }
 
-/** Stored item colour rendered as a small dot (literal colour by design, ringed so it reads on both themes). */
-function ItemColorDot({ color, className }: { color?: string; className?: string }) {
+/**
+ * Stored tube colour rendered as a small dot (literal colour by design, ringed so it reads on both themes).
+ * Pass `decorative` where the hex is already written out next to the dot, so it is not announced twice;
+ * everywhere else the dot names itself, since a swatch alone conveys nothing to a screen reader.
+ */
+function ItemColorDot({ color, className, decorative }: { color?: string; className?: string; decorative?: boolean }) {
     if (!color) return null;
-    return <span aria-hidden="true" className={cn('inline-block h-3 w-3 shrink-0 rounded-full ring-1 ring-edge', className)} style={{ backgroundColor: color }} />;
+    const hex = color.toUpperCase();
+    return (
+        <span
+            role={decorative ? undefined : 'img'}
+            aria-hidden={decorative || undefined}
+            aria-label={decorative ? undefined : `Tube colour ${hex}`}
+            title={hex}
+            className={cn('inline-block h-3 w-3 shrink-0 rounded-full ring-1 ring-edge', className)}
+            style={{ backgroundColor: color }}
+        />
+    );
 }
 
 export default function SuppliesPage() {
     const [supplies, setSupplies] = useState<InventorySupply[]>([]);
+    const [labTests, setLabTests] = useState<CatalogTest[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [addError, setAddError] = useState<string | null>(null);
@@ -133,10 +192,10 @@ export default function SuppliesPage() {
     const [showAddModal, setShowAddModal] = useState(false);
     const [showRefillModal, setShowRefillModal] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
-    const [categoryFilter, setCategoryFilter] = useState(ALL_CATEGORIES);
+    const [tubeFilter, setTubeFilter] = useState(ALL_TUBES);
     const [form, setForm] = useState({
+        testId: '',
         name: '',
-        category: '',
         color: FALLBACK_ITEM_COLOR,
         currentStock: '',
         minStock: '',
@@ -167,19 +226,49 @@ export default function SuppliesPage() {
         fetchSupplies(true);
     }, [fetchSupplies]);
 
-    const categories = useMemo(() => {
-        const dynamicCategories = Array.from(new Set(supplies.map((s) => s.category).filter(Boolean)));
-        return [ALL_CATEGORIES, ...dynamicCategories];
+    // A missing catalog only costs the Test column; the inventory itself still stands.
+    useEffect(() => {
+        let active = true;
+        (async () => {
+            try {
+                const data = await getLabTests();
+                if (!active) return;
+                setLabTests(normalizeLabTests(Array.isArray(data) ? data as RawLabTest[] : []));
+            } catch {
+                if (active) setLabTests([]);
+            }
+        })();
+
+        return () => {
+            active = false;
+        };
+    }, []);
+
+    const testsByTube = useMemo(() => {
+        const map = new Map<string, string[]>();
+        labTests.forEach((test) => {
+            const names = map.get(test.tubeType) ?? [];
+            names.push(test.name);
+            map.set(test.tubeType, names);
+        });
+        return map;
+    }, [labTests]);
+
+    const tubeOptions = useMemo(() => {
+        const present = supplies
+            .map((supply) => supply.tubeType)
+            .filter((tubeType): tubeType is string => Boolean(tubeType));
+        return Array.from(new Set(present)).sort();
     }, [supplies]);
 
     const filtered = useMemo(() => {
         return supplies.filter((s) => {
             const q = searchQuery.toLowerCase();
             const matchesSearch = !q || s.name.toLowerCase().includes(q) || s.itemNo?.toLowerCase().includes(q);
-            const matchesCategory = categoryFilter === ALL_CATEGORIES || s.category === categoryFilter;
-            return matchesSearch && matchesCategory;
+            const matchesTube = tubeFilter === ALL_TUBES || s.tubeType === tubeFilter;
+            return matchesSearch && matchesTube;
         });
-    }, [supplies, searchQuery, categoryFilter]);
+    }, [supplies, searchQuery, tubeFilter]);
 
     const outOfStockCount = supplies.filter((s) => s.currentStock <= 0).length;
     const lowStockCount = supplies.filter((s) => s.currentStock > 0 && s.currentStock < s.minStock).length;
@@ -187,19 +276,50 @@ export default function SuppliesPage() {
     const nextItemNo = useMemo(() => generateNextItemNo(supplies), [supplies]);
     const usedColors = useMemo(() => new Set(supplies.map((supply) => supply.tubeColor?.toLowerCase()).filter(Boolean)), [supplies]);
     const colorInUse = usedColors.has(form.color.toLowerCase());
-    const hasFilters = Boolean(searchQuery) || categoryFilter !== ALL_CATEGORIES;
+    const hasFilters = Boolean(searchQuery) || tubeFilter !== ALL_TUBES;
+
+    // The tube is never typed in: it follows from the test, and an already-stocked tube must be refilled instead.
+    const derivedTube = useMemo(() => {
+        const test = labTests.find((item) => item.id === form.testId);
+        if (!test) return null;
+
+        const stocked = supplies.find((supply) => supply.tubeType === test.tubeType);
+        return {
+            tubeType: test.tubeType,
+            name: stocked?.name ?? formatTubeType(test.tubeType),
+            color: stocked?.tubeColor ?? form.color,
+            stockedAs: stocked?.itemNo ?? null,
+        };
+    }, [labTests, supplies, form.testId, form.color]);
 
     const resetForm = useCallback(() => {
         setAddError(null);
         setForm({
+            testId: '',
             name: '',
-            category: '',
             color: getNextAvailableColor(supplies),
             currentStock: '',
             minStock: '',
             maxStock: '',
         });
     }, [supplies]);
+
+    const handleTestChange = (testId: string) => {
+        setAddError(null);
+        const test = labTests.find((item) => item.id === testId);
+        if (!test) {
+            setForm((prev) => ({ ...prev, testId }));
+            return;
+        }
+
+        const stocked = supplies.find((supply) => supply.tubeType === test.tubeType);
+        setForm((prev) => ({
+            ...prev,
+            testId,
+            name: stocked?.name ?? formatTubeType(test.tubeType),
+            color: stocked?.tubeColor ?? getNextAvailableColor(supplies),
+        }));
+    };
 
     const handleColorChange = (color: string) => {
         if (usedColors.has(color.toLowerCase())) {
@@ -245,7 +365,7 @@ export default function SuppliesPage() {
 
     const clearFilters = () => {
         setSearchQuery('');
-        setCategoryFilter(ALL_CATEGORIES);
+        setTubeFilter(ALL_TUBES);
     };
 
     const handleCreateSupply = async (e: React.FormEvent) => {
@@ -255,8 +375,16 @@ export default function SuppliesPage() {
         const maxStock = Number(form.maxStock);
         const nextName = form.name.trim();
 
-        if (!nextName || !form.category.trim()) {
-            setAddError('Name and category are required.');
+        if (!derivedTube) {
+            setAddError('Select a test so the tube can be derived.');
+            return;
+        }
+        if (derivedTube.stockedAs) {
+            setAddError(`This tube is already stocked as ${derivedTube.stockedAs}. Refill that item instead.`);
+            return;
+        }
+        if (!nextName) {
+            setAddError('Tube name is required.');
             return;
         }
         if (supplies.some((supply) => supply.name.trim().toLowerCase() === nextName.toLowerCase())) {
@@ -283,7 +411,8 @@ export default function SuppliesPage() {
                 itemNo: nextItemNo,
                 itemNumber: nextItemNo,
                 name: nextName,
-                category: form.category.trim(),
+                tubeType: derivedTube.tubeType,
+                testId: form.testId,
                 currentStock,
                 minStock,
                 maxStock,
@@ -317,17 +446,13 @@ export default function SuppliesPage() {
         try {
             setSubmitting(true);
             setRefillError(null);
-            await updateSupply(selectedSupply.id, {
-                ...selectedSupply,
-                currentStock: selectedSupply.currentStock + quantity,
-                stockQuantity: selectedSupply.currentStock + quantity,
-                lastRestocked: new Date().toISOString().slice(0, 10),
-            });
+            // The server applies the delta to the count on the shelf and answers with the total it reached.
+            const [refilled] = normalizeSupplies([await adjustSupplyStock(selectedSupply.id, quantity)]);
+            setSupplies((prev) => prev.map((supply) => (supply.id === refilled.id ? refilled : supply)));
             setShowRefillModal(false);
             resetRefillForm();
-            await fetchSupplies(false);
         } catch (err: unknown) {
-            setRefillError(err instanceof Error ? err.message : 'Failed to refill inventory item.');
+            setRefillError(resolveErrorMessage(err, 'Failed to refill inventory item.'));
         } finally {
             setSubmitting(false);
         }
@@ -341,7 +466,7 @@ export default function SuppliesPage() {
             <PageHeader
                 crumbs={[{ label: 'Phlebotomy', href: '/phlebotomy/worklist' }, { label: 'Supplies' }]}
                 title="Supplies"
-                meta={<span>Track collection supplies and reorder when stock is low.</span>}
+                meta={<span>Stock is counted per tube and drawn down as samples are collected.</span>}
                 actions={
                     <>
                         <Button icon={RefreshCw} onClick={() => void fetchSupplies(true)} loading={loading && supplies.length > 0} disabled={loading}>
@@ -388,15 +513,16 @@ export default function SuppliesPage() {
                         className="min-w-[200px] flex-1"
                     />
                     <SelectField
-                        label="Category"
+                        label="Tube type"
                         hideLabel
-                        value={categoryFilter}
-                        onChange={(e) => setCategoryFilter(e.target.value)}
+                        value={tubeFilter}
+                        onChange={(e) => setTubeFilter(e.target.value)}
                         className="w-full sm:w-48"
                     >
-                        {categories.map((c) => (
-                            <option key={c} value={c}>
-                                {c === ALL_CATEGORIES ? 'All categories' : c}
+                        <option value={ALL_TUBES}>All tubes</option>
+                        {tubeOptions.map((tubeType) => (
+                            <option key={tubeType} value={tubeType}>
+                                {formatTubeType(tubeType)}
                             </option>
                         ))}
                     </SelectField>
@@ -414,7 +540,7 @@ export default function SuppliesPage() {
                             <li key={i} className="flex items-center gap-3 px-4 py-2.5">
                                 <span className="h-3 w-3 shrink-0 rounded-full bg-skeleton" />
                                 <span className="h-4 w-40 shrink-0 rounded bg-skeleton" />
-                                <span className="hidden h-3 w-24 rounded bg-skeleton md:block" />
+                                <span className="hidden h-3 w-28 rounded bg-skeleton md:block" />
                                 <span className="h-3 w-32 rounded bg-skeleton" />
                                 <span className="hidden h-3 w-10 rounded bg-skeleton lg:block" />
                                 <span className="h-4 w-20 rounded bg-skeleton" />
@@ -438,7 +564,7 @@ export default function SuppliesPage() {
                         <EmptyState
                             icon={Search}
                             title="No supplies match"
-                            description="Try a different search term or category."
+                            description="Try a different search term or tube type."
                             action={
                                 <Button size="sm" icon={X} onClick={clearFilters}>
                                     Clear filters
@@ -449,7 +575,7 @@ export default function SuppliesPage() {
                         <EmptyState
                             icon={Package}
                             title="No supplies yet"
-                            description="Add collection tubes, needles and other consumables to track stock levels."
+                            description="Stock a tube for a test so collections can draw it down."
                             action={
                                 <Button size="sm" variant="primary" icon={Plus} onClick={openAddModal}>
                                     Add item
@@ -459,12 +585,13 @@ export default function SuppliesPage() {
                     )
                 ) : (
                     <div className="overflow-x-auto">
-                        <table className="w-full min-w-[760px] table-fixed text-left text-[13px] md:min-w-[850px] lg:min-w-[1080px]">
+                        {/* Fixed widths per band: base 704 · md 912 · lg 1136 — each under its min-w */}
+                        <table className="w-full min-w-[760px] table-fixed text-left text-[13px] md:min-w-[940px] lg:min-w-[1180px]">
                             <caption className="sr-only">Supplies inventory</caption>
                             <thead>
                                 <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
                                     <th scope="col" className="w-64 py-2 pl-4 pr-3 font-medium">Item</th>
-                                    <th scope="col" className="hidden w-36 px-3 py-2 font-medium md:table-cell">Category</th>
+                                    <th scope="col" className="hidden w-52 px-3 py-2 font-medium md:table-cell">Tests</th>
                                     <th scope="col" className="w-56 px-3 py-2 font-medium">Stock</th>
                                     <th scope="col" className="hidden w-20 px-3 py-2 text-right font-medium lg:table-cell">Min</th>
                                     <th scope="col" className="w-32 px-3 py-2 font-medium">Status</th>
@@ -478,22 +605,35 @@ export default function SuppliesPage() {
                                 {filtered.map((supply) => {
                                     const status = getStockStatus(supply.currentStock, supply.minStock);
                                     const pct = getStockPercent(supply.currentStock, supply.maxStock);
+                                    const testNames = supply.tubeType ? testsByTube.get(supply.tubeType) ?? [] : [];
+                                    const hiddenCount = testNames.length - 2;
+                                    const testLabel = testNames.length === 0
+                                        ? '—'
+                                        : `${testNames.slice(0, 2).join(', ')}${hiddenCount > 0 ? ` +${hiddenCount} more` : ''}`;
                                     return (
                                         <tr key={supply.id} className="transition-colors hover:bg-surface-hover">
                                             <td className="py-2 pl-4 pr-3">
                                                 <div className="flex min-w-0 items-center gap-2">
-                                                    <ItemColorDot color={supply.tubeColor} />
+                                                    <ItemColorDot color={supply.tubeColor} decorative />
                                                     <div className="min-w-0">
                                                         <p className="truncate font-medium text-fg" title={supply.name}>{supply.name}</p>
                                                         <p className="truncate text-xs text-fg-muted">
                                                             {supply.itemNo ?? '—'}
-                                                            <span className="md:hidden"> · {supply.category}</span>
+                                                            {supply.tubeType && <span> · {formatTubeType(supply.tubeType)}</span>}
+                                                            {/* The dot shows the colour; the stored value itself has to be legible too. */}
+                                                            {supply.tubeColor && (
+                                                                <span> · <span className="font-mono uppercase">{supply.tubeColor}</span></span>
+                                                            )}
+                                                            {testNames.length > 0 && <span className="md:hidden"> · {testLabel}</span>}
                                                         </p>
                                                     </div>
                                                 </div>
                                             </td>
-                                            <td className="hidden truncate px-3 py-2 text-fg-secondary md:table-cell" title={supply.category}>
-                                                {supply.category}
+                                            <td
+                                                className="hidden truncate px-3 py-2 text-fg-secondary md:table-cell"
+                                                title={testNames.length > 0 ? testNames.join(', ') : undefined}
+                                            >
+                                                {testLabel}
                                             </td>
                                             <td className="px-3 py-2">
                                                 <div className="flex items-center gap-2">
@@ -542,7 +682,7 @@ export default function SuppliesPage() {
                 open={showAddModal}
                 onClose={closeAddModal}
                 title="Add inventory item"
-                description="New items are numbered automatically."
+                description="Pick the test — the tube follows from it, and the item is numbered automatically."
                 size="md"
                 dismissible={!submitting}
                 footer={
@@ -563,34 +703,51 @@ export default function SuppliesPage() {
                         </div>
                     )}
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        <SelectField
+                            label="Test"
+                            value={form.testId}
+                            onChange={(e) => handleTestChange(e.target.value)}
+                            hint={labTests.length === 0 ? 'Test catalog unavailable — reload to try again.' : 'The tube is derived from the test.'}
+                            required
+                            className="sm:col-span-2"
+                        >
+                            <option value="">Select test</option>
+                            {labTests.map((test) => (
+                                <option key={test.id} value={test.id}>
+                                    {test.name}
+                                </option>
+                            ))}
+                        </SelectField>
+                        {derivedTube && (
+                            <div className="min-w-0 rounded-md border border-edge bg-surface-muted px-3 py-2 sm:col-span-2">
+                                <p className="text-xs font-medium text-fg-secondary">Tube for this test</p>
+                                <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2">
+                                    <ItemColorDot color={derivedTube.color} />
+                                    <span className="min-w-0 truncate text-sm font-medium text-fg" title={derivedTube.name}>
+                                        {derivedTube.name}
+                                    </span>
+                                    <StatusChip size="sm">{formatTubeType(derivedTube.tubeType)}</StatusChip>
+                                </div>
+                                {derivedTube.stockedAs && (
+                                    <p className="mt-1.5 text-xs text-status-pending-fg">
+                                        Already stocked as {derivedTube.stockedAs} — refill that item instead.
+                                    </p>
+                                )}
+                            </div>
+                        )}
+                        <InputField label="Item no" value={nextItemNo} readOnly hint="Assigned automatically" />
                         <InputField
-                            label="Item name"
+                            label="Tube name"
                             value={form.name}
                             onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
                             placeholder="e.g. EDTA tube 4 ml"
                             autoComplete="off"
                             required
-                            className="sm:col-span-2"
                         />
-                        <InputField label="Item no" value={nextItemNo} readOnly hint="Assigned automatically" />
-                        <InputField
-                            label="Category"
-                            value={form.category}
-                            onChange={(e) => setForm((prev) => ({ ...prev, category: e.target.value }))}
-                            list="supply-categories"
-                            placeholder="e.g. Tubes"
-                            autoComplete="off"
-                            required
-                        />
-                        <datalist id="supply-categories">
-                            {categories.filter((category) => category !== ALL_CATEGORIES).map((category) => (
-                                <option key={category} value={category} />
-                            ))}
-                        </datalist>
                         {/* Colour picker composed inline: the Field primitive has no swatch control */}
                         <div className="min-w-0 sm:col-span-2">
                             <label htmlFor={colorInputId} className="mb-1 block text-xs font-medium text-fg-secondary">
-                                Item colour
+                                Tube colour
                             </label>
                             <div className="flex items-center gap-3">
                                 <input
@@ -652,7 +809,7 @@ export default function SuppliesPage() {
                 open={showRefillModal}
                 onClose={closeRefillModal}
                 title="Refill inventory item"
-                description="Adds the quantity to the current stock and records today as the restock date."
+                description="Adds the quantity to the count on the shelf; the server answers with the total it reached."
                 size="sm"
                 dismissible={!submitting}
                 footer={

@@ -50,14 +50,18 @@ const URL_MAP: Record<string, string> = {
     "/orders-billing": "/orders-billing/create-order",
 };
 
-/** Backend linkUrl → every route prefix that belongs to that module (for the active tab). */
+/**
+ * Backend linkUrl → every route prefix that belongs to that module (for the active tab).
+ * Critical values is no longer a route of its own — it lives inside the supervisor
+ * verification screens — so nothing maps to /critical-values any more.
+ */
 const MODULE_PREFIXES: Record<string, string[]> = {
     "/dashboard": ["/dashboard", "/patients", "/audit"],
     "/orders-billing": ["/orders-billing"],
     "/phlebotomy": ["/phlebotomy"],
     "/lab-reception": ["/reception"],
     "/lab-testing": ["/mlt"],
-    "/lab-supervision": ["/verification", "/critical-values"],
+    "/lab-supervision": ["/verification"],
     "/pathology": ["/clinical"],
     "/report-dispatch": ["/dispatch"],
     "/branch": ["/branch"],
@@ -66,7 +70,8 @@ const MODULE_PREFIXES: Record<string, string[]> = {
 
 const sortNavItems = (items: NavItem[]) =>
     [...new Map(items.map((item) => [item.linkUrl, item])).values()]
-        // Critical Values is a Lab Supervisor workflow page, not a top-level role/module.
+        // The /critical-values route is gone, but the backend still serves its
+        // header_mapping row — without this the supervisor nav renders a 404 link.
         .filter((item) => item.linkUrl !== "/critical-values")
         .sort((a, b) => {
             const aOrder = NAV_ORDER[a.linkUrl] ?? Number.MAX_SAFE_INTEGER;
@@ -100,7 +105,7 @@ export default function TopNav() {
     const userName = user?.name || user?.preferred_username || "User";
 
     const getRoleTitle = () => {
-        if (pathname.startsWith("/verification") || pathname.startsWith("/critical-values")) return "Lab Supervisor";
+        if (pathname.startsWith("/verification")) return "Lab Supervisor";
         if (pathname.startsWith("/clinical")) return "Pathologist";
         if (pathname.startsWith("/branch")) return "Admin";
         if (pathname.startsWith("/superadmin")) return "Super Admin";
@@ -108,7 +113,7 @@ export default function TopNav() {
     };
 
     const getRoleSubtitle = () => {
-        if (pathname.startsWith("/verification") || pathname.startsWith("/critical-values")) return "Verification";
+        if (pathname.startsWith("/verification")) return "Verification";
         if (pathname.startsWith("/clinical")) return "Clinical Approval";
         if (pathname.startsWith("/branch")) return "Branch Admin";
         if (pathname.startsWith("/superadmin")) return "Super Admin";

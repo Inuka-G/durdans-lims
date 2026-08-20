@@ -5,8 +5,7 @@ import { toast } from 'sonner';
 import { useSearchParams } from 'next/navigation';
 import { AlertTriangle, Barcode, Printer, RefreshCw, SearchX } from 'lucide-react';
 import { getCollectionHistory, printSampleLabel } from '@/lib/api';
-import { getBarcodeBars, openPhlebotomySpecimenLabelPrint } from '@/lib/phlebotomy-label-print';
-import { TUBE_COLOR_MAP } from '@/constants/sample-lifecycle';
+import { getBarcodeBars, getTubeHexColor, openPhlebotomySpecimenLabelPrint } from '@/lib/phlebotomy-label-print';
 import type { LabelItem } from '@/types/sample-lifecycle';
 import Button from '@/components/ui/Button';
 import PageHeader from '@/components/ui/PageHeader';
@@ -27,6 +26,8 @@ type CollectionHistoryApiItem = {
     testCodes?: string[];
     tubeType?: string;
     tubeTypes?: string[];
+    /** Hex colour of the stocked tube in supplies inventory; null when nothing is stocked. */
+    tubeColor?: string | null;
     status?: string;
     collectedAt?: string;
     printCount?: number;
@@ -71,7 +72,10 @@ function LabelPrintPageInner() {
                         pid: item?.pid ?? '-',
                         testCodes: Array.isArray(item?.testCodes) ? item.testCodes : [],
                         tubeType: String(tubeTypeCode).replace(/_/g, ' '),
-                        tubeColor: TUBE_COLOR_MAP[String(tubeTypeCode)] ?? TUBE_COLOR_MAP.OTHER,
+                        // Tube cap colour comes from the stocked tube in supplies inventory, not
+                        // from a static code map. getTubeHexColor validates the operator-supplied
+                        // value and falls back to neutral grey when no container is stocked.
+                        tubeColor: getTubeHexColor(item?.tubeColor),
                         collectedAt: formatCollectedAt(item?.collectedAt),
                         printCount: Number(item?.printCount ?? 0),
                         tubeTypeCode: String(tubeTypeCode),
@@ -111,6 +115,7 @@ function LabelPrintPageInner() {
                 pid: label.pid,
                 testCodes: label.testCodes,
                 tubeTypeLabel: tubeCode,
+                tubeColor: label.tubeColor,
             });
 
             if (!opened) {
@@ -229,9 +234,17 @@ function LabelPrintPageInner() {
                                                     {label.pid}
                                                 </p>
                                             </div>
-                                            <div className="flex shrink-0 items-center gap-1.5 text-xs text-fg-muted">
-                                                <span className={`h-3 w-3 rounded-full ${label.tubeColor} ring-2 ring-surface`} aria-hidden="true" />
-                                                <span>{label.tubeType}</span>
+                                            {/* Tube cap colour is a physical object, so it stays a literal hex; the
+                                                ring uses the surface token so the dot reads on light and dark. */}
+                                            <div className="flex min-w-0 items-center gap-1.5 text-xs text-fg-muted">
+                                                <span
+                                                    className="h-3 w-3 shrink-0 rounded-full ring-2 ring-surface"
+                                                    style={{ backgroundColor: label.tubeColor }}
+                                                    aria-hidden="true"
+                                                />
+                                                <span className="truncate" title={label.tubeType}>
+                                                    {label.tubeType}
+                                                </span>
                                             </div>
                                         </div>
 
@@ -239,7 +252,11 @@ function LabelPrintPageInner() {
                                         <div className="mt-3 rounded-md border border-dashed border-edge-strong bg-white p-3 text-black">
                                             <span className="sr-only">Label preview: </span>
                                             <div className="flex items-center gap-3">
-                                                <span className={`h-10 w-2.5 shrink-0 rounded-full ${label.tubeColor}`} aria-hidden="true" />
+                                                <span
+                                                    className="h-10 w-2.5 shrink-0 rounded-full"
+                                                    style={{ backgroundColor: label.tubeColor }}
+                                                    aria-hidden="true"
+                                                />
                                                 <div className="min-w-0 flex-1">
                                                     <p className="truncate font-mono text-xs font-bold">{label.sampleId}</p>
                                                     <p className="truncate text-[10px] text-black/70">{label.patientName}</p>

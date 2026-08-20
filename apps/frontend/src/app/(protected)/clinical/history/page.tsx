@@ -1,14 +1,18 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AlertTriangle, History, RefreshCw, Search, X } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { AlertTriangle, Download, History, RefreshCw, Search, X } from "lucide-react";
 import {
     HISTORY_DATE_RANGES,
     resolveFromTimestamp,
     type HistoryDateRange,
 } from "@/lib/history-date-range";
+import { downloadCsv } from "@/lib/export-csv";
+import { formatDisplayId } from "@/lib/format-id";
 import {
     getClinicalHistory,
+    HistoryQueryParams,
     VerificationHistoryItem,
 } from "@/lib/api";
 import Button from "@/components/ui/Button";
@@ -24,6 +28,7 @@ import { formatAuditTime } from "@/components/patient-dashboard/dashboard-data";
 
 const PAGE_SIZE = 10;
 const SKELETON_ROWS = 8;
+const EXPORT_PAGE_SIZE = 1000;
 
 const ACTION_LABELS: Record<string, string> = {
     CLINICAL_AUTHORIZED: "Authorized by pathologist",
@@ -57,7 +62,7 @@ const resolveActionType = (item: VerificationHistoryItem) => {
     return "";
 };
 
-/** Full, unambiguous timestamp for the cell tooltip. */
+/** Full, unambiguous timestamp — cell tooltip on screen, timestamp column in the export. */
 const formatFullTimestamp = (value?: string | null) => {
     if (!value) {
         return "—";
@@ -79,6 +84,7 @@ const formatFullTimestamp = (value?: string | null) => {
 };
 
 export default function ClinicalHistoryPage() {
+    const router = useRouter();
     const [historyItems, setHistoryItems] = useState<VerificationHistoryItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -91,6 +97,10 @@ export default function ClinicalHistoryPage() {
     const [reloadKey, setReloadKey] = useState(0);
     /* Full text of the note the user clicked, shown in a dialog. */
     const [selectedNote, setSelectedNote] = useState<VerificationHistoryItem | null>(null);
+    const [isExporting, setIsExporting] = useState(false);
+    // Kept apart from `error`: that state swaps the table body for an error panel, so a
+    // failed export would blank the history the user is still reading.
+    const [exportError, setExportError] = useState<string | null>(null);
 
     useEffect(() => {
         setPage(0);
@@ -138,6 +148,75 @@ export default function ClinicalHistoryPage() {
 
     const showPagination = !loading && !error && historyItems.length > 0;
 
+    const handleExportCsv = async () => {
+        setIsExporting(true);
+        setExportError(null);
+
+        try {
+            const exportFilters: HistoryQueryParams = {
+                actionType: statusFilter === "ALL" ? undefined : statusFilter,
+                search: search.trim() || undefined,
+                fromTimestamp: resolveFromTimestamp(dateRange),
+            };
+
+            const firstPage = await getClinicalHistory(0, EXPORT_PAGE_SIZE, exportFilters);
+            const exportItems = [...firstPage.content];
+
+            // The export covers the whole filtered set, not the ten rows on screen, so walk
+            // the remaining pages. The first response's page count bounds the loop.
+            for (let nextPage = 1; nextPage < firstPage.totalPages; nextPage += 1) {
+                const followingPage = await getClinicalHistory(
+                    nextPage,
+                    EXPORT_PAGE_SIZE,
+                    exportFilters
+                );
+                exportItems.push(...followingPage.content);
+            }
+
+            if (exportItems.length === 0) {
+                return;
+            }
+
+            const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+
+            downloadCsv(
+                `clinical-history-${stamp}`,
+                [
+                    "Timestamp",
+                    "Patient",
+                    "Patient Code",
+                    "Result ID",
+                    "Test Group",
+                    "Action",
+                    "Performed By",
+                    "Notes",
+                ],
+                exportItems.map((item) => {
+                    const actionType = resolveActionType(item);
+                    const timestamp = item.actionAt ?? item.updatedAt;
+
+                    return [
+                        timestamp ? formatFullTimestamp(timestamp) : "",
+                        item.patientName || "Unknown patient",
+                        item.patientCode || "",
+                        formatDisplayId(item.resultId, "RES"),
+                        item.testName || "Unknown test group",
+                        ACTION_LABELS[actionType] || item.actionSummary || "Workflow updated",
+                        item.performedBy || "",
+                        item.notes || "",
+                    ];
+                })
+            );
+        } catch (exportFailure) {
+            console.error("Failed to export clinical history", exportFailure);
+            setExportError(
+                "Could not export the clinical history. Check your connection, then try the export again."
+            );
+        } finally {
+            setIsExporting(false);
+        }
+    };
+
     return (
         <div className="mx-auto max-w-[1400px]">
             <PageHeader
@@ -161,9 +240,20 @@ export default function ClinicalHistoryPage() {
                     </>
                 }
                 actions={
-                    <Button icon={RefreshCw} onClick={retry} loading={loading}>
-                        Refresh
-                    </Button>
+                    <>
+                        <Button
+                            icon={Download}
+                            onClick={() => void handleExportCsv()}
+                            loading={isExporting}
+                            disabled={historyItems.length === 0}
+                            title="Exports every history entry matching the current search and filters"
+                        >
+                            {isExporting ? "Exporting…" : "Export CSV"}
+                        </Button>
+                        <Button icon={RefreshCw} onClick={retry} loading={loading}>
+                            Refresh
+                        </Button>
+                    </>
                 }
             />
 
@@ -177,6 +267,17 @@ export default function ClinicalHistoryPage() {
                               totalPages > 1 ? `, page ${page + 1} of ${totalPages}` : ""
                           }.`)}
             </p>
+
+            {/* Export failures keep the table on screen — this banner is the only signal. */}
+            {exportError && (
+                <div
+                    role="alert"
+                    className="mb-4 flex flex-wrap items-center gap-3 rounded-md border border-status-danger-edge bg-status-danger-bg px-4 py-2.5 text-sm text-status-danger-fg"
+                >
+                    <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span className="min-w-0 flex-1 break-words">{exportError}</span>
+                </div>
+            )}
 
             <SectionCard title="Entries" count={!loading && !error ? totalElements.toLocaleString() : undefined} flush>
                 {/* Filter toolbar */}
@@ -233,6 +334,7 @@ export default function ClinicalHistoryPage() {
                                 <span className="h-4 w-36 rounded bg-skeleton" />
                                 <span className="hidden h-3 w-24 rounded bg-skeleton lg:block" />
                                 <span className="ml-auto h-3 w-1/5 rounded bg-skeleton" />
+                                <span className="h-7 w-24 shrink-0 rounded bg-skeleton" />
                             </li>
                         ))}
                     </ul>
@@ -268,10 +370,11 @@ export default function ClinicalHistoryPage() {
                     )
                 ) : (
                     <div className="overflow-x-auto">
-                        {/* table-fixed budget: fixed cols sum to 640 (base) / 784 (md) / 912 (lg).
-                            min-w must stay >= sum + 160 so the auto Notes column keeps a readable
-                            floor; the card's overflow-x-auto scrolls below that. */}
-                        <table className="w-full min-w-[960px] table-fixed text-left text-[13px] lg:min-w-[1080px]">
+                        {/* table-fixed budget: fixed cols sum to 784 (base) / 928 (md) / 1056 (lg),
+                            the Case action column included. min-w must stay >= sum + 160 so the
+                            auto Notes column keeps a readable floor; the card's overflow-x-auto
+                            scrolls below that. */}
+                        <table className="w-full min-w-[960px] table-fixed text-left text-[13px] md:min-w-[1100px] lg:min-w-[1240px]">
                             <caption className="sr-only">Clinical history entries</caption>
                             <thead>
                                 <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
@@ -296,6 +399,9 @@ export default function ClinicalHistoryPage() {
                                     <th scope="col" className="px-3 py-2 font-medium">
                                         Notes
                                     </th>
+                                    <th scope="col" className="w-36 py-2 pl-3 pr-4 font-medium">
+                                        Case
+                                    </th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-edge whitespace-nowrap">
@@ -304,6 +410,7 @@ export default function ClinicalHistoryPage() {
                                     const timestamp = item.actionAt ?? item.updatedAt;
                                     const actionLabel =
                                         ACTION_LABELS[actionType] || item.actionSummary || "Workflow updated";
+                                    const displayResultId = formatDisplayId(item.resultId, "RES");
 
                                     return (
                                         <tr
@@ -331,9 +438,9 @@ export default function ClinicalHistoryPage() {
                                                     </p>
                                                 )}
                                             </td>
-                                            {/* Result ID */}
+                                            {/* Result ID — short display form; the raw id stays in the tooltip. */}
                                             <td className="truncate px-3 py-2 font-mono text-xs text-fg-secondary" title={item.resultId}>
-                                                {item.resultId}
+                                                {displayResultId}
                                             </td>
                                             {/* Test group */}
                                             <td
@@ -370,6 +477,23 @@ export default function ClinicalHistoryPage() {
                                                 ) : (
                                                     <span className="text-fg-faint">—</span>
                                                 )}
+                                            </td>
+                                            {/* Case — jump back into the clinical review screen. */}
+                                            <td className="py-2 pl-3 pr-4">
+                                                <Button
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    onClick={() => {
+                                                        if (!item.resultId) {
+                                                            return;
+                                                        }
+                                                        router.push(`/clinical/review/${item.resultId}`);
+                                                    }}
+                                                    disabled={!item.resultId}
+                                                    aria-label={`Review case ${displayResultId}`}
+                                                >
+                                                    Review case
+                                                </Button>
                                             </td>
                                         </tr>
                                     );
