@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { PRIORITY_COLORS, QC_STATUS_CONFIG, formatStatusLabel } from '@/constants/sample-lifecycle';
 import { getPendingVerificationResults, type TestResultSummary } from '@/lib/api';
@@ -226,26 +225,37 @@ export default function PendingVerificationPage() {
     const [flagFilter, setFlagFilter] = useState<FlagFilter>('ALL');
     const [expandedReason, setExpandedReason] = useState<string | null>(null);
     const [currentPage, setCurrentPage] = useState(1);
+    const [totalElements, setTotalElements] = useState(0);
+    const [totalPages, setTotalPages] = useState(1);
+    const [isLastPage, setIsLastPage] = useState(false);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
+    // The queue is paged on the server: never fetch a fixed-size window of it, or the
+    // oldest-waiting specimens fall off the end and stop being reachable or counted.
     const loadPendingResults = useCallback(async () => {
         try {
             setLoading(true);
             setError(null);
 
-            const response = await getPendingVerificationResults(0, 1000);
+            const response = await getPendingVerificationResults(currentPage - 1, PAGE_SIZE);
 
             setResults(response.content || []);
+            setTotalElements(response.totalElements ?? 0);
+            setTotalPages(Math.max(response.totalPages ?? 1, 1));
+            setIsLastPage(response.last ?? true);
             setExpandedReason(null);
         } catch (loadError) {
             console.error('Failed to load pending verification results', loadError);
             setError('Failed to load pending verification results. Please try again.');
             setResults([]);
+            setTotalElements(0);
+            setTotalPages(1);
+            setIsLastPage(true);
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [currentPage]);
 
     useEffect(() => {
         void loadPendingResults();
@@ -263,25 +273,14 @@ export default function PendingVerificationPage() {
 
     const filteredResults = useMemo(() => filterResults(results, criteria), [results, criteria]);
 
-    // Reset to page 1 whenever search or any filter changes
+    // Search and the dropdowns narrow the page the server returned, so changing one re-anchors
+    // the queue at its first page instead of filtering whichever page happened to be open.
     useEffect(() => {
         setCurrentPage(1);
     }, [searchQuery, statusFilter, priorityFilter, flagFilter]);
 
-    const totalPages = Math.max(1, Math.ceil(filteredResults.length / PAGE_SIZE));
-
-    useEffect(() => {
-        if (currentPage > totalPages) {
-            setCurrentPage(Math.max(1, totalPages));
-        }
-    }, [currentPage, totalPages]);
-
-    const paginatedResults = useMemo(() => {
-        const startIndex = (currentPage - 1) * PAGE_SIZE;
-        return filteredResults.slice(startIndex, startIndex + PAGE_SIZE);
-    }, [filteredResults, currentPage]);
-
-    // Dropdowns count against the full dataset
+    // Each dropdown counts against the rows on this page that the other two dropdowns and the
+    // search already allow, so an option's number is what picking it would actually show.
     const statusOptions = useMemo(
         () =>
             buildFilterOptions(
@@ -482,6 +481,9 @@ export default function PendingVerificationPage() {
                                         QC Status
                                     </th>
                                     <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                        Result Flag
+                                    </th>
+                                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                                         Priority Level
                                     </th>
                                     <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -496,7 +498,7 @@ export default function PendingVerificationPage() {
                             <tbody className="divide-y divide-slate-100 bg-white">
                                 {loading ? (
                                     <tr>
-                                        <td colSpan={8} className="px-6 py-14 text-center">
+                                        <td colSpan={9} className="px-6 py-14 text-center">
                                             <div className="mx-auto flex max-w-md flex-col items-center gap-3">
                                                 <div className="h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-slate-800" />
                                                 <p className="text-sm font-medium text-slate-700">
@@ -507,7 +509,7 @@ export default function PendingVerificationPage() {
                                     </tr>
                                 ) : error ? (
                                     <tr>
-                                        <td colSpan={8} className="px-6 py-14 text-center">
+                                        <td colSpan={9} className="px-6 py-14 text-center">
                                             <div className="mx-auto flex max-w-lg flex-col items-center gap-3">
                                                 <p className="text-base font-semibold text-slate-900">{error}</p>
                                                 <button
@@ -524,7 +526,7 @@ export default function PendingVerificationPage() {
                                     </tr>
                                 ) : filteredResults.length === 0 ? (
                                     <tr>
-                                        <td colSpan={8} className="px-6 py-14 text-center">
+                                        <td colSpan={9} className="px-6 py-14 text-center">
                                             <div className="mx-auto max-w-md">
                                                 <p className="text-base font-semibold text-slate-900">
                                                     {isFiltering
@@ -540,7 +542,7 @@ export default function PendingVerificationPage() {
                                         </td>
                                     </tr>
                                 ) : (
-                                    paginatedResults.map((result) => {
+                                    filteredResults.map((result) => {
                                         const isReturned = result.status === 'RETURNED_FOR_RECHECK';
                                         const isExpanded = expandedReason === result.resultId;
                                         const hasCritical = hasCriticalRange(result);
@@ -610,6 +612,22 @@ export default function PendingVerificationPage() {
 
                                                     <td className="px-4 py-4 align-top">
                                                         {(() => {
+                                                            const flag = getResultFlagBadge(
+                                                                result.flag,
+                                                                result.hasCriticalFinding
+                                                            );
+                                                            return (
+                                                                <span
+                                                                    className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${flag.className}`}
+                                                                >
+                                                                    {flag.label}
+                                                                </span>
+                                                            );
+                                                        })()}
+                                                    </td>
+
+                                                    <td className="px-4 py-4 align-top">
+                                                        {(() => {
                                                             const priority = getSpecimenPriorityBadge(result.priorityLevel);
                                                             return (
                                                                 <span
@@ -623,7 +641,7 @@ export default function PendingVerificationPage() {
 
                                                     <td className="px-4 py-4 align-top">
                                                         <span
-                                                             className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${getStatusBadgeClassName(result.status)}`}
+                                                            className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${getStatusBadgeClassName(result.status)}`}
                                                         >
                                                             {getVerificationLabel(result.status)}
                                                         </span>
@@ -662,7 +680,7 @@ export default function PendingVerificationPage() {
 
                                                 {isReturned && isExpanded && (
                                                     <tr id={returnReasonId} className="bg-amber-50/60">
-                                                        <td colSpan={8} className="px-6 py-4">
+                                                        <td colSpan={9} className="px-6 py-4">
                                                             <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
                                                                 <p className="text-sm font-semibold text-amber-900">
                                                                     {getVerificationLabel(result.status)}
@@ -692,8 +710,8 @@ export default function PendingVerificationPage() {
 
                     <div className="flex flex-col gap-3 border-t border-slate-200 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
                         <p className="text-sm text-slate-500">
-                            Showing {filteredResults.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1} to{' '}
-                            {Math.min(currentPage * PAGE_SIZE, filteredResults.length)} of {filteredResults.length} results
+                            Showing {totalElements === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1} to{' '}
+                            {Math.min(currentPage * PAGE_SIZE, totalElements)} of {totalElements} results
                         </p>
 
                         <div className="flex items-center gap-2">
@@ -715,7 +733,7 @@ export default function PendingVerificationPage() {
                                         previous < totalPages ? previous + 1 : previous
                                     )
                                 }
-                                disabled={loading || currentPage >= totalPages}
+                                disabled={loading || currentPage >= totalPages || isLastPage}
                                 className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
                             >
                                 Next

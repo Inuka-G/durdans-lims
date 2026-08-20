@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
     getVerificationHistory,
@@ -80,13 +80,15 @@ const formatTimestamp = (value?: string | null) => {
 
 export default function VerificationHistoryPage() {
     const router = useRouter();
-    const [allHistoryItems, setAllHistoryItems] = useState<VerificationHistoryItem[]>([]);
+    const [historyItems, setHistoryItems] = useState<VerificationHistoryItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [page, setPage] = useState(0);
     const [statusFilter, setStatusFilter] = useState("ALL");
     const [dateRange, setDateRange] = useState<HistoryDateRange>("ALL");
     const [search, setSearch] = useState("");
+    const [totalPages, setTotalPages] = useState(1);
+    const [totalElements, setTotalElements] = useState(0);
     const [isExporting, setIsExporting] = useState(false);
     const [exportNotice, setExportNotice] = useState<{
         tone: "error" | "warning";
@@ -98,77 +100,88 @@ export default function VerificationHistoryPage() {
         setExportNotice(null);
     }, [search, statusFilter, dateRange]);
 
+    // The search, action and period filters are applied by the server, over the
+    // whole audit trail. Loading one window of recent rows and filtering it in the
+    // browser would quietly hide every older match, and this is the record staff
+    // consult during an incident investigation.
     useEffect(() => {
+        let cancelled = false;
+
         const loadHistory = async () => {
             try {
                 setLoading(true);
                 setError(null);
 
-                const historyPage = await getVerificationHistory(0, 1000, {
+                const historyPage = await getVerificationHistory(page, PAGE_SIZE, {
+                    actionType: statusFilter === "ALL" ? undefined : statusFilter,
+                    search: search.trim() || undefined,
                     fromTimestamp: resolveFromTimestamp(dateRange),
                 });
 
-                setAllHistoryItems(historyPage.content ?? []);
+                if (cancelled) {
+                    return;
+                }
+
+                setHistoryItems(historyPage.content ?? []);
+                setTotalPages(Math.max(1, historyPage.totalPages));
+                setTotalElements(historyPage.totalElements);
             } catch (loadError) {
+                if (cancelled) {
+                    return;
+                }
+
                 console.error("Failed to load verification history", loadError);
                 setError("Failed to load verification history. Please try again.");
-                setAllHistoryItems([]);
+                setHistoryItems([]);
+                setTotalPages(1);
+                setTotalElements(0);
             } finally {
-                setLoading(false);
+                if (!cancelled) {
+                    setLoading(false);
+                }
             }
         };
 
         void loadHistory();
-    }, [dateRange]);
 
-    const filteredHistoryItems = useMemo(() => {
-        return allHistoryItems.filter((item) => {
-            const actionType = resolveActionType(item);
-            const matchesStatus = statusFilter === "ALL" || actionType === statusFilter;
-            if (!matchesStatus) {
-                return false;
-            }
-
-            if (!search.trim()) {
-                return true;
-            }
-
-            const q = search.trim().toLowerCase();
-            const displayResultId = formatDisplayId(item.resultId, "RES").toLowerCase();
-            const patientName = (item.patientName || "").toLowerCase();
-            const patientCode = (item.patientCode || "").toLowerCase();
-            const testName = (item.testName || "").toLowerCase();
-            const performedBy = (item.performedBy || "").toLowerCase();
-            const notes = (item.notes || "").toLowerCase();
-            const actionSummary = (item.actionSummary || ACTION_LABELS[actionType] || "").toLowerCase();
-
-            return (
-                displayResultId.includes(q) ||
-                patientName.includes(q) ||
-                patientCode.includes(q) ||
-                testName.includes(q) ||
-                performedBy.includes(q) ||
-                notes.includes(q) ||
-                actionSummary.includes(q)
-            );
-        });
-    }, [allHistoryItems, statusFilter, search]);
-
-    const totalElements = filteredHistoryItems.length;
-    const totalPages = Math.max(1, Math.ceil(totalElements / PAGE_SIZE));
-    const paginatedItems = useMemo(() => {
-        return filteredHistoryItems.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
-    }, [filteredHistoryItems, page]);
+        // A filter change queues a fresh request while the previous one may still be
+        // in flight; without this the older response can land last and paint rows
+        // that no longer match the filters shown on screen.
+        return () => {
+            cancelled = true;
+        };
+    }, [page, search, statusFilter, dateRange]);
 
     const hasActiveFilters =
         search.trim().length > 0 || statusFilter !== "ALL" || dateRange !== "ALL";
 
+    // Exports every entry matching the active filters, not just the visible page:
+    // an auditor asking for a period needs the whole period, and the table only
+    // ever holds PAGE_SIZE rows.
     const handleExportCsv = async () => {
         setIsExporting(true);
         setExportNotice(null);
 
         try {
-            if (filteredHistoryItems.length === 0) {
+            const exportItems: VerificationHistoryItem[] = [];
+            let matchingCount = 0;
+            let exportPage = 0;
+            let hasMore = true;
+
+            while (hasMore && exportPage < EXPORT_MAX_PAGES) {
+                const historyPage = await getVerificationHistory(exportPage, EXPORT_PAGE_SIZE, {
+                    actionType: statusFilter === "ALL" ? undefined : statusFilter,
+                    search: search.trim() || undefined,
+                    fromTimestamp: resolveFromTimestamp(dateRange),
+                });
+
+                exportItems.push(...(historyPage.content ?? []));
+                matchingCount = historyPage.totalElements;
+                exportPage += 1;
+                hasMore = exportPage < historyPage.totalPages;
+            }
+
+            if (exportItems.length === 0) {
                 return;
             }
 
@@ -187,7 +200,7 @@ export default function VerificationHistoryPage() {
                     "Performed By",
                     "Notes",
                 ],
-                filteredHistoryItems.map((item) => {
+                exportItems.map((item) => {
                     const actionType = resolveActionType(item);
 
                     return [
@@ -203,6 +216,15 @@ export default function VerificationHistoryPage() {
                     ];
                 })
             );
+
+            // A CSV that is silently short of the matching set is worse than no CSV
+            // at all when it is filed as the evidence for a period.
+            if (exportItems.length < matchingCount) {
+                setExportNotice({
+                    tone: "warning",
+                    message: `Exported the ${exportItems.length.toLocaleString()} most recent of ${matchingCount.toLocaleString()} matching entries. Narrow the period or filters to export the rest.`,
+                });
+            }
         } catch (exportError) {
             console.error("Failed to export verification history", exportError);
             setExportNotice({
@@ -365,7 +387,7 @@ export default function VerificationHistoryPage() {
                                         </div>
                                     </td>
                                 </tr>
-                            ) : filteredHistoryItems.length === 0 ? (
+                            ) : historyItems.length === 0 ? (
                                 <tr>
                                     <td colSpan={8} className="px-4 py-16 text-center text-slate-500">
                                         <div className="flex flex-col items-center gap-3">
@@ -381,7 +403,7 @@ export default function VerificationHistoryPage() {
                                     </td>
                                 </tr>
                             ) : (
-                                paginatedItems.map((item: VerificationHistoryItem) => {
+                                historyItems.map((item: VerificationHistoryItem) => {
                                     const actionType = resolveActionType(item);
 
                                     return (

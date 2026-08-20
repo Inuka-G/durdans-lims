@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
     HISTORY_DATE_RANGES,
@@ -12,10 +12,18 @@ import { formatDisplayId } from "@/lib/format-id";
 import { PRIORITY_COLORS, formatStatusLabel } from "@/constants/sample-lifecycle";
 import {
     getClinicalHistory,
+    HistoryQueryParams,
     VerificationHistoryItem,
 } from "@/lib/api";
 
 const PAGE_SIZE = 10;
+
+// The export walks the whole filtered result set in chunks rather than asking for it in
+// one call: a year of clinical history in a single request is a heavy query and a heavy
+// response. EXPORT_MAX_PAGES is the safety valve for a request so wide that even chunked
+// paging would hammer the server; when it trips, the user is told the file is partial.
+const EXPORT_PAGE_SIZE = 1000;
+const EXPORT_MAX_PAGES = 20;
 
 const ACTION_LABELS: Record<string, string> = {
     CLINICAL_AUTHORIZED: "Authorized by Pathologist",
@@ -66,18 +74,28 @@ const formatTimestamp = (value?: string | null) => {
 
 export default function ClinicalHistoryPage() {
     const router = useRouter();
-    const [allHistoryItems, setAllHistoryItems] = useState<VerificationHistoryItem[]>([]);
+    const [historyItems, setHistoryItems] = useState<VerificationHistoryItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [page, setPage] = useState(0);
     const [statusFilter, setStatusFilter] = useState("ALL");
     const [dateRange, setDateRange] = useState<HistoryDateRange>("ALL");
     const [search, setSearch] = useState("");
+    const [totalPages, setTotalPages] = useState(1);
+    const [totalElements, setTotalElements] = useState(0);
     const [isExporting, setIsExporting] = useState(false);
-    const [exportError, setExportError] = useState<string | null>(null);
+    // Kept apart from `error`: that state swaps the table body for an error panel, so a
+    // failed export would blank the history the user is still reading. The same state
+    // carries the "export was cut short" warning, which is not an error but must not be
+    // silent either — a partial audit export that looks complete is a safety problem.
+    const [exportNotice, setExportNotice] = useState<{
+        tone: "error" | "warning";
+        message: string;
+    } | null>(null);
 
     useEffect(() => {
         setPage(0);
+        setExportNotice(null);
     }, [search, statusFilter, dateRange]);
 
     useEffect(() => {
@@ -86,71 +104,67 @@ export default function ClinicalHistoryPage() {
                 setLoading(true);
                 setError(null);
 
-                const historyPage = await getClinicalHistory(0, 1000, {
+                // Filtering stays on the server: the client only ever holds the page it is
+                // showing, so the row count, the paging controls and the export all agree
+                // with the full audit trail instead of a truncated first slice of it.
+                const historyPage = await getClinicalHistory(page, PAGE_SIZE, {
+                    actionType: statusFilter === "ALL" ? undefined : statusFilter,
+                    search: search.trim() || undefined,
                     fromTimestamp: resolveFromTimestamp(dateRange),
                 });
 
-                setAllHistoryItems(historyPage.content ?? []);
+                setHistoryItems(historyPage.content ?? []);
+                setTotalPages(Math.max(1, historyPage.totalPages));
+                setTotalElements(historyPage.totalElements);
             } catch (loadError) {
                 console.error("Failed to load clinical history", loadError);
                 setError("Failed to load clinical history. Please try again.");
-                setAllHistoryItems([]);
+                setHistoryItems([]);
+                setTotalPages(1);
+                setTotalElements(0);
             } finally {
                 setLoading(false);
             }
         };
 
         void loadHistory();
-    }, [dateRange]);
-
-    const filteredHistoryItems = useMemo(() => {
-        return allHistoryItems.filter((item) => {
-            const actionType = resolveActionType(item);
-            const matchesStatus = statusFilter === "ALL" || actionType === statusFilter;
-            if (!matchesStatus) {
-                return false;
-            }
-
-            if (!search.trim()) {
-                return true;
-            }
-
-            const q = search.trim().toLowerCase();
-            const displayResultId = formatDisplayId(item.resultId, "RES").toLowerCase();
-            const patientName = (item.patientName || "").toLowerCase();
-            const patientCode = (item.patientCode || "").toLowerCase();
-            const testName = (item.testName || "").toLowerCase();
-            const performedBy = (item.performedBy || "").toLowerCase();
-            const notes = (item.notes || "").toLowerCase();
-            const actionSummary = (item.actionSummary || ACTION_LABELS[actionType] || "").toLowerCase();
-
-            return (
-                displayResultId.includes(q) ||
-                patientName.includes(q) ||
-                patientCode.includes(q) ||
-                testName.includes(q) ||
-                performedBy.includes(q) ||
-                notes.includes(q) ||
-                actionSummary.includes(q)
-            );
-        });
-    }, [allHistoryItems, statusFilter, search]);
-
-    const totalElements = filteredHistoryItems.length;
-    const totalPages = Math.max(1, Math.ceil(totalElements / PAGE_SIZE));
-    const paginatedItems = useMemo(() => {
-        return filteredHistoryItems.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
-    }, [filteredHistoryItems, page]);
+    }, [page, search, statusFilter, dateRange]);
 
     const hasActiveFilters =
         search.trim().length > 0 || statusFilter !== "ALL" || dateRange !== "ALL";
 
+    // Exports every entry matching the active filters, not just the visible page: an
+    // auditor asking for a period needs the whole period, and the table only ever holds
+    // PAGE_SIZE rows.
     const handleExportCsv = async () => {
         setIsExporting(true);
-        setExportError(null);
+        setExportNotice(null);
 
         try {
-            if (filteredHistoryItems.length === 0) {
+            const exportFilters: HistoryQueryParams = {
+                actionType: statusFilter === "ALL" ? undefined : statusFilter,
+                search: search.trim() || undefined,
+                fromTimestamp: resolveFromTimestamp(dateRange),
+            };
+
+            const firstPage = await getClinicalHistory(0, EXPORT_PAGE_SIZE, exportFilters);
+            const exportItems = [...firstPage.content];
+            const matchingCount = firstPage.totalElements;
+
+            // The export covers the whole filtered set, not the ten rows on screen, so walk
+            // the remaining pages. The first response's page count bounds the loop, capped
+            // by EXPORT_MAX_PAGES.
+            const pagesToWalk = Math.min(firstPage.totalPages, EXPORT_MAX_PAGES);
+            for (let nextPage = 1; nextPage < pagesToWalk; nextPage += 1) {
+                const followingPage = await getClinicalHistory(
+                    nextPage,
+                    EXPORT_PAGE_SIZE,
+                    exportFilters
+                );
+                exportItems.push(...followingPage.content);
+            }
+
+            if (exportItems.length === 0) {
                 return;
             }
 
@@ -169,7 +183,7 @@ export default function ClinicalHistoryPage() {
                     "Performed By",
                     "Notes",
                 ],
-                filteredHistoryItems.map((item) => {
+                exportItems.map((item) => {
                     const actionType = resolveActionType(item);
 
                     return [
@@ -185,11 +199,20 @@ export default function ClinicalHistoryPage() {
                     ];
                 })
             );
+
+            if (exportItems.length < matchingCount) {
+                setExportNotice({
+                    tone: "warning",
+                    message: `Exported the ${exportItems.length.toLocaleString()} most recent of ${matchingCount.toLocaleString()} matching entries. Narrow the period or filters to export the rest.`,
+                });
+            }
         } catch (exportFailure) {
             console.error("Failed to export clinical history", exportFailure);
-            setExportError(
-                "Could not export the clinical history. Check your connection, then try the export again."
-            );
+            setExportNotice({
+                tone: "error",
+                message:
+                    "Could not export the clinical history. Check your connection, then try the export again.",
+            });
         } finally {
             setIsExporting(false);
         }
@@ -243,7 +266,7 @@ export default function ClinicalHistoryPage() {
                         type="button"
                         onClick={() => void handleExportCsv()}
                         disabled={isExporting || totalElements === 0}
-                        title="Exports every history entry matching the current search and filters"
+                        title="Exports every history entry matching the current search, action, and period filters, not just this page. Very wide filters are capped, and the export says so when it is cut short."
                         className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                     >
                         <span
@@ -256,13 +279,27 @@ export default function ClinicalHistoryPage() {
                 </div>
             </div>
 
-            {exportError && (
+            {exportNotice && (
                 <div
-                    role="alert"
-                    className="mb-6 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700"
+                    role={exportNotice.tone === "error" ? "alert" : "status"}
+                    className={`mb-6 flex items-start gap-2 rounded-xl border px-4 py-3 text-sm font-semibold ${
+                        exportNotice.tone === "error"
+                            ? "border-red-200 bg-red-50 text-red-700"
+                            : "border-amber-200 bg-amber-50 text-amber-900"
+                    }`}
                 >
-                    <span className="material-icons text-lg">error_outline</span>
-                    {exportError}
+                    <span className="material-icons text-lg">
+                        {exportNotice.tone === "error" ? "error_outline" : "info"}
+                    </span>
+                    <span className="flex-1">{exportNotice.message}</span>
+                    <button
+                        type="button"
+                        onClick={() => setExportNotice(null)}
+                        aria-label="Dismiss export message"
+                        className="material-icons text-lg opacity-60 transition hover:opacity-100"
+                    >
+                        close
+                    </button>
                 </div>
             )}
 
@@ -333,7 +370,7 @@ export default function ClinicalHistoryPage() {
                                         </div>
                                     </td>
                                 </tr>
-                            ) : filteredHistoryItems.length === 0 ? (
+                            ) : historyItems.length === 0 ? (
                                 <tr>
                                     <td colSpan={8} className="px-4 py-16 text-center text-slate-500">
                                         <div className="flex flex-col items-center gap-3">
@@ -349,7 +386,7 @@ export default function ClinicalHistoryPage() {
                                     </td>
                                 </tr>
                             ) : (
-                                paginatedItems.map((item) => {
+                                historyItems.map((item) => {
                                     const actionType = resolveActionType(item);
 
                                     return (

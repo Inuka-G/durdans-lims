@@ -442,6 +442,7 @@ export default function ClinicalWorklistPage() {
                                 <th className="px-4 py-4 border-b border-slate-100">Test Group</th>
                                 <th className="px-4 py-4 border-b border-slate-100">Verified By</th>
                                 <th className="px-4 py-4 border-b border-slate-100">Priority</th>
+                                <th className="px-4 py-4 border-b border-slate-100">Flag</th>
                                 <th className="px-4 py-4 border-b border-slate-100">Status</th>
                                 <th className="px-6 py-4 border-b border-slate-100 text-right">Actions</th>
                             </tr>
@@ -449,13 +450,13 @@ export default function ClinicalWorklistPage() {
                         <tbody>
                             {loading ? (
                                 <tr>
-                                    <td colSpan={7} className="px-6 py-16 text-center text-slate-400 text-sm">
+                                    <td colSpan={8} className="px-6 py-16 text-center text-slate-400 text-sm">
                                         Loading clinical worklist...
                                     </td>
                                 </tr>
                             ) : error ? (
                                 <tr>
-                                    <td colSpan={7} className="px-6 py-16 text-center">
+                                    <td colSpan={8} className="px-6 py-16 text-center">
                                         <div className="flex flex-col items-center gap-3">
                                             <span className="text-sm text-slate-500">{error}</span>
                                             <button
@@ -470,7 +471,7 @@ export default function ClinicalWorklistPage() {
                                 </tr>
                             ) : filteredResults.length === 0 ? (
                                 <tr>
-                                    <td colSpan={7} className="px-6 py-16 text-center text-slate-400 text-sm">
+                                    <td colSpan={8} className="px-6 py-16 text-center text-slate-400 text-sm">
                                         No clinical cases found matching your filters.
                                     </td>
                                 </tr>
@@ -515,6 +516,9 @@ export default function ClinicalWorklistPage() {
                                         </td>
                                         <td className="px-4 py-4">
                                             {getPriorityBadge(result.priorityLevel)}
+                                        </td>
+                                        <td className="px-4 py-4">
+                                            {getFlagBadge(result.flag)}
                                         </td>
                                         <td className="px-4 py-4">
                                             {getClinicalStatusBadge(result.status)}

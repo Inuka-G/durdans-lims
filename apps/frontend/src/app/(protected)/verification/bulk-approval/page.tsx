@@ -262,11 +262,18 @@ export default function BulkApprovalPage() {
                                     className={`bg-white rounded-xl p-4 relative transition-colors shadow-sm ${batch.isSelected ? "border-2 border-primary" : "border border-slate-200/60 hover:border-slate-300"} ${selectable ? "cursor-pointer" : reviewable ? "cursor-default" : "cursor-not-allowed opacity-70"}`}
                                 >
                                     <div className="absolute top-4 left-4">
+                                        {/*
+                                          The card itself toggles the batch on click. Stop the checkbox's
+                                          click from bubbling up to it: onChange already toggles once, and
+                                          a second toggle from the card would silently cancel it out,
+                                          leaving an unticked batch still in the approval set.
+                                        */}
                                         <input
                                             type="checkbox"
                                             checked={batch.isSelected}
                                             disabled={!selectable}
                                             onChange={() => selectable && toggleBatch(batch.batchId)}
+                                            onClick={(event) => event.stopPropagation()}
                                             className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary disabled:cursor-not-allowed"
                                         />
                                     </div>
