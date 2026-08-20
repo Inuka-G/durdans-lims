@@ -1,39 +1,40 @@
 'use client';
 
+/**
+ * Specimen tube colours are physical (cap colour) so they stay literal in both
+ * themes; the ring uses the surface token so dots read on light and dark rows.
+ */
 const TUBE_COLOR_MAP: Record<string, string> = {
-    EDTA:         'bg-purple-500',
-    SST:          'bg-yellow-400',
-    HEPARIN:      'bg-green-500',
-    CITRATE:      'bg-blue-400',
-    FLUORIDE:     'bg-gray-400',
-    PLAIN:        'bg-red-400',
-    URINE:        'bg-yellow-300',
+    EDTA:     'bg-purple-500',
+    SST:      'bg-yellow-400',
+    HEPARIN:  'bg-green-500',
+    CITRATE:  'bg-blue-400',
+    FLUORIDE: 'bg-gray-400',
+    PLAIN:    'bg-red-400',
+    URINE:    'bg-yellow-300',
 };
 
 const TUBE_LABELS: Record<string, string> = {
-    EDTA:     'EDTA (Purple)',
-    SST:      'SST (Gold)',
-    HEPARIN:  'Heparin (Green)',
-    CITRATE:  'Citrate (Blue)',
-    FLUORIDE: 'Fluoride (Gray)',
-    PLAIN:    'Plain (Red)',
-    URINE:    'Urine (Yellow)',
+    EDTA:     'EDTA (purple)',
+    SST:      'SST (gold)',
+    HEPARIN:  'Heparin (green)',
+    CITRATE:  'Citrate (blue)',
+    FLUORIDE: 'Fluoride (grey)',
+    PLAIN:    'Plain (red)',
+    URINE:    'Urine (yellow)',
 };
 
-interface TubeIndicatorProps {
-    tubes: string[];
-}
-
-export default function TubeIndicator({ tubes }: TubeIndicatorProps) {
+export default function TubeIndicator({ tubes }: { tubes: string[] }) {
+    if (!tubes?.length) return <span className="text-fg-faint">—</span>;
     return (
-        <div className="flex gap-1">
+        <ul className="flex gap-1" aria-label={`Tubes: ${tubes.map((t) => TUBE_LABELS[t] ?? t).join(', ')}`}>
             {tubes.map((t) => (
-                <div
+                <li
                     key={t}
-                    className={`w-4 h-4 rounded-full ${TUBE_COLOR_MAP[t] ?? 'bg-slate-400'} border border-white shadow-sm`}
+                    className={`h-4 w-4 rounded-full ${TUBE_COLOR_MAP[t] ?? 'bg-fg-faint'} ring-2 ring-surface`}
                     title={TUBE_LABELS[t] ?? t}
                 />
             ))}
-        </div>
+        </ul>
     );
 }

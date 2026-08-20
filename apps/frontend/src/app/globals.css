@@ -1,7 +1,52 @@
 @import "tailwindcss";
 
+/*
+ * Class-based dark mode. The <html> element carries `class="dark"` (set by
+ * ThemeProvider / the inline boot script in app/layout.tsx). `dark:` utilities
+ * and the semantic tokens below both key off it.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --color-primary: #137fec;
+  /* Brand shade safe for small text/links (6.1:1 on white, 7:1 on slate-950). Theme-aware. */
+  --color-primary-strong: var(--primary-strong);
+  --color-primary-soft: var(--primary-soft);
+
+  /* ── Semantic surface / text / border tokens (theme-aware) ──
+     Use these instead of raw slate-* for chrome so light and dark stay in sync:
+       bg-canvas   page background         bg-surface        card / panel
+       bg-surface-muted  toolbar, zebra   bg-surface-hover  row hover
+       bg-skeleton loading bars           border-edge / border-edge-strong
+       text-fg     primary text           text-fg-secondary  supporting
+       text-fg-muted  meta / captions     text-fg-faint      icons, placeholders
+  */
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-surface-hover: var(--surface-hover);
+  --color-skeleton: var(--skeleton);
+  --color-edge: var(--edge);
+  --color-edge-strong: var(--edge-strong);
+  --color-fg: var(--fg);
+  --color-fg-secondary: var(--fg-secondary);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-faint: var(--fg-faint);
+
+  /* Status tokens: colour = meaning, identical hue in both themes. */
+  --color-status-pending-bg: var(--status-pending-bg);
+  --color-status-pending-fg: var(--status-pending-fg);
+  --color-status-pending-edge: var(--status-pending-edge);
+  --color-status-pending: #f59e0b;
+  --color-status-verified-bg: var(--status-verified-bg);
+  --color-status-verified-fg: var(--status-verified-fg);
+  --color-status-verified-edge: var(--status-verified-edge);
+  --color-status-verified: #10b981;
+  --color-status-danger-bg: var(--status-danger-bg);
+  --color-status-danger-fg: var(--status-danger-fg);
+  --color-status-danger-edge: var(--status-danger-edge);
+  --color-status-danger: #ef4444;
+
   --color-background-light: #f6f7f8;
   --color-background-dark: #101922;
   --font-display: "Inter", "Segoe UI", Arial, sans-serif;
@@ -12,13 +57,86 @@
 }
 
 :root {
-  --background: #f6f7f8;
+  color-scheme: light;
+  --canvas: #f6f7f8;
+  --surface: #ffffff;
+  --surface-muted: #f8fafc;   /* slate-50 */
+  --surface-hover: #f1f5f9;   /* slate-100 */
+  --skeleton: #f1f5f9;
+  --edge: #e2e8f0;            /* slate-200 */
+  --edge-strong: #cbd5e1;     /* slate-300 */
+  --fg: #0f172a;              /* slate-900 */
+  --fg-secondary: #334155;    /* slate-700 */
+  --fg-muted: #64748b;        /* slate-500 (4.8:1 on white) */
+  --fg-faint: #94a3b8;        /* slate-400 — icons/placeholders only */
+  --primary-strong: #0b5fc2;
+  --primary-soft: rgba(19, 127, 236, 0.08);
+
+  --status-pending-bg: #fffbeb;   /* amber-50 */
+  --status-pending-fg: #b45309;   /* amber-700 */
+  --status-pending-edge: #fde68a; /* amber-200 */
+  --status-verified-bg: #ecfdf5;  /* emerald-50 */
+  --status-verified-fg: #047857;  /* emerald-700 */
+  --status-verified-edge: #a7f3d0;
+  --status-danger-bg: #fef2f2;
+  --status-danger-fg: #b91c1c;
+  --status-danger-edge: #fecaca;
+
+  /* legacy aliases still used by body + older pages */
+  --background: var(--canvas);
   --foreground: #1e293b;
-  /* slate-800 */
+}
+
+.dark {
+  color-scheme: dark;
+  --canvas: #0b1220;          /* deep navy, not pure black */
+  --surface: #111a2c;
+  --surface-muted: #0f172a;
+  --surface-hover: #1b2640;
+  --skeleton: #1e293b;
+  --edge: #233047;
+  --edge-strong: #34425c;
+  --fg: #e6edf7;
+  --fg-secondary: #c3cee0;
+  --fg-muted: #8e9bb3;        /* 5.2:1 on --surface */
+  --fg-faint: #5f6d86;
+  --primary-strong: #7ab8ff;
+  --primary-soft: rgba(122, 184, 255, 0.14);
+
+  --status-pending-bg: rgba(245, 158, 11, 0.14);
+  --status-pending-fg: #fbbf24;
+  --status-pending-edge: rgba(245, 158, 11, 0.35);
+  --status-verified-bg: rgba(16, 185, 129, 0.14);
+  --status-verified-fg: #34d399;
+  --status-verified-edge: rgba(16, 185, 129, 0.35);
+  --status-danger-bg: rgba(239, 68, 68, 0.14);
+  --status-danger-fg: #f87171;
+  --status-danger-edge: rgba(239, 68, 68, 0.35);
+
+  --background: var(--canvas);
+  --foreground: var(--fg);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-display);
+}
+
+/* Hide scrollbars on horizontally scrolling nav strips without losing scroll. */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
