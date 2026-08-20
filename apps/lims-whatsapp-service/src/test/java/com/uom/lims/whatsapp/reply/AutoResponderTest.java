@@ -1,5 +1,7 @@
 package com.uom.lims.whatsapp.reply;
 
+import com.uom.lims.whatsapp.agent.AgentOrchestrator;
+import com.uom.lims.whatsapp.agent.AgentProperties;
 import com.uom.lims.whatsapp.config.MetaProperties;
 import com.uom.lims.whatsapp.outbound.OutboundMessageService;
 import org.junit.jupiter.api.Test;
@@ -11,6 +13,8 @@ import java.time.Duration;
 import java.util.Optional;
 import java.util.UUID;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -24,44 +28,104 @@ class AutoResponderTest {
     private static final MetaProperties SEND_UNCONFIGURED = new MetaProperties(
             "app-id", "app-secret", "verify", "12345", "waba", "", null, null);
 
+    private static final AgentProperties AGENT_ON = new AgentProperties(
+            true, "gemini-key", null, null, null, null, null, "client-secret", 0, 0);
+
+    private static final AgentProperties AGENT_OFF = new AgentProperties(
+            true, "", null, null, null, null, null, "", 0, 0);
+
+    @Mock
+    private AgentOrchestrator agent;
+
     @Mock
     private OutboundMessageService outbound;
 
-    private static InboundMessageStoredEvent event(UUID conversationId) {
+    private static InboundMessageStoredEvent event(UUID conversationId, String body) {
         return new InboundMessageStoredEvent(
-                UUID.randomUUID(), conversationId, "94770000002", "hello", "text");
+                UUID.randomUUID(), conversationId, "94770000002", body, "text");
     }
 
-    @Test
-    void doesNothingWhenDisabled() {
-        AutoResponder responder = new AutoResponder(
-                new AutoReplyProperties(false, Duration.ofHours(1), null), SEND_CONFIGURED, outbound);
+    private AutoResponder responder(AutoReplyProperties greeting, MetaProperties meta, AgentProperties agentProps) {
+        return new AutoResponder(greeting, meta, agentProps, agent, outbound);
+    }
 
-        responder.onInboundStored(event(UUID.randomUUID()));
-
-        verifyNoInteractions(outbound);
+    private static AutoReplyProperties greetingEnabled() {
+        return new AutoReplyProperties(true, Duration.ofMinutes(30), "custom greeting");
     }
 
     @Test
     void failsClosedWhenSendCredentialsAreMissing() {
-        AutoResponder responder = new AutoResponder(
-                new AutoReplyProperties(true, Duration.ofHours(1), null), SEND_UNCONFIGURED, outbound);
+        responder(greetingEnabled(), SEND_UNCONFIGURED, AGENT_ON)
+                .onInboundStored(event(UUID.randomUUID(), "hello"));
 
-        responder.onInboundStored(event(UUID.randomUUID()));
-
-        verifyNoInteractions(outbound);
+        verifyNoInteractions(outbound, agent);
     }
 
     @Test
-    void delegatesWithTheConfiguredGreetingAndCooldown() {
-        AutoReplyProperties properties = new AutoReplyProperties(true, Duration.ofMinutes(30), "custom greeting");
-        AutoResponder responder = new AutoResponder(properties, SEND_CONFIGURED, outbound);
+    void agentAnswersTextMessagesWhenConfigured() {
         UUID conversationId = UUID.randomUUID();
-        when(outbound.sendAutoReplyIfDue(conversationId, "custom greeting", Duration.ofMinutes(30)))
-                .thenReturn(Optional.empty());
+        when(agent.reply(conversationId)).thenReturn(Optional.of("FBC is Rs. 1,200"));
+        when(outbound.sendFreeFormText(conversationId, "FBC is Rs. 1,200")).thenReturn(Optional.empty());
 
-        responder.onInboundStored(event(conversationId));
+        responder(greetingEnabled(), SEND_CONFIGURED, AGENT_ON)
+                .onInboundStored(event(conversationId, "cbc price?"));
 
+        verify(outbound).sendFreeFormText(conversationId, "FBC is Rs. 1,200");
+        verify(outbound, never()).sendAutoReplyIfDue(any(), any(), any());
+    }
+
+    @Test
+    void agentSilenceFallsBackToTheCooldownLimitedApology() {
+        UUID conversationId = UUID.randomUUID();
+        when(agent.reply(conversationId)).thenReturn(Optional.empty());
+
+        responder(greetingEnabled(), SEND_CONFIGURED, AGENT_ON)
+                .onInboundStored(event(conversationId, "cbc price?"));
+
+        verify(outbound).sendAutoReplyIfDue(conversationId, AutoResponder.AGENT_FALLBACK, Duration.ofMinutes(5));
+        verify(outbound, never()).sendFreeFormText(any(), any());
+    }
+
+    @Test
+    void agentFailureFallsBackInsteadOfPropagating() {
+        UUID conversationId = UUID.randomUUID();
+        when(agent.reply(conversationId)).thenThrow(new IllegalStateException("Gemini returned 429"));
+
+        responder(greetingEnabled(), SEND_CONFIGURED, AGENT_ON)
+                .onInboundStored(event(conversationId, "cbc price?"));
+
+        verify(outbound).sendAutoReplyIfDue(conversationId, AutoResponder.AGENT_FALLBACK, Duration.ofMinutes(5));
+    }
+
+    @Test
+    void nonTextMessagesGetTheGreetingEvenWithTheAgentOn() {
+        UUID conversationId = UUID.randomUUID();
+
+        responder(greetingEnabled(), SEND_CONFIGURED, AGENT_ON)
+                .onInboundStored(event(conversationId, null));
+
+        verifyNoInteractions(agent);
         verify(outbound).sendAutoReplyIfDue(conversationId, "custom greeting", Duration.ofMinutes(30));
+    }
+
+    @Test
+    void greetingTierAnswersWhenTheAgentIsNotConfigured() {
+        UUID conversationId = UUID.randomUUID();
+
+        responder(greetingEnabled(), SEND_CONFIGURED, AGENT_OFF)
+                .onInboundStored(event(conversationId, "hello"));
+
+        verifyNoInteractions(agent);
+        verify(outbound).sendAutoReplyIfDue(conversationId, "custom greeting", Duration.ofMinutes(30));
+    }
+
+    @Test
+    void disabledGreetingTierStaysSilent() {
+        AutoReplyProperties disabled = new AutoReplyProperties(false, Duration.ofHours(1), null);
+
+        responder(disabled, SEND_CONFIGURED, AGENT_OFF)
+                .onInboundStored(event(UUID.randomUUID(), "hello"));
+
+        verifyNoInteractions(outbound, agent);
     }
 }

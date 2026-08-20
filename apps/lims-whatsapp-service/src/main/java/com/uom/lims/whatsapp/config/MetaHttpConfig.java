@@ -20,4 +20,18 @@ public class MetaHttpConfig {
         factory.setReadTimeout(15_000);
         return builder.requestFactory(factory).build();
     }
+
+    /**
+     * Separate client for the agent's calls (Gemini, Keycloak, lims-core-service).
+     * Gemini legitimately takes longer than a Graph send — a model turn over a long
+     * context is tens of seconds — so it gets its own budget instead of inheriting
+     * the send path's tight one.
+     */
+    @Bean
+    public RestClient agentRestClient(RestClient.Builder builder) {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(5_000);
+        factory.setReadTimeout(45_000);
+        return builder.requestFactory(factory).build();
+    }
 }

@@ -52,6 +52,7 @@ META_VERIFY_TOKEN="$(echo "$META_JSON" | jq_field verify_token)"
 META_PHONE_NUMBER_ID="$(echo "$META_JSON" | jq_field phone_number_id)"
 META_WABA_ID="$(echo "$META_JSON" | jq_field waba_id)"
 META_ACCESS_TOKEN="$(echo "$META_JSON" | jq_field access_token)"
+GEMINI_API_KEY="$(echo "$META_JSON" | jq_field gemini_api_key)"
 
 MAIL_JSON="$(get_json "$MAIL_SECRET")"
 MAIL_USERNAME="$(echo "$MAIL_JSON" | jq_field username)"
@@ -97,6 +98,8 @@ META_PHONE_NUMBER_ID=${META_PHONE_NUMBER_ID}
 META_WABA_ID=${META_WABA_ID}
 META_ACCESS_TOKEN=${META_ACCESS_TOKEN}
 META_SECRET=${META_SECRET}
+GEMINI_API_KEY=${GEMINI_API_KEY}
+AGENT_CLIENT_SECRET=
 ENVEOF
 chmod 600 .env
 
@@ -151,7 +154,9 @@ aws s3 cp "s3://${S3_BUCKET}/bootstrap/provision-wa-db.sh" \
   /opt/lims/provision-wa-db.sh --region "${AWS_REGION}"
 aws s3 cp "s3://${S3_BUCKET}/bootstrap/refresh-meta.sh" \
   /opt/lims/refresh-meta.sh --region "${AWS_REGION}"
-chmod 700 /opt/lims/provision-wa-db.sh /opt/lims/refresh-meta.sh
+aws s3 cp "s3://${S3_BUCKET}/bootstrap/fetch-agent-secret.sh" \
+  /opt/lims/fetch-agent-secret.sh --region "${AWS_REGION}"
+chmod 700 /opt/lims/provision-wa-db.sh /opt/lims/refresh-meta.sh /opt/lims/fetch-agent-secret.sh
 
 # Never fatal: the lab must not fail to boot because the agent's database could not
 # be provisioned. The service fails its own health check instead, in isolation.
@@ -302,6 +307,8 @@ services:
       META_PHONE_NUMBER_ID: ${META_PHONE_NUMBER_ID}
       META_WABA_ID: ${META_WABA_ID}
       META_ACCESS_TOKEN: ${META_ACCESS_TOKEN}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      AGENT_CLIENT_SECRET: ${AGENT_CLIENT_SECRET}
       # There is no OTLP collector on this host. Turning export off is deliberate:
       # aiming the exporter at an absent collector produces a warning every few
       # seconds forever. Set TRACING_ENABLED=true once Tempo is deployed here.
@@ -342,6 +349,7 @@ docker compose up -d kc-db keycloak kafka caddy
 # and answers the ACME challenge for wa.<domain>, so the certificate is issued and
 # the hostname simply 502s until the first deploy lands.
 /opt/lims/deploy-service.sh whatsapp "${WHATSAPP_TAG}" || true
+/opt/lims/fetch-agent-secret.sh || true
 
 
 # Keycloak uses its own Postgres volume on this cost-optimized host. Back it up

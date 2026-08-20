@@ -80,12 +80,27 @@ app:
 
   auto-reply:
     # First-touch acknowledgement: one greeting per conversation per cooldown, only
-    # inside the 24-hour window. The agent proper (phase 2) replaces this; until then
-    # a patient who messages the lab hears something other than silence.
+    # inside the 24-hour window. This is the fallback tier — it answers only when the
+    # agent below is not configured or the message carries no text.
     enabled: ${AUTO_REPLY_ENABLED:true}
     cooldown: ${AUTO_REPLY_COOLDOWN:PT1H}
     # Empty means the built-in bilingual default in AutoReplyProperties.
     greeting: ${AUTO_REPLY_GREETING:}
+
+  agent:
+    # The Gemini text agent. Fails closed exactly like everything else here: with the
+    # API key or the service-account secret missing it never engages and the greeting
+    # tier answers instead. Defaults for the URLs are the compose-network addresses.
+    enabled: ${AGENT_ENABLED:true}
+    gemini-api-key: ${GEMINI_API_KEY:}
+    gemini-model: ${GEMINI_MODEL:gemini-2.5-flash}
+    gemini-base-url: ${GEMINI_BASE_URL:https://generativelanguage.googleapis.com}
+    core-base-url: ${AGENT_CORE_BASE_URL:http://app:11000}
+    token-url: ${AGENT_TOKEN_URL:http://keycloak:8080/realms/lims-realm/protocol/openid-connect/token}
+    client-id: ${AGENT_CLIENT_ID:lims-agent}
+    client-secret: ${AGENT_CLIENT_SECRET:}
+    max-tool-rounds: ${AGENT_MAX_TOOL_ROUNDS:4}
+    history-limit: ${AGENT_HISTORY_LIMIT:10}
 
 logging:
   level:

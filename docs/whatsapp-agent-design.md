@@ -159,6 +159,31 @@ A caveat on `nip.io`: the hostname contains the IP address, so changing the Elas
 changes the webhook URL. Meta's callback URL is awkward to change — re-verification has
 a window where deliveries fail — so a real domain is worth having before launch.
 
+## Phase 2b — landed
+
+The text agent itself: Gemini with the catalogue as tools.
+
+- `AgentOrchestrator` — history in, one WhatsApp-sized answer out. Prices and prep
+  come back through three tools (`searchTests`, `listPackages`, `getPackage`) that
+  proxy `/api/v1/agent/catalog/**`; the loop is capped, and when the model keeps
+  asking for tools past the cap the agent answers nothing rather than something
+  ungrounded
+- Gemini is called over REST directly rather than through Spring AI — a deliberate
+  deviation from the design table: one fewer dependency tree against the pinned
+  framework versions, and the tool layer is client-agnostic so swapping later
+  touches one class. The API key travels in a header, never the URL
+- `lims-agent` service account: client-credentials token, cached to just short of
+  expiry. The client secret is minted by Keycloak on realm import and pulled into
+  `.env` by `fetch-agent-secret.sh` without passing through a human — a fresh host
+  (or a realm re-import) re-runs it and gets the fresh value
+- The Gemini key rides in the same operator-filled secret as the Meta credentials
+  and reaches the host through the same `refresh-meta.sh`
+- Reply tiers, each failing closed into the next: agent → cooldown-limited bilingual
+  "could not process" line → static greeting. A half-configured deployment answers
+  patients worse, never wronger
+- 13 new tests over the token cache, the data-node unwrap, the request/response
+  shapes, the tool loop and the tier routing
+
 ## Phase 2a — landed
 
 The outbound half of the platform, without the agent yet:
