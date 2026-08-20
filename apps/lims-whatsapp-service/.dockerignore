@@ -1,0 +1,10 @@
+# Keep the runner's Gradle state out of the build context. Without this, `COPY . .`
+# ships the host's build/ and .gradle/ into the image — the project cache carries
+# absolute paths from a different workspace, and the context balloons to hundreds of
+# megabytes for no benefit. Mirrors apps/lims-core-service/.dockerignore.
+.gradle/
+build/
+**/build/
+.git/
+.idea/
+*.md

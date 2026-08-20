@@ -91,16 +91,24 @@ service on the compose network. The service publishes no host port: the webhook 
 only thing it exposes and it should reach the internet through TLS, not through a
 published container port.
 
-**Order matters, and getting it wrong bricks the boot.** `bootstrap.sh` runs
-`docker compose up` for the whole stack, so if the WhatsApp image is not in ECR yet the
-pull fails and takes the rest of the stack with it. Push an image first:
+**Apply before the image exists — that order is fine and is the one to use.**
+`bootstrap.sh` starts the base services and then deploys each application image with
+`|| true`, so a repository that is still empty does not fail the boot. That tolerance
+matters more for this service than for the others: the lab must not fail to come up
+because the chatbot's image has not been published yet.
 
-1. Merge to `main` so `whatsapp-service-release.yml` builds and pushes `:latest`, or
-   push one by hand from a machine with AWS credentials.
+1. `terraform apply`. This creates the ECR repository and — because the deploy role's
+   policy is derived from `aws_ecr_repository.this` — grants CI permission to push to
+   it. Until this runs, the release workflow fails at "Tag + push to ECR" with an IAM
+   denial, which is the symptom of the Terraform not having been applied, not of a
+   missing policy to hand-write.
 2. Fill in the `durdans-lims/meta` secret — it is created empty on purpose and the
    service rejects every webhook while the app secret is blank.
-3. `terraform apply`.
+3. Merge to `main` so `whatsapp-service-release.yml` builds, pushes and rolls out.
 4. Point Meta's callback URL at `https://wa.<domain>/webhook/whatsapp`.
+
+Between steps 1 and 3 the hostname exists and holds a valid certificate — Caddy answers
+the ACME challenge whether or not the service behind it is running — and returns 502.
 
 **`terraform apply` replaces the EC2 instance** whenever `bootstrap.sh` changes, because
 `user_data_replace_on_change = true`. What that costs:
