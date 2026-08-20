@@ -1,13 +1,17 @@
 package com.uom.lims.agent;
 
 import com.uom.lims.api.dto.response.AgentOrderStatusResponse;
+import com.uom.lims.api.dto.response.AgentOrderStatusResponse.AgentOrderItemProgress;
 import com.uom.lims.api.enums.OrderStatus;
 import com.uom.lims.api.enums.SampleStatus;
 import com.uom.lims.entity.OrderEntity;
 import com.uom.lims.entity.OrderItemEntity;
+import com.uom.lims.entity.SampleEntity;
+import com.uom.lims.entity.TestCatalogEntity;
 import com.uom.lims.patient.PatientEntity;
 import com.uom.lims.patient.PatientRepository;
 import com.uom.lims.repository.OrderRepository;
+import com.uom.lims.repository.TestCatalogRepository;
 import com.uom.lims.util.PiiMasker;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -15,9 +19,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.ZoneId;
-import java.util.EnumSet;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
+import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * WHY: answers "is my report ready" over WhatsApp without an OTP ceremony, by using the
@@ -25,10 +33,17 @@ import java.util.Set;
  * the WhatsApp sender's number, taken server-side from the conversation — never from
  * model output — and it must match the phone on the order's patient record.
  *
- * <p>The verification is deliberately conservative in what it reveals: a wrong order
- * number and a right order number on someone else's phone produce byte-identical
- * responses. Identity binding with OTP (and with it, report links) is a later phase;
- * this endpoint only ever says how far an order has progressed.
+ * <p>Progress is derived from each item's newest sample, the same source of truth the
+ * staff tracking view aggregates — {@code OrderItemEntity.status} is not advanced by
+ * the workflow and reads as untouched long after testing has begun. The stages exposed
+ * are a patient-facing coarsening: internal QA loops (a pathologist returning a result
+ * for re-entry) all read as "verifying", because "your result was rejected" is a
+ * sentence for a clinician to say, not a chatbot. The one internal state deliberately
+ * surfaced is a rejected sample: recollection needs the patient to come back, so hiding
+ * it would cost them a day.
+ *
+ * <p>The verification is conservative in what it reveals: a wrong order number and a
+ * right order number on someone else's phone produce byte-identical responses.
  */
 @Slf4j
 @Service
@@ -37,12 +52,18 @@ public class AgentOrderStatusService {
 
     private static final ZoneId LAB_ZONE = ZoneId.of("Asia/Colombo");
 
-    /** An item counts as completed once its result has cleared clinical authorization. */
-    private static final Set<SampleStatus> COMPLETED_ITEM_STATUSES =
-            EnumSet.of(SampleStatus.AUTHORIZED, SampleStatus.DISPATCHED);
+    static final String ITEM_AWAITING_COLLECTION = "AWAITING_COLLECTION";
+    static final String ITEM_COLLECTED = "COLLECTED";
+    static final String ITEM_AT_LAB = "AT_LAB";
+    static final String ITEM_TESTING = "TESTING";
+    static final String ITEM_VERIFYING = "VERIFYING";
+    static final String ITEM_READY = "READY";
+    static final String ITEM_DISPATCHED = "DISPATCHED";
+    static final String ITEM_RECOLLECTION_NEEDED = "RECOLLECTION_NEEDED";
 
     private final OrderRepository orderRepository;
     private final PatientRepository patientRepository;
+    private final TestCatalogRepository testCatalogRepository;
 
     @Transactional(readOnly = true)
     public AgentOrderStatusResponse status(String orderNo, String requesterPhone) {
@@ -65,37 +86,79 @@ public class AgentOrderStatusService {
             return AgentOrderStatusResponse.notFound();
         }
 
-        List<OrderItemEntity> items = order.getItems();
-        int total = items.size();
-        int completed = (int) items.stream()
-                .filter(item -> COMPLETED_ITEM_STATUSES.contains(item.getStatus()))
-                .count();
+        List<OrderItemEntity> items = order.getItems().stream()
+                .filter(item -> !item.isDeleted())
+                .toList();
+        Map<UUID, TestCatalogEntity> testsById = testCatalogRepository
+                .findAllById(items.stream().map(OrderItemEntity::getTestId).toList()).stream()
+                .collect(Collectors.toMap(TestCatalogEntity::getId, Function.identity()));
 
-        String stage = stageOf(order, items, total, completed);
+        List<AgentOrderItemProgress> progress = new ArrayList<>();
+        int completed = 0;
+        for (OrderItemEntity item : items) {
+            String itemStage = itemStage(newestSampleStatus(item));
+            if (ITEM_READY.equals(itemStage) || ITEM_DISPATCHED.equals(itemStage)) {
+                completed++;
+            }
+            TestCatalogEntity test = testsById.get(item.getTestId());
+            progress.add(new AgentOrderItemProgress(
+                    test == null ? "Laboratory test" : test.getTestName(), itemStage));
+        }
+
+        String stage = stageOf(order, progress, items.size(), completed);
         boolean ready = AgentOrderStatusResponse.STAGE_REPORT_READY.equals(stage);
 
         log.info("Agent order-status lookup: order {} -> {} ({}/{}) for {}",
-                order.getOrderNo(), stage, completed, total, PiiMasker.maskPhone(requesterPhone));
+                order.getOrderNo(), stage, completed, items.size(), PiiMasker.maskPhone(requesterPhone));
 
         return new AgentOrderStatusResponse(
                 true,
                 order.getOrderNo(),
                 stage,
                 ready,
-                total,
+                items.size(),
                 completed,
-                order.getCreatedAt() == null ? null : order.getCreatedAt().atZone(LAB_ZONE).toLocalDate());
+                order.getCreatedAt() == null ? null : order.getCreatedAt().atZone(LAB_ZONE).toLocalDate(),
+                progress);
     }
 
-    private static String stageOf(OrderEntity order, List<OrderItemEntity> items, int total, int completed) {
+    /**
+     * The item's newest non-deleted sample carries the live status; earlier samples on
+     * the same item are superseded recollections. No sample at all means collection has
+     * not started.
+     */
+    private static SampleStatus newestSampleStatus(OrderItemEntity item) {
+        return item.getSamples().stream()
+                .filter(sample -> !sample.isDeleted())
+                .max(Comparator.comparing(SampleEntity::getCreatedAt,
+                        Comparator.nullsFirst(Comparator.naturalOrder())))
+                .map(SampleEntity::getStatus)
+                .orElse(SampleStatus.PENDING_COLLECTION);
+    }
+
+    static String itemStage(SampleStatus status) {
+        return switch (status) {
+            case PENDING_COLLECTION -> ITEM_AWAITING_COLLECTION;
+            case COLLECTED, IN_TRANSIT -> ITEM_COLLECTED;
+            case RECEIVED_AT_LAB, QUALITY_CHECK, ACCEPTED -> ITEM_AT_LAB;
+            case IN_TESTING, RESULT_ENTERED -> ITEM_TESTING;
+            case SENT_FOR_VERIFICATION, VERIFIED -> ITEM_VERIFYING;
+            case AUTHORIZED -> ITEM_READY;
+            case DISPATCHED -> ITEM_DISPATCHED;
+            case REJECTED, RECOLLECTION_REQUIRED -> ITEM_RECOLLECTION_NEEDED;
+        };
+    }
+
+    private static String stageOf(OrderEntity order, List<AgentOrderItemProgress> progress,
+                                  int total, int completed) {
         if (order.getStatus() == OrderStatus.CANCELLED) {
             return AgentOrderStatusResponse.STAGE_CANCELLED;
         }
         if (total > 0 && completed == total) {
             return AgentOrderStatusResponse.STAGE_REPORT_READY;
         }
-        boolean anyMovement = items.stream()
-                .anyMatch(item -> item.getStatus() != SampleStatus.PENDING_COLLECTION);
+        boolean anyMovement = progress.stream()
+                .anyMatch(item -> !ITEM_AWAITING_COLLECTION.equals(item.stage()));
         return anyMovement ? AgentOrderStatusResponse.STAGE_PROCESSING : AgentOrderStatusResponse.STAGE_RECEIVED;
     }
 
