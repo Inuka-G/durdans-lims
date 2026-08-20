@@ -1,5 +1,6 @@
 package com.uom.lims.api.dto.response;
 
+import com.uom.lims.api.enums.TubeType;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -19,10 +20,13 @@ public class SupplyResponse {
     private String itemNo;
     private String name;
     private String category;
+    private TubeType tubeType;
     private String tubeColor;
     private int currentStock;
     private int minStock;
     private int maxStock;
     private String unit;
     private LocalDate lastRestocked;
+    /** Row version as of this read; send it back as expectedVersion to write an absolute stock count safely. */
+    private Long version;
 }

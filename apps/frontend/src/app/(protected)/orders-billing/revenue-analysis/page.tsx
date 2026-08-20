@@ -6,9 +6,35 @@ import {
     AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
     XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts';
+import {
+    AlertTriangle,
+    ArrowDownRight,
+    ArrowUpRight,
+    BarChart3,
+    ChevronDown,
+    ChevronUp,
+    CreditCard,
+    Download,
+    FlaskConical,
+    History,
+    Lock,
+    Receipt,
+    RefreshCw,
+    TrendingUp,
+    Wallet,
+} from 'lucide-react';
 import { formatCurrency, formatDateTime } from '@/constants/orders-billing';
 import { getAuditLogs, getBillByOrderId, getBills, getOrders, logRevenueReportAccess, type AuditLog } from '@/lib/api';
 import { useAuth } from '@/hooks/useAuth';
+import { cn } from '@/lib/utils';
+import Button from '@/components/ui/Button';
+import PageHeader from '@/components/ui/PageHeader';
+import KpiTile from '@/components/ui/KpiTile';
+import SectionCard from '@/components/ui/SectionCard';
+import EmptyState from '@/components/ui/EmptyState';
+import SegmentedControl, { type SegmentOption } from '@/components/ui/SegmentedControl';
+import StatusChip from '@/components/ui/StatusChip';
+import { formatAuditTime } from '@/components/patient-dashboard/dashboard-data';
 
 function hasAnyRole(user: ReturnType<typeof useAuth>['user'], allowed: string[]): boolean {
     const roles = (user as { realm_access?: { roles?: string[] } }).realm_access?.roles ?? [];
@@ -45,7 +71,24 @@ function activeUserRolesSummary(user: ReturnType<typeof useAuth>['user']): strin
 // ─── Data By Period ───────────────────────────────────────────────────────────
 
 type Period = '7' | '30' | '90' | '365';
+/** Chart series colours (literal by design — see DESIGN.md). Index 0 is the brand colour. */
 const PERIOD_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444'];
+const SERIES_REVENUE = 'var(--color-primary)';
+const SERIES_COLLECTIONS = '#10b981';
+
+/** UI labels (sentence case). `periodLabels` inside the page keeps the legacy text used for export filenames / audit detail. */
+const PERIOD_OPTIONS: SegmentOption<Period>[] = [
+    { value: '7', label: '7 days' },
+    { value: '30', label: '30 days' },
+    { value: '90', label: '90 days' },
+    { value: '365', label: '1 year' },
+];
+const PERIOD_DISPLAY: Record<Period, string> = {
+    '7': 'Last 7 days',
+    '30': 'Last 30 days',
+    '90': 'Last 90 days',
+    '365': 'Last year',
+};
 
 type PaymentLike = { paymentMethod?: string; method?: string; amount?: number };
 
@@ -329,14 +372,28 @@ async function fetchRevenueBills(): Promise<BillLike[]> {
     return [];
 }
 
+// ─── Chart chrome ─────────────────────────────────────────────────────────────
+
+const AXIS_TICK = { fontSize: 11, fill: 'var(--fg-muted)' };
+const TOOLTIP_STYLE = {
+    borderRadius: 6,
+    border: '1px solid var(--edge)',
+    background: 'var(--surface)',
+    color: 'var(--fg)',
+    boxShadow: '0 2px 8px rgb(15 23 42 / 0.12)',
+    fontSize: 12,
+    padding: '6px 10px',
+};
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function CustomTooltip({ active, payload, label }: any) {
     if (active && payload && payload.length) {
         return (
-            <div className="bg-white rounded-xl shadow-lg border border-slate-200 p-3 text-xs">
-                <p className="font-bold text-slate-700 mb-1">{label}</p>
+            <div style={TOOLTIP_STYLE}>
+                <p className="mb-1 text-fg-muted">{label}</p>
                 {payload.map((entry: { name: string; value: number; color: string }, i: number) => (
-                    <p key={i} style={{ color: entry.color }} className="font-semibold">
+                    <p key={i} className="flex items-center gap-1.5 font-medium tabular-nums text-fg">
+                        <span aria-hidden="true" className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: entry.color }} />
                         {entry.name}: {formatCurrency(entry.value)}
                     </p>
                 ))}
@@ -344,6 +401,36 @@ function CustomTooltip({ active, payload, label }: any) {
         );
     }
     return null;
+}
+
+function ChartSkeleton({ className }: { className?: string }) {
+    return (
+        <div aria-hidden="true" className={cn('flex h-full items-end gap-2 px-4 pb-6', className)}>
+            {[40, 65, 30, 80, 55, 45, 70].map((h, i) => (
+                <span key={i} className="flex-1 rounded-t bg-skeleton" style={{ height: `${h}%` }} />
+            ))}
+        </div>
+    );
+}
+
+function TrendCell({ trend, up }: { trend: string; up: boolean | null }) {
+    return (
+        <span
+            className={cn(
+                'inline-flex items-center gap-0.5 text-xs font-medium tabular-nums',
+                up === null ? 'text-fg-muted' : up ? 'text-status-verified-fg' : 'text-status-danger-fg'
+            )}
+        >
+            {up !== null &&
+                (up ? (
+                    <ArrowUpRight className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                ) : (
+                    <ArrowDownRight className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                ))}
+            {up !== null && <span className="sr-only">{up ? 'Up' : 'Down'} </span>}
+            {up === null ? '—' : trend}
+        </span>
+    );
 }
 
 export default function RevenueAnalysisPage() {
@@ -656,326 +743,462 @@ export default function RevenueAnalysisPage() {
         };
     }, [bills, period]);
 
+    const growthValue = Number.parseFloat(analytics.stats.growth);
+    const growthDelta = Number.isFinite(growthValue)
+        ? { value: growthValue, unit: '%' as const, label: 'vs previous period' }
+        : undefined;
+    const periodDisplay = PERIOD_DISPLAY[period];
+    const hasRevenueData = analytics.meta.inPeriodBillsCount > 0;
+    const signedInName = activeUserDisplayName(user);
+    const signedInRoles = activeUserRolesSummary(user);
+
     // ── RBAC Guard ────────────────────────────────────────────────────────────
     if (!hasPermission('view_revenue')) {
         return (
-            <div className="flex flex-col items-center justify-center py-24 gap-4">
-                <div className="w-16 h-16 rounded-2xl bg-red-100 flex items-center justify-center">
-                    <span className="material-icons text-3xl text-red-600">lock</span>
-                </div>
-                <h2 className="text-xl font-bold text-slate-800">Access Restricted</h2>
-                <p className="text-sm text-slate-500 text-center max-w-xs">
-                    You do not have permission to view revenue reports.
-                    Please contact your system administrator.
-                </p>
-                <div className="mt-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-700 flex items-center gap-2">
-                    <span className="material-icons text-base">security</span>
-                    Required permission: <span className="font-mono font-bold">view_revenue</span>
-                </div>
+            <div className="mx-auto max-w-[1400px]">
+                <PageHeader title="Revenue analysis" meta="Financial performance and revenue breakdown" />
+                <SectionCard title="Access restricted">
+                    <div role="alert">
+                        <EmptyState
+                            icon={Lock}
+                            title="You don't have permission to view revenue reports"
+                            description="Contact your system administrator if you need access."
+                            action={
+                                <StatusChip tone="pending">
+                                    Required permission: <span className="font-mono">view_revenue</span>
+                                </StatusChip>
+                            }
+                        />
+                    </div>
+                </SectionCard>
             </div>
         );
     }
 
     if (loading) {
         return (
-            <div className="flex flex-col items-center justify-center py-24 gap-4">
-                <span className="material-icons text-5xl text-slate-300 animate-spin">progress_activity</span>
-                <p className="text-sm text-slate-400 font-medium">Loading revenue analysis...</p>
+            <div className="mx-auto max-w-[1400px]">
+                <PageHeader title="Revenue analysis" meta="Financial performance and revenue breakdown" />
+                <p role="status" aria-live="polite" className="sr-only">
+                    Loading revenue analysis
+                </p>
+                <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    <KpiTile label="Total revenue" value={null} icon={TrendingUp} loading />
+                    <KpiTile label="Collections" value={null} icon={Wallet} loading />
+                    <KpiTile label="Transactions" value={null} icon={Receipt} loading />
+                </div>
+                <div className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
+                    <SectionCard title="Revenue trend" className="lg:col-span-2" bodyClassName="px-2 pb-2 pt-3">
+                        <div className="h-72">
+                            <ChartSkeleton />
+                        </div>
+                    </SectionCard>
+                    <SectionCard title="Payment methods" bodyClassName="px-2 pb-2 pt-3">
+                        <div className="h-72">
+                            <ChartSkeleton />
+                        </div>
+                    </SectionCard>
+                </div>
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                    <SectionCard title="Revenue by category" bodyClassName="px-2 pb-2 pt-3">
+                        <div className="h-60">
+                            <ChartSkeleton />
+                        </div>
+                    </SectionCard>
+                    <SectionCard title="Top performing tests" flush>
+                        <ul aria-hidden="true" className="divide-y divide-edge">
+                            {Array.from({ length: 5 }).map((_, i) => (
+                                <li key={i} className="flex items-center gap-3 px-4 py-2.5">
+                                    <span className="h-3 w-40 rounded bg-skeleton" />
+                                    <span className="ml-auto h-3 w-10 rounded bg-skeleton" />
+                                    <span className="h-3 w-24 rounded bg-skeleton" />
+                                    <span className="h-3 w-12 rounded bg-skeleton" />
+                                </li>
+                            ))}
+                        </ul>
+                    </SectionCard>
+                </div>
             </div>
         );
     }
 
     return (
-        <div>
-            {/* Header */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-                <div>
-                    <h1 className="text-2xl font-bold text-slate-800">Revenue Analysis</h1>
-                    <p className="text-sm text-slate-500 mt-1">Financial performance and revenue breakdown</p>
-                    {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
+        <div className="mx-auto max-w-[1400px]">
+            <PageHeader
+                title="Revenue analysis"
+                meta={
+                    <>
+                        <span>Financial performance and revenue breakdown</span>
+                        <span aria-hidden="true">·</span>
+                        <span className="whitespace-nowrap">{periodDisplay}</span>
+                    </>
+                }
+                actions={
+                    <>
+                        <SegmentedControl<Period>
+                            ariaLabel="Reporting period"
+                            value={period}
+                            onChange={setPeriod}
+                            options={PERIOD_OPTIONS}
+                        />
+                        <Button icon={RefreshCw} loading={isRefreshing} onClick={handleRefresh}>
+                            {isRefreshing ? 'Refreshing…' : 'Refresh'}
+                        </Button>
+                        <Button variant="primary" icon={Download} onClick={handleExport}>
+                            Export report
+                        </Button>
+                    </>
+                }
+            />
+
+            {error && (
+                <div
+                    role="alert"
+                    className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-status-danger-edge bg-status-danger-bg px-4 py-2.5 text-sm text-status-danger-fg"
+                >
+                    <span className="inline-flex items-center gap-2">
+                        <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
+                        {error}
+                    </span>
+                    <Button size="sm" icon={RefreshCw} loading={isRefreshing} onClick={handleRefresh}>
+                        Retry
+                    </Button>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                    {/* Period buttons */}
-                    <div className="flex items-center gap-1">
-                        {(['7', '30', '90', '365'] as Period[]).map((p) => (
-                            <button
-                                key={p}
-                                onClick={() => setPeriod(p)}
-                                className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors ${period === p
-                                    ? 'bg-primary text-white shadow-sm'
-                                    : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
-                                    }`}
-                            >
-                                {periodLabels[p]}
-                            </button>
-                        ))}
-                    </div>
-                    {/* Refresh */}
-                    <button
-                        onClick={handleRefresh}
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
-                    >
-                        <span className={`material-icons text-base ${isRefreshing ? 'animate-spin' : ''}`}>refresh</span>
-                        {isRefreshing ? 'Refreshing...' : 'Refresh'}
-                    </button>
-                    {/* Export */}
-                    <button
-                        onClick={handleExport}
-                        title="Export revenue report"
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold rounded-lg border transition-colors text-slate-600 bg-white border-slate-200 hover:bg-slate-50"
-                    >
-                        <span className="material-icons text-base">download</span>
-                        Export
-                    </button>
-                </div>
+            )}
+
+            <p role="status" aria-live="polite" className="sr-only">
+                {isRefreshing
+                    ? 'Refreshing revenue data'
+                    : `Revenue analysis for ${periodDisplay.toLowerCase()} loaded. ${analytics.meta.inPeriodBillsCount} bills in period.`}
+            </p>
+
+            {/* KPI row — full-paid bills only; no outstanding */}
+            <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                <KpiTile
+                    label="Total revenue"
+                    value={formatCurrency(analytics.stats.totalRevenue)}
+                    icon={TrendingUp}
+                    delta={growthDelta}
+                />
+                <KpiTile
+                    label="Collections"
+                    value={formatCurrency(analytics.stats.totalCollections)}
+                    icon={Wallet}
+                    note={`${analytics.stats.collectionRate}% collection rate`}
+                />
+                <KpiTile
+                    label="Transactions"
+                    value={analytics.stats.transactions.toLocaleString()}
+                    icon={Receipt}
+                    note={`${analytics.meta.paidBillsCount} paid of ${analytics.meta.inPeriodBillsCount} bills`}
+                />
             </div>
 
-            {/* KPI Cards — full-paid bills only; no outstanding */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 mb-8">
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
-                    <div className="flex items-center justify-between mb-2">
-                        <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center">
-                            <span className="material-icons text-blue-600">trending_up</span>
-                        </div>
-                        <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg">{analytics.stats.growth}</span>
-                    </div>
-                    <p className="text-xl font-bold text-slate-800">{formatCurrency(analytics.stats.totalRevenue)}</p>
-                    <p className="text-xs text-slate-500">Total Revenue</p>
-                </div>
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
-                    <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center mb-2">
-                        <span className="material-icons text-emerald-600">account_balance_wallet</span>
-                    </div>
-                    <p className="text-xl font-bold text-slate-800">{formatCurrency(analytics.stats.totalCollections)}</p>
-                    <p className="text-xs text-slate-500">Collections</p>
-                </div>
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
-                    <div className="flex items-center justify-between mb-2">
-                        <div className="w-10 h-10 rounded-xl bg-violet-100 flex items-center justify-center">
-                            <span className="material-icons text-violet-600">receipt</span>
-                        </div>
-                        <span className="text-xs font-bold text-violet-600 bg-violet-50 px-2 py-1 rounded-lg">{analytics.stats.collectionRate}% rate</span>
-                    </div>
-                    <p className="text-xl font-bold text-slate-800">{analytics.stats.transactions.toLocaleString()}</p>
-                    <p className="text-xs text-slate-500">Transactions</p>
-                </div>
-            </div>
-
-            {/* Charts Row */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-                {/* Revenue Trend Chart */}
-                <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-200/60 p-6">
-                    <h3 className="text-lg font-bold text-slate-800 mb-4">Revenue Trend</h3>
-                    <ResponsiveContainer width="100%" height={300}>
-                        <AreaChart data={analytics.chartData}>
-                            <defs>
-                                <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.15} />
-                                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
-                                </linearGradient>
-                                <linearGradient id="colorCollections" x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.15} />
-                                    <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
-                                </linearGradient>
-                            </defs>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                            <XAxis dataKey="label" fontSize={12} tickLine={false} axisLine={false} />
-                            <YAxis fontSize={12} tickLine={false} axisLine={false} tickFormatter={(v) => `${(v / 1000).toFixed(0)}K`} />
-                            <Tooltip content={<CustomTooltip />} />
-                            <Legend />
-                            <Area type="monotone" dataKey="revenue" name="Revenue" stroke="#3b82f6" fill="url(#colorRevenue)" strokeWidth={2} />
-                            <Area type="monotone" dataKey="collections" name="Collections" stroke="#10b981" fill="url(#colorCollections)" strokeWidth={2} />
-                        </AreaChart>
-                    </ResponsiveContainer>
-                </div>
-
-                {/* Payment Methods Pie */}
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-6">
-                    <div className="flex items-center justify-between gap-3 mb-4">
-                        <h3 className="text-lg font-bold text-slate-800">Payment Methods</h3>
-                        <button
-                            onClick={handleExportPaymentMethods}
-                            className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
-                        >
-                            <span className="material-icons text-sm">download</span>
-                            Export
-                        </button>
-                    </div>
-                    <ResponsiveContainer width="100%" height={200}>
-                        <PieChart>
-                            <Pie data={analytics.paymentMethods} cx="50%" cy="50%" innerRadius={50} outerRadius={80} dataKey="value" paddingAngle={4}>
-                                {analytics.paymentMethods.map((entry, i) => (
-                                    <Cell key={i} fill={entry.color} />
-                                ))}
-                            </Pie>
-                            <Tooltip />
-                        </PieChart>
-                    </ResponsiveContainer>
-                    <div className="mt-2 space-y-1.5">
-                        {analytics.paymentMethods.map((m) => (
-                            <div key={m.name} className="flex items-center justify-between text-xs">
-                                <div className="flex items-center gap-2">
-                                    <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: m.color }} />
-                                    <span className="text-slate-600">{m.name}</span>
-                                </div>
-                                <span className="font-bold text-slate-700">{m.value}%</span>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            </div>
-
-            {/* Category Revenue Bar Chart */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-6">
-                    <div className="flex items-center justify-between gap-3 mb-4">
-                        <h3 className="text-lg font-bold text-slate-800">Revenue by Category</h3>
-                        <button
-                            onClick={handleExportCategoryRevenue}
-                            className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
-                        >
-                            <span className="material-icons text-sm">download</span>
-                            Export
-                        </button>
-                    </div>
-                    <ResponsiveContainer width="100%" height={250}>
-                        <BarChart data={analytics.categoryRevenue}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                            <XAxis dataKey="category" fontSize={12} tickLine={false} axisLine={false} />
-                            <YAxis fontSize={12} tickLine={false} axisLine={false} tickFormatter={(v) => `${(v / 1000).toFixed(0)}K`} />
-                            <Tooltip content={<CustomTooltip />} />
-                            <Bar dataKey="revenue" name="Revenue" fill="#3b82f6" radius={[6, 6, 0, 0]} />
-                        </BarChart>
-                    </ResponsiveContainer>
-                </div>
-
-                {/* Top Tests Table */}
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-6">
-                    <div className="flex items-center justify-between gap-3 mb-4">
-                        <h3 className="text-lg font-bold text-slate-800">Top Performing Tests</h3>
-                        <button
-                            onClick={handleExportTopTests}
-                            className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
-                        >
-                            <span className="material-icons text-sm">download</span>
-                            Export
-                        </button>
-                    </div>
-                    <table className="w-full text-sm">
-                        <thead>
-                            <tr className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                                <th className="text-left pb-3">Test</th>
-                                <th className="text-right pb-3">Orders</th>
-                                <th className="text-right pb-3">Revenue</th>
-                                <th className="text-right pb-3">Trend</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {analytics.topTests.map((test) => (
-                                <tr key={test.name} className="border-t border-slate-50">
-                                    <td className="py-2.5 font-medium text-slate-700">{test.name}</td>
-                                    <td className="py-2.5 text-right text-slate-500">{test.orders}</td>
-                                    <td className="py-2.5 text-right font-semibold text-slate-700">{formatCurrency(test.revenue)}</td>
-                                    <td className="py-2.5 text-right">
-                                        <span className={`inline-flex items-center text-xs font-bold ${test.up === null ? 'text-slate-400' : test.up ? 'text-emerald-600' : 'text-red-500'}`}>
-                                            {test.up !== null && (
-                                                <span className="material-icons text-sm">{test.up ? 'arrow_upward' : 'arrow_downward'}</span>
-                                            )}
-                                            {test.trend}
-                                        </span>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-            {/* Security Audit Log */}
-            {hasPermission('view_audit_log') && (
-                <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5">
-                    <button
-                        onClick={() => setShowAuditLog(v => !v)}
-                        className="w-full flex items-center justify-between text-left"
-                    >
-                        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
-                            <div className="flex items-center gap-2">
-                                <span className="material-icons text-amber-600">security</span>
-                                <span className="font-bold text-amber-800">Security Audit Log</span>
-                                <span className="text-xs font-semibold text-amber-600 bg-amber-100 px-2 py-0.5 rounded-lg">
-                                    Revenue report access history
-                                </span>
-                            </div>
-                            <span className="text-xs text-amber-800 sm:ml-2">
-                                Signed in as <span className="font-semibold">{activeUserDisplayName(user)}</span>
-                                {activeUserRolesSummary(user) !== '—' && (
-                                    <span className="text-amber-700"> · {activeUserRolesSummary(user)}</span>
-                                )}
-                            </span>
-                        </div>
-                        <span className="material-icons text-amber-600 shrink-0">
-                            {showAuditLog ? 'expand_less' : 'expand_more'}
-                        </span>
-                    </button>
-
-                    {showAuditLog && (
-                        <div className="mt-4 overflow-x-auto">
-                            {auditError && (
-                                <p className="text-xs text-red-600 mb-2">{auditError}</p>
+            {/* Charts row */}
+            <div className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
+                {/* Revenue trend */}
+                <SectionCard title="Revenue trend" className="lg:col-span-2" bodyClassName="px-2 pb-2 pt-3">
+                    <figure className="m-0">
+                        <figcaption className="sr-only">
+                            {hasRevenueData
+                                ? `Revenue ${formatCurrency(analytics.stats.totalRevenue)} and collections ${formatCurrency(analytics.stats.totalCollections)} ${periodDisplay.toLowerCase()}.`
+                                : `No revenue recorded ${periodDisplay.toLowerCase()}.`}
+                        </figcaption>
+                        <div className="h-72">
+                            {hasRevenueData ? (
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <AreaChart data={analytics.chartData} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
+                                        <defs>
+                                            <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
+                                                <stop offset="5%" stopColor={SERIES_REVENUE} stopOpacity={0.15} />
+                                                <stop offset="95%" stopColor={SERIES_REVENUE} stopOpacity={0} />
+                                            </linearGradient>
+                                            <linearGradient id="colorCollections" x1="0" y1="0" x2="0" y2="1">
+                                                <stop offset="5%" stopColor={SERIES_COLLECTIONS} stopOpacity={0.15} />
+                                                <stop offset="95%" stopColor={SERIES_COLLECTIONS} stopOpacity={0} />
+                                            </linearGradient>
+                                        </defs>
+                                        <CartesianGrid strokeDasharray="3 3" stroke="var(--edge)" vertical={false} />
+                                        <XAxis dataKey="label" tick={AXIS_TICK} tickLine={false} axisLine={false} />
+                                        <YAxis tick={AXIS_TICK} tickLine={false} axisLine={false} tickFormatter={(v) => `${(v / 1000).toFixed(0)}K`} />
+                                        <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'var(--edge-strong)' }} />
+                                        <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} />
+                                        <Area type="monotone" dataKey="revenue" name="Revenue" stroke={SERIES_REVENUE} fill="url(#colorRevenue)" strokeWidth={2} />
+                                        <Area type="monotone" dataKey="collections" name="Collections" stroke={SERIES_COLLECTIONS} fill="url(#colorCollections)" strokeWidth={2} />
+                                    </AreaChart>
+                                </ResponsiveContainer>
+                            ) : (
+                                <EmptyState
+                                    icon={BarChart3}
+                                    title="No revenue in this period"
+                                    description="Bills dated within the selected period will be charted here."
+                                    compact
+                                    className="h-full"
+                                />
                             )}
-                            <table className="w-full text-sm">
+                        </div>
+                    </figure>
+                </SectionCard>
+
+                {/* Payment methods */}
+                <SectionCard
+                    title="Payment methods"
+                    actions={
+                        <Button size="sm" icon={Download} onClick={handleExportPaymentMethods} aria-label="Export payment methods">
+                            Export
+                        </Button>
+                    }
+                >
+                    {analytics.paymentMethods.length === 0 ? (
+                        <EmptyState
+                            icon={CreditCard}
+                            title="No payments recorded"
+                            description="Payment method split appears once paid bills exist in this period."
+                            compact
+                        />
+                    ) : (
+                        <>
+                            <figure className="m-0">
+                                <figcaption className="sr-only">
+                                    Payment method share: {analytics.paymentMethods.map((m) => `${m.name} ${m.value}%`).join(', ')}.
+                                </figcaption>
+                                <div className="h-48">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <PieChart>
+                                            <Pie data={analytics.paymentMethods} cx="50%" cy="50%" innerRadius={50} outerRadius={80} dataKey="value" paddingAngle={4} stroke="var(--surface)">
+                                                {analytics.paymentMethods.map((entry, i) => (
+                                                    <Cell key={i} fill={entry.color} />
+                                                ))}
+                                            </Pie>
+                                            <Tooltip
+                                                contentStyle={TOOLTIP_STYLE}
+                                                itemStyle={{ color: 'var(--fg)' }}
+                                                formatter={(value) => [`${value}%`, 'Share']}
+                                            />
+                                        </PieChart>
+                                    </ResponsiveContainer>
+                                </div>
+                            </figure>
+                            <ul className="mt-2 space-y-1.5 text-xs">
+                                {analytics.paymentMethods.map((m) => (
+                                    <li key={m.name} className="flex items-center justify-between gap-2">
+                                        <span className="flex min-w-0 items-center gap-2 text-fg-secondary">
+                                            <span aria-hidden="true" className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: m.color }} />
+                                            <span className="truncate">{m.name}</span>
+                                        </span>
+                                        <span className="font-medium tabular-nums text-fg">{m.value}%</span>
+                                    </li>
+                                ))}
+                            </ul>
+                        </>
+                    )}
+                </SectionCard>
+            </div>
+
+            {/* Category + top tests */}
+            <div className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <SectionCard
+                    title="Revenue by category"
+                    actions={
+                        <Button size="sm" icon={Download} onClick={handleExportCategoryRevenue} aria-label="Export revenue by category">
+                            Export
+                        </Button>
+                    }
+                    bodyClassName="px-2 pb-2 pt-3"
+                >
+                    <figure className="m-0">
+                        <figcaption className="sr-only">
+                            {analytics.categoryRevenue.length > 0
+                                ? `Revenue by category: ${analytics.categoryRevenue.map((c) => `${c.category} ${formatCurrency(c.revenue)}`).join(', ')}.`
+                                : 'No category revenue in this period.'}
+                        </figcaption>
+                        <div className="h-60">
+                            {analytics.categoryRevenue.length > 0 ? (
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart data={analytics.categoryRevenue} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
+                                        <CartesianGrid strokeDasharray="3 3" stroke="var(--edge)" vertical={false} />
+                                        <XAxis dataKey="category" tick={AXIS_TICK} tickLine={false} axisLine={false} interval="preserveStartEnd" />
+                                        <YAxis tick={AXIS_TICK} tickLine={false} axisLine={false} tickFormatter={(v) => `${(v / 1000).toFixed(0)}K`} />
+                                        <Tooltip content={<CustomTooltip />} cursor={{ fill: 'var(--primary-soft)' }} />
+                                        <Bar dataKey="revenue" name="Revenue" fill="var(--color-primary)" radius={[3, 3, 0, 0]} />
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            ) : (
+                                <EmptyState
+                                    icon={BarChart3}
+                                    title="No category revenue"
+                                    description="Test line items on non-cancelled orders are grouped here."
+                                    compact
+                                    className="h-full"
+                                />
+                            )}
+                        </div>
+                    </figure>
+                </SectionCard>
+
+                <SectionCard
+                    title="Top performing tests"
+                    count={analytics.topTests.length > 0 ? analytics.topTests.length : undefined}
+                    flush
+                    actions={
+                        <Button size="sm" icon={Download} onClick={handleExportTopTests} aria-label="Export top performing tests">
+                            Export
+                        </Button>
+                    }
+                >
+                    {analytics.topTests.length === 0 ? (
+                        <EmptyState
+                            icon={FlaskConical}
+                            title="No tests billed yet"
+                            description="The five highest-revenue tests for the period will be listed here."
+                            compact
+                        />
+                    ) : (
+                        <div className="overflow-x-auto">
+                            <table className="w-full min-w-[480px] table-fixed text-left text-[13px]">
+                                <caption className="sr-only">Top performing tests by revenue</caption>
                                 <thead>
-                                    <tr className="text-xs font-bold text-amber-700 uppercase tracking-wider">
-                                        <th className="text-left pb-3">Action</th>
-                                        <th className="text-left pb-3">User</th>
-                                        <th className="text-left pb-3">Branch</th>
-                                        <th className="text-left pb-3">Details</th>
-                                        <th className="text-left pb-3">Timestamp</th>
-                                        <th className="text-left pb-3">IP Address</th>
+                                    <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
+                                        <th scope="col" className="py-2 pl-4 pr-3 font-medium">Test</th>
+                                        <th scope="col" className="w-20 px-3 py-2 text-right font-medium">Orders</th>
+                                        <th scope="col" className="w-36 px-3 py-2 text-right font-medium">Revenue</th>
+                                        <th scope="col" className="w-24 py-2 pl-3 pr-4 text-right font-medium">Trend</th>
                                     </tr>
                                 </thead>
-                                <tbody>
-                                    {auditLoading ? (
-                                        <tr>
-                                            <td colSpan={6} className="py-8 text-center text-amber-700 text-xs">
-                                                Loading audit log…
+                                <tbody className="divide-y divide-edge whitespace-nowrap">
+                                    {analytics.topTests.map((test) => (
+                                        <tr key={test.name} className="transition-colors hover:bg-surface-hover">
+                                            <td className="truncate py-2 pl-4 pr-3 font-medium text-fg" title={test.name}>
+                                                {test.name}
+                                            </td>
+                                            <td className="px-3 py-2 text-right tabular-nums text-fg-secondary">{test.orders}</td>
+                                            <td className="px-3 py-2 text-right font-medium tabular-nums text-fg">{formatCurrency(test.revenue)}</td>
+                                            <td className="py-2 pl-3 pr-4 text-right">
+                                                <TrendCell trend={test.trend} up={test.up} />
                                             </td>
                                         </tr>
-                                    ) : auditLogs.length === 0 ? (
-                                        <tr>
-                                            <td colSpan={6} className="py-8 text-center text-amber-600 text-xs">
-                                                No revenue report access events recorded yet.
-                                            </td>
-                                        </tr>
-                                    ) : (
-                                        auditLogs.map((entry) => (
-                                            <tr key={entry.id} className="border-t border-amber-100">
-                                                <td className="py-2.5 font-medium text-amber-900">
-                                                    {formatRevenueAuditAction(entry.action)}
-                                                </td>
-                                                <td className="py-2.5 text-amber-800">{entry.performedBy}</td>
-                                                <td className="py-2.5">
-                                                    <span className="inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-bold bg-amber-100 text-amber-700">
-                                                        {entry.branchCode || '—'}
-                                                    </span>
-                                                </td>
-                                                <td className="py-2.5 text-amber-800 max-w-[200px] truncate" title={entry.details}>
-                                                    {entry.details || '—'}
-                                                </td>
-                                                <td className="py-2.5 font-mono text-xs text-amber-700">
-                                                    {entry.timestamp ? formatDateTime(entry.timestamp) : '—'}
-                                                </td>
-                                                <td className="py-2.5 font-mono text-xs text-amber-600">
-                                                    {entry.ipAddress || '—'}
-                                                </td>
-                                            </tr>
-                                        ))
-                                    )}
+                                    ))}
                                 </tbody>
                             </table>
                         </div>
                     )}
-                </div>
+                </SectionCard>
+            </div>
+
+            {/* Revenue report access log */}
+            {hasPermission('view_audit_log') && (
+                <SectionCard
+                    title="Revenue report access log"
+                    count={showAuditLog && !auditLoading && !auditError ? auditLogs.length : undefined}
+                    flush
+                    actions={
+                        <Button
+                            size="sm"
+                            variant="ghost"
+                            icon={showAuditLog ? ChevronUp : ChevronDown}
+                            aria-expanded={showAuditLog}
+                            aria-controls={showAuditLog ? 'revenue-audit-log' : undefined}
+                            onClick={() => setShowAuditLog((v) => !v)}
+                        >
+                            {showAuditLog ? 'Hide log' : 'Show log'}
+                        </Button>
+                    }
+                >
+                    <p className={cn('px-4 py-2.5 text-xs text-fg-muted', showAuditLog && 'border-b border-edge')}>
+                        Signed in as <span className="font-medium text-fg-secondary">{signedInName}</span>
+                        {signedInRoles !== '—' && (
+                            <>
+                                <span aria-hidden="true"> · </span>
+                                <span>{signedInRoles}</span>
+                            </>
+                        )}
+                    </p>
+
+                    {showAuditLog && (
+                        <div id="revenue-audit-log" aria-busy={auditLoading}>
+                            {auditLoading ? (
+                                <>
+                                    <p role="status" aria-live="polite" className="sr-only">
+                                        Loading access log
+                                    </p>
+                                    <ul aria-hidden="true" className="divide-y divide-edge">
+                                        {Array.from({ length: 4 }).map((_, i) => (
+                                            <li key={i} className="flex items-center gap-3 px-4 py-2.5">
+                                                <span className="h-3 w-20 shrink-0 rounded bg-skeleton" />
+                                                <span className="h-3 w-36 shrink-0 rounded bg-skeleton" />
+                                                <span className="hidden h-3 w-28 rounded bg-skeleton md:block" />
+                                                <span className="h-4 w-14 rounded bg-skeleton" />
+                                                <span className="ml-auto hidden h-3 w-1/4 rounded bg-skeleton lg:block" />
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </>
+                            ) : auditError ? (
+                                <div role="alert">
+                                    <EmptyState
+                                        icon={AlertTriangle}
+                                        title="Couldn't load the access log"
+                                        description={auditError}
+                                        compact
+                                    />
+                                </div>
+                            ) : auditLogs.length === 0 ? (
+                                <EmptyState
+                                    icon={History}
+                                    title="No access events yet"
+                                    description="Views and exports of this report are recorded here."
+                                    compact
+                                />
+                            ) : (
+                                <div className="overflow-x-auto">
+                                    <table className="w-full min-w-[760px] table-fixed text-left text-[13px] lg:min-w-[870px]">
+                                        <caption className="sr-only">Revenue report access events</caption>
+                                        <thead>
+                                            <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
+                                                <th scope="col" className="w-32 py-2 pl-4 pr-3 font-medium">Time</th>
+                                                <th scope="col" className="w-48 px-3 py-2 font-medium">Action</th>
+                                                <th scope="col" className="w-40 px-3 py-2 font-medium">User</th>
+                                                <th scope="col" className="w-24 px-3 py-2 font-medium">Branch</th>
+                                                <th scope="col" className="px-3 py-2 font-medium">Details</th>
+                                                <th scope="col" className="hidden w-32 px-3 py-2 font-medium lg:table-cell">IP address</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-edge whitespace-nowrap">
+                                            {auditLogs.map((entry) => (
+                                                <tr key={entry.id} className="transition-colors hover:bg-surface-hover">
+                                                    <td className="py-2 pl-4 pr-3 tabular-nums text-fg-secondary">
+                                                        {entry.timestamp ? (
+                                                            <time dateTime={entry.timestamp} title={formatDateTime(entry.timestamp)}>
+                                                                {formatAuditTime(entry.timestamp)}
+                                                            </time>
+                                                        ) : (
+                                                            '—'
+                                                        )}
+                                                    </td>
+                                                    <td className="truncate px-3 py-2 font-medium text-fg" title={formatRevenueAuditAction(entry.action)}>
+                                                        {formatRevenueAuditAction(entry.action)}
+                                                    </td>
+                                                    <td className="truncate px-3 py-2 text-fg-secondary" title={entry.performedBy || undefined}>
+                                                        {entry.performedBy || '—'}
+                                                    </td>
+                                                    <td className="px-3 py-2">
+                                                        <StatusChip size="sm">{entry.branchCode || '—'}</StatusChip>
+                                                    </td>
+                                                    <td className="truncate px-3 py-2 text-fg-secondary" title={entry.details || undefined}>
+                                                        {entry.details || '—'}
+                                                    </td>
+                                                    <td className="hidden truncate px-3 py-2 font-mono text-xs text-fg-muted lg:table-cell" title={entry.ipAddress || undefined}>
+                                                        {entry.ipAddress || '—'}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </SectionCard>
             )}
         </div>
     );

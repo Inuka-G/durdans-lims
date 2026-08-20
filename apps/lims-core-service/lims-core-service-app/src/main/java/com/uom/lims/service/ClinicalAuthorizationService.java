@@ -127,7 +127,8 @@ public class ClinicalAuthorizationService {
                     .findFirst()
                     .orElseThrow(() -> new IllegalStateException(
                             "No test results for clinically pending sample: " + sample.getId()));
-            TestResultSummaryResponse base = testResultMapper.toSummaryResponse(fallback, testName, patientName);
+            TestResultSummaryResponse base =
+                    testResultMapper.toSummaryResponse(fallback, testName, patientName, patientId);
             boolean criticalFinding = testResultRepository.findBySampleId(sample.getId()).stream()
                     .filter(tr -> !tr.isDeleted())
                     .filter(tr -> !Boolean.TRUE.equals(tr.getDraft()))
@@ -135,6 +136,7 @@ public class ClinicalAuthorizationService {
             return TestResultSummaryResponse.builder()
                     .resultId(base.getResultId())
                     .status(base.getStatus())
+                    .patientCode(base.getPatientCode())
                     .patientName(base.getPatientName())
                     .testType(base.getTestType())
                     .mltName(base.getMltName())
@@ -166,10 +168,12 @@ public class ClinicalAuthorizationService {
         boolean hasCriticalFinding = verifiedParams.stream()
                 .anyMatch(tr -> tr.getFlag() == ResultFlag.CRITICAL_HIGH || tr.getFlag() == ResultFlag.CRITICAL_LOW);
 
-        TestResultSummaryResponse base = testResultMapper.toSummaryResponse(primary, testName, patientName);
+        TestResultSummaryResponse base =
+                testResultMapper.toSummaryResponse(primary, testName, patientName, patientId);
         return TestResultSummaryResponse.builder()
                 .resultId(base.getResultId())
                 .status(ResultStatus.TECHNICALLY_VERIFIED.name())
+                .patientCode(base.getPatientCode())
                 .patientName(base.getPatientName())
                 .testType(base.getTestType())
                 .mltName(base.getMltName())
@@ -204,21 +208,72 @@ public class ClinicalAuthorizationService {
             int page,
             int size,
             String actionType,
-            String search
+            String search,
+            java.time.LocalDateTime fromTimestamp
     ) {
         List<String> actions = resolveHistoryActions(actionType, CLINICAL_HISTORY_ACTIONS);
         if (actions.isEmpty()) {
             return Page.empty(PageRequest.of(page, size));
         }
 
-        return auditLogRepository
+        Page<AuditLog> auditPage = auditLogRepository
                 .findHistoryByEntityTypeAndActions(
                         VERIFICATION_ENTITY_TYPE,
                         actions,
                         normalizeSearch(search),
+                        fromTimestamp,
                         PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "timestamp"))
-                )
-                .map(this::toHistoryItemResponse);
+                );
+
+        Map<UUID, HistoryPatient> patients = resolveHistoryPatients(auditPage.getContent());
+        return auditPage.map(auditLog -> toHistoryItemResponse(auditLog, patients));
+    }
+
+    /** Patient identity for one audited action, resolved for display in the history table. */
+    private record HistoryPatient(String code, String name) {
+    }
+
+    /**
+     * Resolve the patient behind each audit row for a whole page at once.
+     *
+     * <p>The audit row's own patient_code column carries the specimen barcode on
+     * these writes, so identity comes from the result the row points at:
+     * result -> sample -> order -> patient. Batched to two queries per page rather
+     * than two per row.
+     */
+    private Map<UUID, HistoryPatient> resolveHistoryPatients(List<AuditLog> auditLogs) {
+        List<UUID> resultIds = auditLogs.stream()
+                .map(AuditLog::getEntityId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (resultIds.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<UUID, String> codeByResultId = new HashMap<>();
+        for (TestResultEntity result : testResultRepository.findAllById(resultIds)) {
+            String code = safelyResolvePatientId(result);
+            if (code != null && !code.isBlank()) {
+                codeByResultId.put(result.getId(), code.trim());
+            }
+        }
+        if (codeByResultId.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<String, String> nameByCode = patientRepository
+                .findByPatientCodeIn(new java.util.HashSet<>(codeByResultId.values()))
+                .stream()
+                .collect(Collectors.toMap(
+                        PatientEntity::getPatientCode,
+                        PatientEntity::getFullName,
+                        (first, second) -> first));
+
+        Map<UUID, HistoryPatient> resolved = new HashMap<>();
+        codeByResultId.forEach((resultId, code) ->
+                resolved.put(resultId, new HistoryPatient(code, nameByCode.get(code))));
+        return resolved;
     }
 
     @Transactional
@@ -241,16 +296,19 @@ public class ClinicalAuthorizationService {
         }
 
         String username = SecurityUtils.getCurrentUsername();
+        String actorName = currentActorName();
         Instant now = Instant.now();
         SampleEntity sample = anchor.getSample();
         sample.setStatus(SampleStatus.AUTHORIZED);
         sampleRepository.save(sample);
 
-        String signature = String.format("Electronically authorized by %s on %s", username, now);
+        // The signature is printed on the released report, so it carries the same
+        // display name as the authorized-by field rather than the raw login id.
+        String signature = String.format("Electronically authorized by %s on %s", actorName, now);
         for (TestResultEntity result : targets) {
             result.setStatus(ResultStatus.CLINICALLY_AUTHORIZED);
             result.setClinicalNote(request.getClinicalNote());
-            result.setClinicallyAuthorizedBy(username);
+            result.setClinicallyAuthorizedBy(actorName);
             result.setClinicallyAuthorizedAt(now);
             result.setClinicalSignature(signature);
             result.setLastModifiedBy(username);
@@ -279,6 +337,7 @@ public class ClinicalAuthorizationService {
         }
 
         String username = SecurityUtils.getCurrentUsername();
+        String actorName = currentActorName();
         Instant now = Instant.now();
         SampleEntity sample = anchor.getSample();
         sample.setStatus(SampleStatus.SENT_FOR_VERIFICATION);
@@ -287,7 +346,7 @@ public class ClinicalAuthorizationService {
         for (TestResultEntity result : targets) {
             result.setStatus(ResultStatus.RETURNED_FOR_RECHECK);
             result.setReturnReason(request.getReturnReason());
-            result.setReturnedBy(username);
+            result.setReturnedBy(actorName);
             result.setReturnedAt(now);
             result.setLastModifiedBy(username);
             result.setLastModifiedAt(now);
@@ -399,9 +458,7 @@ public class ClinicalAuthorizationService {
                         : OffsetDateTime.ofInstant(result.getClinicallyAuthorizedAt(), ZoneId.systemDefault()))
                 .preferredDeliveryMethods(List.of(
                         DeliveryMethod.SMS,
-                        DeliveryMethod.WHATSAPP,
-                        DeliveryMethod.EMAIL,
-                        DeliveryMethod.POST))
+                        DeliveryMethod.EMAIL))
                 .build();
 
         dispatchService.registerAuthorizedReportSystem(request, "clinical-authorization");
@@ -458,15 +515,22 @@ public class ClinicalAuthorizationService {
         }
     }
 
-    private VerificationHistoryItemResponse toHistoryItemResponse(AuditLog auditLog) {
+    private VerificationHistoryItemResponse toHistoryItemResponse(
+            AuditLog auditLog,
+            Map<UUID, HistoryPatient> patients) {
         Map<String, String> details = parseDetails(auditLog.getDetails());
         Instant actionAt = auditLog.getTimestamp() == null
                 ? null
                 : auditLog.getTimestamp().atZone(ZoneId.systemDefault()).toInstant();
+        HistoryPatient patient = auditLog.getEntityId() == null
+                ? null
+                : patients.get(auditLog.getEntityId());
 
         return VerificationHistoryItemResponse.builder()
                 .resultId(auditLog.getEntityId() == null ? "" : auditLog.getEntityId().toString())
                 .actionType(auditLog.getAction())
+                .patientCode(patient == null ? null : patient.code())
+                .patientName(patient == null ? null : patient.name())
                 .testName(details.getOrDefault("testName", "Unknown Test Group"))
                 .specimenPriority(details.get("specimenPriority"))
                 .actionSummary(getActionSummary(auditLog.getAction()))
@@ -508,6 +572,19 @@ public class ClinicalAuthorizationService {
         } catch (Exception exception) {
             return null;
         }
+    }
+
+    /**
+     * Human-facing actor for the fields a report shows: the token's display name
+     * when it carries one, else the login id. A verified-by line reading
+     * "Dr N. Perera" is what a clinician can act on; "nperera" is not.
+     */
+    private static String currentActorName() {
+        String displayName = SecurityUtils.getCurrentDisplayName();
+        if (displayName != null && !displayName.isBlank()) {
+            return displayName;
+        }
+        return SecurityUtils.getCurrentUsername();
     }
 
     private String safelyResolvePatientId(TestResultEntity result) {

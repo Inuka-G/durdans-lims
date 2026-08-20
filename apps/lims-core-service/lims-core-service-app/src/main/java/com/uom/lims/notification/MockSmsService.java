@@ -1,11 +1,13 @@
 package com.uom.lims.notification;
 
 import org.springframework.stereotype.Service;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @Service
+@ConditionalOnProperty(name = "app.sms.provider", havingValue = "mock", matchIfMissing = true)
 public class MockSmsService implements SmsService {
 
     @Override

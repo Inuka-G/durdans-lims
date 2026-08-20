@@ -6,6 +6,26 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { toast } from "sonner";
 import {
+    AlertTriangle,
+    ArrowLeft,
+    Check,
+    CheckCircle2,
+    Download,
+    Globe,
+    Inbox,
+    Mail,
+    MapPin,
+    MessageCircle,
+    NotebookPen,
+    Phone,
+    Printer,
+    RotateCw,
+    Send,
+    Smartphone,
+    Truck,
+    type LucideIcon,
+} from "lucide-react";
+import {
     getDispatchReport,
     dispatchReport,
     markDispatchAttemptDelivered,
@@ -13,15 +33,29 @@ import {
     type DispatchItemDetail,
 } from "@/lib/api";
 import { formatDisplayId } from "@/lib/format-id";
+import { cn } from "@/lib/utils";
+import Button from "@/components/ui/Button";
+import PageHeader, { type Crumb } from "@/components/ui/PageHeader";
+import SectionCard from "@/components/ui/SectionCard";
+import EmptyState from "@/components/ui/EmptyState";
+import StatusChip, { humanizeStatus, toneForStatus } from "@/components/ui/StatusChip";
+import { InputField, TextareaField } from "@/components/ui/Field";
+import { formatAuditTime, formatPhone, formatRegistered } from "@/components/patient-dashboard/dashboard-data";
 
-const methodConfig: Record<ApiDeliveryMethod, { icon: string; color: string; bg: string; label: string; detail: string }> = {
-    EMAIL: { icon: "mail", color: "text-blue-700", bg: "bg-blue-50", label: "Email", detail: "patient@email.com" },
-    SMS: { icon: "smartphone", color: "text-amber-700", bg: "bg-amber-50", label: "SMS", detail: "text message" },
-    WHATSAPP: { icon: "chat", color: "text-green-700", bg: "bg-green-50", label: "WhatsApp", detail: "document link" },
-    POST: { icon: "local_shipping", color: "text-indigo-700", bg: "bg-indigo-50", label: "Post", detail: "tracked delivery" },
-    PRINT: { icon: "print", color: "text-emerald-700", bg: "bg-emerald-50", label: "Print", detail: "Lab Printer #2" },
-    PORTAL: { icon: "language", color: "text-purple-700", bg: "bg-purple-50", label: "Patient Portal", detail: "portal.durdans.lk" },
+const methodConfig: Record<ApiDeliveryMethod, { icon: LucideIcon; label: string; detail: string }> = {
+    EMAIL: { icon: Mail, label: "Email", detail: "Patient's email address" },
+    SMS: { icon: Smartphone, label: "SMS", detail: "Text message" },
+    WHATSAPP: { icon: MessageCircle, label: "WhatsApp", detail: "Document link" },
+    POST: { icon: Truck, label: "Post", detail: "Tracked delivery" },
+    PRINT: { icon: Printer, label: "Print", detail: "Lab printer 2" },
+    PORTAL: { icon: Globe, label: "Patient portal", detail: "portal.durdans.lk" },
 };
+
+const DISPATCH_CRUMBS: Crumb[] = [
+    { label: "Dashboard", href: "/dashboard" },
+    { label: "Dispatch", href: "/dispatch/dashboard" },
+    { label: "Authorized reports", href: "/dispatch/authorized-reports" },
+];
 
 const hospitalInfo = {
     name: "Durdans Hospital",
@@ -65,6 +99,14 @@ type JsPdfWithAutoTable = jsPDF & {
 type DispatchNotice = {
     tone: "success" | "warning" | "error";
     message: string;
+    /** Which action produced this notice — only "dispatch" notices may offer a re-dispatch retry. */
+    source: "dispatch" | "attempt";
+};
+
+const NOTICE_CLASS: Record<DispatchNotice["tone"], string> = {
+    success: "border-status-verified-edge bg-status-verified-bg text-status-verified-fg",
+    warning: "border-status-pending-edge bg-status-pending-bg text-status-pending-fg",
+    error: "border-status-danger-edge bg-status-danger-bg text-status-danger-fg",
 };
 
 const fallbackText = (value?: string | number | null) => {
@@ -112,8 +154,18 @@ const withDoctorPrefix = (value?: string | null) => {
     return cleaned.startsWith("Dr.") ? cleaned : `Dr. ${cleaned}`;
 };
 
-const buildDispatchNotice = (updated: DispatchItemDetail): DispatchNotice => {
-    const attempts = updated.attempts ?? [];
+const toDate = (value?: string | null): Date | null => {
+    if (!value) return null;
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const buildDispatchNotice = (updated: DispatchItemDetail, requestedMethods: ApiDeliveryMethod[]): DispatchNotice => {
+    const allAttempts = updated.attempts ?? [];
+    const attempts = requestedMethods.flatMap((method) => {
+        const attempt = [...allAttempts].reverse().find((candidate) => candidate.method === method);
+        return attempt ? [attempt] : [];
+    });
     const delivered = attempts.filter((attempt) => attempt.status === "DELIVERED").length;
     const sent = attempts.filter((attempt) => attempt.status === "SENT").length;
     const failed = attempts.filter((attempt) => attempt.status === "FAILED");
@@ -124,6 +176,7 @@ const buildDispatchNotice = (updated: DispatchItemDetail): DispatchNotice => {
         return {
             tone: delivered > 0 || sent > 0 || pending > 0 ? "warning" : "error",
             message: `Dispatch completed with ${failed.length} failed channel${failed.length > 1 ? "s" : ""}: ${failedMethods}.`,
+            source: "dispatch",
         };
     }
 
@@ -131,12 +184,14 @@ const buildDispatchNotice = (updated: DispatchItemDetail): DispatchNotice => {
         return {
             tone: "warning",
             message: `Dispatch queued: ${delivered} delivered, ${sent} sent for tracking, ${pending} pending.`,
+            source: "dispatch",
         };
     }
 
     return {
         tone: "success",
         message: `Dispatch delivered through ${delivered} channel${delivered === 1 ? "" : "s"}.`,
+        source: "dispatch",
     };
 };
 
@@ -154,9 +209,11 @@ const showDispatchNotice = (notice: DispatchNotice) => {
 
 function mapDetailToReportData(detail: DispatchItemDetail): ReportViewData {
     const authorizedTime = formatDateTime(detail.authorizedAt);
-    const methods = (detail.preferredDeliveryMethods?.length
-        ? detail.preferredDeliveryMethods
-        : (["SMS", "WHATSAPP", "EMAIL", "POST"] as ApiDeliveryMethod[])) as ApiDeliveryMethod[];
+    const supportedMethods: ApiDeliveryMethod[] = ["SMS", "EMAIL"];
+    const configuredMethods = detail.preferredDeliveryMethods?.filter((method) =>
+        supportedMethods.includes(method)
+    );
+    const methods = configuredMethods?.length ? configuredMethods : supportedMethods;
     const resultRows = detail.results?.length
         ? detail.results.map((row) => ({
             parameter: fallbackText(row.parameter),
@@ -198,6 +255,23 @@ function mapDetailToReportData(detail: DispatchItemDetail): ReportViewData {
     };
 }
 
+/** Label/value list used inside the printable report preview. */
+function InfoList({ title, items }: { title: string; items: { label: string; value: string }[] }) {
+    return (
+        <div className="min-w-0">
+            <h3 className="mb-3 text-xs font-semibold text-fg">{title}</h3>
+            <dl className="flex min-w-0 flex-col gap-2">
+                {items.map((item) => (
+                    <div key={item.label} className="flex min-w-0 gap-3 text-xs">
+                        <dt className="w-28 shrink-0 text-fg-muted">{item.label}</dt>
+                        <dd className="min-w-0 flex-1 break-words font-medium text-fg">{item.value}</dd>
+                    </div>
+                ))}
+            </dl>
+        </div>
+    );
+}
+
 export default function AuthorizedReportPage() {
     const router = useRouter();
     const params = useParams();
@@ -206,7 +280,7 @@ export default function AuthorizedReportPage() {
     const [detail, setDetail] = useState<DispatchItemDetail | null>(null);
     const [reportData, setReportData] = useState<ReportViewData | null>(null);
     const [loadError, setLoadError] = useState("");
-    const [selectedMethods, setSelectedMethods] = useState<ApiDeliveryMethod[]>(["SMS", "WHATSAPP", "EMAIL", "POST"]);
+    const [selectedMethods, setSelectedMethods] = useState<ApiDeliveryMethod[]>(["SMS", "EMAIL"]);
     const [overrideEmail, setOverrideEmail] = useState("");
     const [overridePhone, setOverridePhone] = useState("");
     const [overrideWhatsappPhone, setOverrideWhatsappPhone] = useState("");
@@ -215,6 +289,7 @@ export default function AuthorizedReportPage() {
     const [trackingNumber, setTrackingNumber] = useState("");
     const [dispatched, setDispatched] = useState(false);
     const [dispatching, setDispatching] = useState(false);
+    const [dispatchFailed, setDispatchFailed] = useState(false);
     const [markingAttemptId, setMarkingAttemptId] = useState<string | null>(null);
     const [dispatchNotice, setDispatchNotice] = useState<DispatchNotice | null>(null);
 
@@ -228,7 +303,7 @@ export default function AuthorizedReportPage() {
             setSelectedMethods(
                 mapped.deliveryMethods.length
                     ? mapped.deliveryMethods
-                    : (["SMS", "WHATSAPP", "EMAIL", "POST"] as ApiDeliveryMethod[])
+                    : (["SMS", "EMAIL"] as ApiDeliveryMethod[])
             );
             setDispatched(d.overallStatus === "DELIVERED");
         } catch {
@@ -270,14 +345,17 @@ export default function AuthorizedReportPage() {
             setDetail(updated);
             setReportData(mapDetailToReportData(updated));
             setDispatched(updated.overallStatus === "DELIVERED");
-            const notice = buildDispatchNotice(updated);
+            setDispatchFailed(false);
+            const notice = buildDispatchNotice(updated, selectedMethods);
             setDispatchNotice(notice);
             showDispatchNotice(notice);
         } catch (e) {
             console.error(e);
+            setDispatchFailed(true);
             const notice: DispatchNotice = {
                 tone: "error",
-                message: "Dispatch failed. Check patient email, phone, WhatsApp number, postal address, or try again.",
+                message: "Dispatch failed. Check the patient email/phone and try again.",
+                source: "dispatch",
             };
             setDispatchNotice(notice);
             showDispatchNotice(notice);
@@ -296,6 +374,7 @@ export default function AuthorizedReportPage() {
             const notice: DispatchNotice = {
                 tone: "success",
                 message: "Delivery attempt marked as delivered.",
+                source: "attempt",
             };
             setDispatchNotice(notice);
             showDispatchNotice(notice);
@@ -304,6 +383,7 @@ export default function AuthorizedReportPage() {
             const notice: DispatchNotice = {
                 tone: "error",
                 message: "Could not mark this delivery as delivered.",
+                source: "attempt",
             };
             setDispatchNotice(notice);
             showDispatchNotice(notice);
@@ -312,17 +392,74 @@ export default function AuthorizedReportPage() {
         }
     };
 
-    if (loadError || !reportData) {
+    // ── Error state ──────────────────────────────────────────
+    if (loadError) {
         return (
-            <div className="flex flex-col items-center justify-center min-h-[40vh] text-slate-500 text-sm gap-2">
-                <p>{loadError || "Loading…"}</p>
-                <button
-                    type="button"
-                    onClick={() => router.push("/dispatch/dashboard")}
-                    className="text-primary font-semibold"
-                >
-                    Back to dashboard
-                </button>
+            <div className="mx-auto max-w-5xl">
+                <PageHeader title="Report" crumbs={[...DISPATCH_CRUMBS, { label: reportIdParam || "Report" }]} />
+                <div role="alert" className="rounded-lg border border-edge bg-surface">
+                    <EmptyState
+                        icon={AlertTriangle}
+                        title="Couldn't load report"
+                        description={loadError}
+                        action={
+                            <div className="flex flex-wrap items-center justify-center gap-2">
+                                <Button size="sm" icon={RotateCw} onClick={() => void load()}>
+                                    Retry
+                                </Button>
+                                <Button size="sm" variant="ghost" icon={ArrowLeft} onClick={() => router.push("/dispatch/dashboard")}>
+                                    Back to dashboard
+                                </Button>
+                            </div>
+                        }
+                    />
+                </div>
+            </div>
+        );
+    }
+
+    // ── Loading state ────────────────────────────────────────
+    if (!reportData) {
+        return (
+            <div className="mx-auto max-w-5xl">
+                <PageHeader title="Report" crumbs={[...DISPATCH_CRUMBS, { label: "Loading…" }]} />
+                <p role="status" aria-live="polite" className="sr-only">
+                    Loading report
+                </p>
+                <div aria-hidden="true" className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+                    <div className="rounded-lg border border-edge bg-surface p-4">
+                        <span className="block h-5 w-40 rounded bg-skeleton" />
+                        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                            {Array.from({ length: 6 }).map((_, i) => (
+                                <span key={i} className="block h-4 rounded bg-skeleton" />
+                            ))}
+                        </div>
+                        <div className="mt-6 space-y-2">
+                            {Array.from({ length: 5 }).map((_, i) => (
+                                <span key={i} className="block h-8 rounded bg-skeleton" />
+                            ))}
+                        </div>
+                    </div>
+                    <div className="space-y-4">
+                        <div className="rounded-lg border border-edge bg-surface p-4">
+                            <span className="block h-4 w-28 rounded bg-skeleton" />
+                            <div className="mt-4 space-y-2">
+                                {Array.from({ length: 2 }).map((_, i) => (
+                                    <span key={i} className="block h-14 rounded bg-skeleton" />
+                                ))}
+                            </div>
+                            <span className="mt-4 block h-9 rounded bg-skeleton" />
+                        </div>
+                        <div className="rounded-lg border border-edge bg-surface p-4">
+                            <span className="block h-4 w-24 rounded bg-skeleton" />
+                            <div className="mt-4 space-y-2">
+                                {Array.from({ length: 4 }).map((_, i) => (
+                                    <span key={i} className="block h-4 rounded bg-skeleton" />
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         );
     }
@@ -547,431 +684,509 @@ export default function AuthorizedReportPage() {
         doc.save(`${reportData.reportId}_${reportData.patientName.replace(/ /g, "_")}.pdf`);
     };
 
-    return (
-        <div className="flex flex-col h-full space-y-6">
+    const attempts = detail?.attempts ?? [];
+    const overallStatus = detail?.overallStatus ?? "PENDING";
+    const authorizedDate = toDate(detail?.authorizedAt);
+    const dispatchLabel = dispatching
+        ? "Dispatching…"
+        : dispatched
+            ? "Dispatched"
+            : dispatchFailed
+                ? "Retry dispatch"
+                : "Dispatch report";
+    const dispatchIcon = dispatched ? CheckCircle2 : dispatchFailed ? RotateCw : Send;
+    const selectedMethodLabels = selectedMethods.map((method) => methodConfig[method]?.label ?? method);
 
-            {/* Top Bar */}
-            <div className="bg-white border border-slate-200 rounded-xl px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm">
-                <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-                    <button
-                        onClick={() => router.push("/dispatch/dashboard")}
-                        className="flex items-center gap-2 text-sm font-semibold text-slate-500 hover:text-primary transition-colors"
-                    >
-                        <span className="material-icons text-[18px]">arrow_back</span>
-                        Back
-                    </button>
-                    <div className="hidden sm:block w-px h-6 bg-slate-200" />
-                    <div className="flex items-center gap-3">
-                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                            Authorized Report
+    return (
+        <div className="mx-auto max-w-5xl">
+            <PageHeader
+                title={<span className="break-words">Report {reportData.reportId}</span>}
+                crumbs={[...DISPATCH_CRUMBS, { label: reportData.reportId }]}
+                meta={
+                    <>
+                        <StatusChip tone={toneForStatus(overallStatus)} dot>
+                            {humanizeStatus(overallStatus)}
+                        </StatusChip>
+                        <span aria-hidden="true">·</span>
+                        <span className="min-w-0 break-words">{reportData.patientName}</span>
+                        <span aria-hidden="true">·</span>
+                        <span className="min-w-0 break-words">{reportData.testName}</span>
+                        <span aria-hidden="true">·</span>
+                        <span className="min-w-0 break-words">
+                            Authorized{" "}
+                            {authorizedDate ? (
+                                <time dateTime={authorizedDate.toISOString()} title={reportData.authorizedTime}>
+                                    {formatRegistered(authorizedDate)}
+                                </time>
+                            ) : (
+                                "—"
+                            )}
                         </span>
-                        <span className="px-2.5 py-1 bg-slate-100/80 rounded-md text-xs font-bold text-slate-600 font-mono border border-slate-200">
-                            {reportData.reportId}
-                        </span>
-                    </div>
-                </div>
-                <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
-                    <button
-                        onClick={handleDownloadPDF}
-                        className="flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold border border-slate-200 rounded-lg bg-white text-slate-600 hover:bg-slate-50 transition-colors flex-1 sm:flex-none"
-                    >
-                        <span className="material-icons text-[18px]">download</span>
-                        Download PDF
-                    </button>
-                    <button
-                        type="button"
-                        disabled={dispatching || dispatched}
-                        onClick={() => void handleDispatch()}
-                        className={`flex items-center justify-center gap-2 px-4 py-2 text-sm font-bold border-none rounded-lg text-white transition-colors shadow-sm flex-1 md:w-48 whitespace-nowrap ${dispatched ? "bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/30" : "bg-primary hover:bg-primary/90 shadow-primary/30"}`}
-                    >
-                        <span className="material-icons text-[18px]">{dispatched ? "check_circle" : "send"}</span>
-                        {dispatching ? "Dispatching…" : dispatched ? "Dispatched" : "Dispatch Report"}
-                    </button>
-                </div>
-            </div>
+                    </>
+                }
+                actions={
+                    <>
+                        <Button variant="ghost" icon={ArrowLeft} onClick={() => router.push("/dispatch/dashboard")}>
+                            Back
+                        </Button>
+                        <Button icon={Download} onClick={handleDownloadPDF}>
+                            Download PDF
+                        </Button>
+                        <Button
+                            icon={dispatchIcon}
+                            loading={dispatching}
+                            disabled={dispatched}
+                            onClick={() => void handleDispatch()}
+                        >
+                            {dispatchLabel}
+                        </Button>
+                    </>
+                }
+            />
 
             {dispatchNotice && (
                 <div
-                    className={`rounded-xl border px-4 py-3 text-sm font-semibold ${
-                        dispatchNotice.tone === "success"
-                            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                            : dispatchNotice.tone === "warning"
-                                ? "border-amber-200 bg-amber-50 text-amber-800"
-                                : "border-red-200 bg-red-50 text-red-700"
-                    }`}
+                    role={dispatchNotice.tone === "error" ? "alert" : "status"}
+                    className={cn(
+                        "mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border px-4 py-3 text-sm font-medium",
+                        NOTICE_CLASS[dispatchNotice.tone]
+                    )}
                 >
-                    {dispatchNotice.message}
+                    <span className="min-w-0 break-words">{dispatchNotice.message}</span>
+                    {dispatchNotice.source === "dispatch" && dispatchFailed && !dispatched && (
+                        <Button size="sm" icon={RotateCw} loading={dispatching} onClick={() => void handleDispatch()}>
+                            Retry
+                        </Button>
+                    )}
                 </div>
             )}
 
-            {/* Main Content */}
-            <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-6 pb-12">
-
-                {/* LEFT — Report Preview */}
-                <div className="bg-white rounded-xl border border-slate-200/60 shadow-sm overflow-hidden flex flex-col">
-
-                    {/* Hospital Header */}
-                    <div className="p-6 md:p-8 bg-gradient-to-br from-primary to-blue-800 flex flex-col sm:flex-row sm:items-start justify-between gap-6">
-                        <div>
-                            <div className="text-xl md:text-2xl font-black text-white tracking-wider uppercase">
-                                {hospitalInfo.name}
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+                {/* LEFT — report preview + attempt history */}
+                <div className="flex min-w-0 flex-col gap-4">
+                    <SectionCard
+                        title="Report preview"
+                        flush
+                        actions={
+                            <StatusChip tone="success" dot>
+                                Authorized
+                            </StatusChip>
+                        }
+                    >
+                        {/* Hospital header */}
+                        <div className="flex flex-col gap-4 border-b border-edge bg-surface-muted px-4 py-4 sm:flex-row sm:items-start sm:justify-between sm:px-6">
+                            <div className="min-w-0">
+                                <p className="text-lg font-semibold tracking-tight text-primary-strong">{hospitalInfo.name}</p>
+                                <p className="text-xs text-fg-muted">{hospitalInfo.tagline}</p>
+                                <p className="mt-2 text-sm font-medium text-fg">{hospitalInfo.labName}</p>
+                                <p className="text-xs text-fg-muted">{hospitalInfo.labAccreditation}</p>
                             </div>
-                            <div className="text-[11px] md:text-xs text-white/80 mt-1 mb-3">
-                                {hospitalInfo.tagline}
-                            </div>
-                            <div className="text-sm font-bold text-white/95">
-                                {hospitalInfo.labName}
-                            </div>
-                            <div className="text-[10px] md:text-[11px] text-white/70 mt-0.5">
-                                {hospitalInfo.labAccreditation}
-                            </div>
+                            <dl className="min-w-0 text-xs sm:text-right">
+                                <dt className="text-fg-muted">Report ID</dt>
+                                <dd className="break-words font-mono text-sm font-semibold text-fg" title={reportData.reportId}>
+                                    {reportData.reportId}
+                                </dd>
+                                <dt className="mt-2 text-fg-muted">Registration</dt>
+                                <dd className="font-medium text-fg">{hospitalInfo.regNo}</dd>
+                            </dl>
                         </div>
-                        <div className="sm:text-right">
-                            <div className="text-[10px] text-white/70 uppercase tracking-widest mb-1">Report ID</div>
-                            <div className="text-base md:text-lg font-bold text-white font-mono">
-                                {reportData.reportId}
-                            </div>
-                            <div className="text-[10px] text-white/70 mt-1 mb-4">
-                                Reg: {hospitalInfo.regNo}
-                            </div>
-                            <div className="inline-block px-3 py-1.5 bg-white/20 rounded-md border border-white/40 backdrop-blur-sm">
-                                <span className="text-xs font-bold text-white tracking-widest">✓ AUTHORIZED</span>
-                            </div>
-                        </div>
-                    </div>
 
-                    {/* Hospital Contact Bar */}
-                    <div className="bg-blue-50/50 p-3 md:px-8 border-b border-blue-100 flex flex-wrap items-center gap-4 md:gap-8 justify-center sm:justify-start">
-                        <div className="flex items-center gap-2">
-                            <span className="material-icons text-[14px] text-blue-700">location_on</span>
-                            <span className="text-xs font-medium text-blue-800">{hospitalInfo.address}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <span className="material-icons text-[14px] text-blue-700">phone</span>
-                            <span className="text-xs font-medium text-blue-800">{hospitalInfo.phone}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <span className="material-icons text-[14px] text-blue-700">language</span>
-                            <span className="text-xs font-medium text-blue-800">{hospitalInfo.website}</span>
-                        </div>
-                    </div>
+                        {/* Hospital contact bar */}
+                        <ul className="flex flex-wrap items-center gap-x-6 gap-y-1 border-b border-edge px-4 py-2 text-xs text-fg-secondary sm:px-6">
+                            <li className="flex min-w-0 items-center gap-1.5">
+                                <MapPin className="h-4 w-4 shrink-0 text-fg-faint" aria-hidden="true" />
+                                <span className="min-w-0 break-words">{hospitalInfo.address}</span>
+                            </li>
+                            <li className="flex min-w-0 items-center gap-1.5">
+                                <Phone className="h-4 w-4 shrink-0 text-fg-faint" aria-hidden="true" />
+                                <span className="min-w-0 break-words">{hospitalInfo.phone}</span>
+                            </li>
+                            <li className="flex min-w-0 items-center gap-1.5">
+                                <Globe className="h-4 w-4 shrink-0 text-fg-faint" aria-hidden="true" />
+                                <span className="min-w-0 break-words">{hospitalInfo.website}</span>
+                            </li>
+                        </ul>
 
-                    {/* Test Name */}
-                    <div className="px-6 md:px-8 py-5 border-b border-slate-100 bg-slate-50/30">
-                        <span className="text-lg font-bold text-slate-800">
-                            {reportData.testName}
-                        </span>
-                    </div>
+                        {/* Test name */}
+                        <div className="min-w-0 border-b border-edge px-4 py-3 sm:px-6">
+                            <h3 className="break-words text-base font-semibold text-fg">{reportData.testName}</h3>
+                        </div>
 
-                    {/* Patient + Report Info */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 border-b border-slate-100">
-                        <div className="p-6 md:px-8 border-b md:border-b-0 md:border-r border-slate-100">
-                            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">
-                                Patient Information
-                            </div>
-                            <div className="flex flex-col gap-2.5">
-                                {[
+                        {/* Patient + report info */}
+                        <div className="grid grid-cols-1 gap-6 border-b border-edge px-4 py-4 sm:px-6 md:grid-cols-2">
+                            <InfoList
+                                title="Patient information"
+                                items={[
                                     { label: "Name", value: reportData.patientName },
                                     { label: "Patient ID", value: reportData.patientId },
-                                    { label: "Age / Gender", value: `${reportData.patientAge} / ${reportData.patientGender}` },
-                                    { label: "Date of Birth", value: reportData.patientDOB },
-                                    { label: "Referring Dr", value: reportData.referringDoctor },
-                                    { label: "Ward / Dept", value: reportData.ward },
-                                ].map((item) => (
-                                    <div key={item.label} className="flex">
-                                        <span className="text-[11px] md:text-xs text-slate-500 w-28 shrink-0">{item.label}</span>
-                                        <span className="text-[11px] md:text-xs font-bold text-slate-800">{item.value}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                        <div className="p-6 md:px-8">
-                            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">
-                                Report Information
-                            </div>
-                            <div className="flex flex-col gap-2.5">
-                                {[
+                                    { label: "Age / gender", value: `${reportData.patientAge} / ${reportData.patientGender}` },
+                                    { label: "Date of birth", value: reportData.patientDOB },
+                                    { label: "Referring doctor", value: reportData.referringDoctor },
+                                    { label: "Ward / dept", value: reportData.ward },
+                                ]}
+                            />
+                            <InfoList
+                                title="Report information"
+                                items={[
                                     { label: "Sample ID", value: reportData.sampleId },
                                     { label: "Test", value: reportData.testName },
                                     { label: "Collected", value: reportData.sampleCollected },
                                     { label: "Generated", value: reportData.reportGenerated },
-                                    { label: "Authorized By", value: reportData.authorizedBy },
-                                    { label: "Auth. Time", value: reportData.authorizedTime },
-                                ].map((item) => (
-                                    <div key={item.label} className="flex">
-                                        <span className="text-[11px] md:text-xs text-slate-500 w-28 shrink-0">{item.label}</span>
-                                        <span className="text-[11px] md:text-xs font-bold text-slate-800">{item.value}</span>
-                                    </div>
-                                ))}
-                            </div>
+                                    { label: "Authorized by", value: reportData.authorizedBy },
+                                    { label: "Authorized at", value: reportData.authorizedTime },
+                                ]}
+                            />
                         </div>
-                    </div>
 
-                    {/* Results Table */}
-                    <div className="px-6 md:px-8 py-5 border-b border-slate-100 bg-slate-50/30">
-                        <span className="text-sm font-bold text-slate-800 tracking-wide">TEST RESULTS</span>
-                    </div>
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                            <thead>
-                                <tr className="bg-slate-50 text-left text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                                    {["Parameter", "Result", "Unit", "Flag", "Reference Range"].map((h) => (
-                                        <th key={h} className="px-6 md:px-8 py-3.5 border-b border-slate-200">
-                                            {h}
-                                        </th>
-                                    ))}
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {reportData.results.map((row) => (
-                                    <tr key={row.parameter} className={`border-b border-slate-100 ${row.isAbnormal ? "bg-red-50/20" : "bg-white"}`}>
-                                        <td className="px-6 md:px-8 py-3.5 text-xs md:text-sm text-slate-700 font-semibold">{row.parameter}</td>
-                                        <td className={`px-6 md:px-8 py-3.5 text-sm md:text-base font-bold ${row.isAbnormal ? "text-red-600" : "text-slate-800"}`}>{row.result}</td>
-                                        <td className="px-6 md:px-8 py-3.5 text-[11px] md:text-xs text-slate-500">{row.unit}</td>
-                                        <td className="px-6 md:px-8 py-3.5">
-                                            {row.flag === "N/A" ? (
-                                                <span className="text-slate-400 text-sm">N/A</span>
-                                            ) : (
-                                                <span className={`inline-flex items-center justify-center rounded-md px-2 py-1 text-[11px] font-bold ${row.flag.includes("HIGH") ? "bg-red-100 text-red-700" : "bg-yellow-100 text-yellow-800"}`}>
-                                                    {row.flag}
-                                                </span>
-                                            )}
-                                        </td>
-                                        <td className="px-6 md:px-8 py-3.5 text-[11px] md:text-xs text-slate-500">{row.referenceRange}</td>
+                        {/* Results table */}
+                        <div className="border-b border-edge px-4 py-3 sm:px-6">
+                            <h3 className="text-sm font-semibold text-fg">Test results</h3>
+                        </div>
+                        <div className="overflow-x-auto">
+                            {/* table-fixed: 140+100+110+160 = 510px of fixed columns; min-w 700 leaves the
+                                auto-width Parameter column ≥ 190px at every breakpoint. */}
+                            <table className="w-full min-w-[700px] table-fixed text-left text-[13px]">
+                                <thead>
+                                    <tr className="border-b border-edge text-xs font-medium text-fg-muted">
+                                        <th scope="col" className="py-2 pl-4 pr-3 font-medium sm:pl-6">Parameter</th>
+                                        <th scope="col" className="w-[140px] px-3 py-2 font-medium">Result</th>
+                                        <th scope="col" className="w-[100px] px-3 py-2 font-medium">Unit</th>
+                                        <th scope="col" className="w-[110px] px-3 py-2 font-medium">Flag</th>
+                                        <th scope="col" className="w-[160px] px-3 py-2 font-medium">Reference range</th>
                                     </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-
-                    {/* Clinical Note */}
-                    <div className="p-6 md:px-8 border-t border-slate-100 bg-amber-50/30">
-                        <div className="flex items-center gap-2 mb-2">
-                            <span className="material-icons text-[14px] text-amber-600">speaker_notes</span>
-                            <span className="text-[11px] font-bold text-amber-700 uppercase tracking-widest">
-                                Clinical Note
-                            </span>
+                                </thead>
+                                <tbody className="divide-y divide-edge whitespace-nowrap">
+                                    {reportData.results.map((row) => (
+                                        <tr key={row.parameter} className={cn("hover:bg-surface-hover", row.isAbnormal && "bg-status-danger-bg/40")}>
+                                            <td className="truncate py-2 pl-4 pr-3 font-medium text-fg sm:pl-6" title={row.parameter}>
+                                                {row.parameter}
+                                            </td>
+                                            <td
+                                                className={cn("truncate px-3 py-2 font-semibold tabular-nums", row.isAbnormal ? "text-status-danger-fg" : "text-fg")}
+                                                title={row.result}
+                                            >
+                                                {row.result}
+                                            </td>
+                                            <td className="truncate px-3 py-2 text-fg-muted" title={row.unit || undefined}>{row.unit}</td>
+                                            <td className="px-3 py-2">
+                                                {row.flag === "N/A" ? (
+                                                    <span className="text-fg-faint">—</span>
+                                                ) : (
+                                                    <StatusChip size="sm" tone={row.flag.includes("HIGH") ? "danger" : "pending"} title={row.flag}>
+                                                        {row.flag}
+                                                    </StatusChip>
+                                                )}
+                                            </td>
+                                            <td className="truncate px-3 py-2 tabular-nums text-fg-muted" title={row.referenceRange}>
+                                                {row.referenceRange}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
                         </div>
-                        <p className="text-xs md:text-sm text-amber-900/80 leading-relaxed font-medium">
-                            {reportData.clinicalNote}
-                        </p>
-                    </div>
 
-                    {/* Signature Footer */}
-                    <div className="p-6 md:px-8 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-6 bg-slate-50/50">
-                        <div className="text-[10px] md:text-[11px] text-slate-400 leading-relaxed max-w-xs text-center sm:text-left">
-                            This report is digitally authorized and is valid without a physical signature.
-                        </div>
-                        <div className="text-center sm:text-right">
-                            <div className="text-lg md:text-xl text-primary italic font-serif opacity-90 mb-1">
-                                {reportData.authorizedBy}
+                        {/* Clinical note */}
+                        <div className="min-w-0 border-t border-edge bg-surface-muted px-4 py-4 sm:px-6">
+                            <div className="mb-1.5 flex items-center gap-1.5">
+                                <NotebookPen className="h-4 w-4 shrink-0 text-fg-faint" aria-hidden="true" />
+                                <h3 className="text-xs font-semibold text-fg">Clinical note</h3>
                             </div>
-                            <div className="text-[10px] md:text-[11px] font-medium text-slate-500">Authorized Pathologist</div>
+                            {/* Free text — may be an artifact URI with no spaces, so it must wrap on any character. */}
+                            <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-fg-secondary">
+                                {reportData.clinicalNote}
+                            </p>
                         </div>
-                    </div>
 
-                    {/* Hospital Footer Bar */}
-                    <div className="bg-primary/95 p-3 flex items-center justify-center">
-                        <span className="text-[10px] text-white/80 font-medium tracking-wide">
-                            {hospitalInfo.name} • {hospitalInfo.address} • {hospitalInfo.phone}
-                        </span>
-                    </div>
+                        {/* Signature footer */}
+                        <div className="flex flex-col items-center justify-between gap-4 border-t border-edge px-4 py-4 sm:flex-row sm:px-6">
+                            <p className="max-w-xs text-center text-xs text-fg-muted sm:text-left">
+                                This report is digitally authorized and is valid without a physical signature.
+                            </p>
+                            <div className="min-w-0 text-center sm:text-right">
+                                <p className="break-words font-serif text-lg italic text-primary-strong">{reportData.authorizedBy}</p>
+                                <p className="text-xs text-fg-muted">Authorized pathologist</p>
+                            </div>
+                        </div>
+
+                        {/* Hospital footer bar */}
+                        <div className="rounded-b-lg border-t border-edge bg-surface-muted px-4 py-2 text-center text-[11px] text-fg-muted">
+                            {hospitalInfo.name} · {hospitalInfo.address} · {hospitalInfo.phone}
+                        </div>
+                    </SectionCard>
+
+                    <SectionCard title="Delivery attempts" count={attempts.length} flush>
+                        {attempts.length === 0 ? (
+                            <EmptyState
+                                compact
+                                icon={Inbox}
+                                title="No delivery attempts yet"
+                                description="Dispatch the report to create the first attempt."
+                            />
+                        ) : (
+                            <div className="overflow-x-auto">
+                                {/* table-fixed column budget — every column is explicitly sized so no column
+                                    can collapse:
+                                      base (<md, Updated hidden): 150+230+120+140+160        = 800px
+                                      md+  (Updated shown):       150+230+120+140+120+160    = 920px
+                                    min-w matches each band, so the card scrolls instead of squashing a column. */}
+                                <table className="w-full min-w-[800px] table-fixed text-left text-[13px] md:min-w-[920px]">
+                                    <thead>
+                                        <tr className="border-b border-edge text-xs font-medium text-fg-muted">
+                                            <th scope="col" className="w-[150px] py-2 pl-4 pr-3 font-medium">Method</th>
+                                            <th scope="col" className="w-[230px] px-3 py-2 font-medium">Recipient</th>
+                                            <th scope="col" className="w-[120px] px-3 py-2 font-medium">Status</th>
+                                            <th scope="col" className="w-[140px] px-3 py-2 font-medium">Tracking</th>
+                                            <th scope="col" className="hidden w-[120px] px-3 py-2 font-medium md:table-cell">Updated</th>
+                                            <th scope="col" className="w-[160px] px-3 py-2 text-right font-medium">
+                                                <span className="sr-only">Actions</span>
+                                            </th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-edge whitespace-nowrap">
+                                        {attempts.map((attempt) => {
+                                            const m = methodConfig[attempt.method];
+                                            const MethodIcon = m?.icon ?? Send;
+                                            const canMarkDelivered = attempt.status !== "DELIVERED" && attempt.status !== "FAILED";
+                                            const isPhoneMethod = attempt.method === "SMS" || attempt.method === "WHATSAPP";
+                                            const recipient = attempt.recipientContact
+                                                ? isPhoneMethod
+                                                    ? formatPhone(attempt.recipientContact)
+                                                    : attempt.recipientContact
+                                                : "—";
+                                            const updatedAt = attempt.deliveredAt ?? attempt.dispatchedAt;
+                                            return (
+                                                <tr key={attempt.id} className="align-top hover:bg-surface-hover">
+                                                    <td className="py-2 pl-4 pr-3">
+                                                        <span className="flex min-w-0 items-center gap-2 font-medium text-fg">
+                                                            <MethodIcon className="h-4 w-4 shrink-0 text-fg-faint" aria-hidden="true" />
+                                                            <span className="min-w-0 truncate" title={m?.label ?? attempt.method}>
+                                                                {m?.label ?? attempt.method}
+                                                            </span>
+                                                        </span>
+                                                    </td>
+                                                    {/* Holds phone numbers and email addresses — unbreakable tokens, so the
+                                                        cell wraps on any character rather than widening the table. */}
+                                                    <td className="whitespace-normal break-words px-3 py-2 text-fg-secondary">
+                                                        <span className="block min-w-0 break-words" title={attempt.recipientContact ?? undefined}>
+                                                            {recipient}
+                                                        </span>
+                                                        {attempt.failureReason && (
+                                                            <span
+                                                                className="mt-1 block min-w-0 break-words text-[11px] text-status-danger-fg"
+                                                                title={attempt.failureReason}
+                                                            >
+                                                                {attempt.failureReason}
+                                                            </span>
+                                                        )}
+                                                    </td>
+                                                    <td className="px-3 py-2">
+                                                        <StatusChip
+                                                            size="sm"
+                                                            tone={attempt.status === "SENT" ? "info" : toneForStatus(attempt.status)}
+                                                            dot
+                                                            title={humanizeStatus(attempt.status)}
+                                                        >
+                                                            {humanizeStatus(attempt.status)}
+                                                        </StatusChip>
+                                                        {attempt.retryCount > 0 && (
+                                                            <span className="mt-1 block text-[11px] tabular-nums text-fg-muted">
+                                                                {attempt.retryCount} {attempt.retryCount === 1 ? "retry" : "retries"}
+                                                            </span>
+                                                        )}
+                                                    </td>
+                                                    <td
+                                                        className="truncate px-3 py-2 font-mono text-xs text-fg-secondary"
+                                                        title={attempt.trackingNumber ?? undefined}
+                                                    >
+                                                        {attempt.trackingNumber ? (
+                                                            attempt.trackingUrl ? (
+                                                                <a
+                                                                    href={attempt.trackingUrl}
+                                                                    target="_blank"
+                                                                    rel="noreferrer"
+                                                                    className="rounded text-primary-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                                                                >
+                                                                    {attempt.trackingNumber}
+                                                                </a>
+                                                            ) : (
+                                                                attempt.trackingNumber
+                                                            )
+                                                        ) : (
+                                                            <span className="text-fg-faint">—</span>
+                                                        )}
+                                                    </td>
+                                                    <td className="hidden truncate px-3 py-2 text-fg-muted md:table-cell">
+                                                        {updatedAt ? (
+                                                            <time dateTime={updatedAt} title={formatDateTime(updatedAt)}>
+                                                                {formatAuditTime(updatedAt)}
+                                                            </time>
+                                                        ) : (
+                                                            "—"
+                                                        )}
+                                                    </td>
+                                                    <td className="px-3 py-1.5 text-right">
+                                                        {canMarkDelivered && (
+                                                            <Button
+                                                                size="sm"
+                                                                icon={Check}
+                                                                loading={markingAttemptId === attempt.id}
+                                                                onClick={() => void handleMarkDelivered(attempt.id)}
+                                                            >
+                                                                {markingAttemptId === attempt.id ? "Updating…" : "Mark delivered"}
+                                                            </Button>
+                                                        )}
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
+                    </SectionCard>
                 </div>
 
-                {/* RIGHT — Delivery Options */}
-                <div className="flex flex-col gap-6">
-                    <div className="bg-white rounded-xl border border-slate-200/60 shadow-sm p-5">
-                        <h3 className="text-xs font-bold text-slate-700 uppercase tracking-widest mb-4 pb-3 border-b border-slate-100">
-                            Select Delivery Methods
-                        </h3>
-                        <div className="flex flex-col gap-3">
-                            {(Object.keys(methodConfig) as ApiDeliveryMethod[]).map((method) => {
-                                const m = methodConfig[method];
-                                const isSelected = selectedMethods.includes(method);
-                                return (
-                                    <div
-                                        key={method}
-                                        onClick={() => toggleMethod(method)}
-                                        className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer border transition-all duration-200 ${isSelected ? "border-primary bg-blue-50/50 ring-1 ring-primary/20" : "border-slate-200 bg-white hover:border-slate-300"}`}
-                                    >
-                                        <div className={`w-10 h-10 rounded-lg ${m.bg} flex items-center justify-center shrink-0`}>
-                                            <span className={`material-icons text-[18px] ${m.color}`}>{m.icon}</span>
-                                        </div>
-                                        <div className="flex-1">
-                                            <div className="text-sm font-bold text-slate-700">{m.label}</div>
-                                            <div className="text-[11px] text-slate-500 mt-0.5">{m.detail}</div>
-                                        </div>
-                                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${isSelected ? "border-primary bg-primary" : "border-slate-300 bg-white"}`}>
-                                            {isSelected && <span className="material-icons text-[14px] text-white">check</span>}
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                        <div className="mt-5 space-y-3 border-t border-slate-100 pt-4">
+                {/* RIGHT — delivery options + summary */}
+                <div className="flex min-w-0 flex-col gap-4">
+                    <SectionCard title="Delivery methods" count={selectedMethods.length}>
+                        <fieldset>
+                            <legend className="sr-only">Select delivery methods</legend>
+                            <div className="flex flex-col gap-2">
+                                {(["SMS", "EMAIL"] as ApiDeliveryMethod[]).map((method) => {
+                                    const m = methodConfig[method];
+                                    const MethodIcon = m.icon;
+                                    const isSelected = selectedMethods.includes(method);
+                                    return (
+                                        <label
+                                            key={method}
+                                            className={cn(
+                                                "flex cursor-pointer items-center gap-3 rounded-md border p-3 transition-colors",
+                                                "has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-primary has-[:focus-visible]:ring-offset-1 has-[:focus-visible]:ring-offset-surface",
+                                                isSelected ? "border-primary bg-primary-soft" : "border-edge bg-surface hover:bg-surface-hover"
+                                            )}
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                className="sr-only"
+                                                checked={isSelected}
+                                                onChange={() => toggleMethod(method)}
+                                            />
+                                            <span
+                                                className={cn(
+                                                    "flex h-9 w-9 shrink-0 items-center justify-center rounded-md",
+                                                    isSelected ? "bg-primary-soft text-primary-strong" : "bg-surface-muted text-fg-secondary"
+                                                )}
+                                            >
+                                                <MethodIcon className="h-4 w-4" aria-hidden="true" />
+                                            </span>
+                                            <span className="min-w-0 flex-1">
+                                                <span className="block text-sm font-medium text-fg">{m.label}</span>
+                                                <span className="block text-xs text-fg-muted">{m.detail}</span>
+                                            </span>
+                                            <span
+                                                aria-hidden="true"
+                                                className={cn(
+                                                    "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors",
+                                                    isSelected ? "border-primary bg-primary text-white" : "border-edge-strong bg-surface"
+                                                )}
+                                            >
+                                                {isSelected && <Check className="h-3 w-3" strokeWidth={3} />}
+                                            </span>
+                                        </label>
+                                    );
+                                })}
+                            </div>
+                        </fieldset>
+
+                        <div className="mt-4 space-y-3 border-t border-edge pt-4">
                             {selectedMethods.includes("EMAIL") && (
-                                <label className="block">
-                                    <span className="mb-1 block text-[11px] font-bold uppercase tracking-widest text-slate-400">Email override</span>
-                                    <input
-                                        type="email"
-                                        value={overrideEmail}
-                                        onChange={(e) => setOverrideEmail(e.target.value)}
-                                        placeholder="Use patient email if blank"
-                                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20"
-                                    />
-                                </label>
+                                <InputField
+                                    label="Email override"
+                                    type="email"
+                                    value={overrideEmail}
+                                    onChange={(e) => setOverrideEmail(e.target.value)}
+                                    hint="Uses the patient's email if blank"
+                                />
                             )}
                             {selectedMethods.includes("SMS") && (
-                                <label className="block">
-                                    <span className="mb-1 block text-[11px] font-bold uppercase tracking-widest text-slate-400">SMS number</span>
-                                    <input
-                                        type="tel"
-                                        value={overridePhone}
-                                        onChange={(e) => setOverridePhone(e.target.value)}
-                                        placeholder="Use patient phone if blank"
-                                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20"
-                                    />
-                                </label>
+                                <InputField
+                                    label="SMS number"
+                                    type="tel"
+                                    value={overridePhone}
+                                    onChange={(e) => setOverridePhone(e.target.value)}
+                                    hint="Uses the patient's phone if blank"
+                                />
                             )}
                             {selectedMethods.includes("WHATSAPP") && (
-                                <label className="block">
-                                    <span className="mb-1 block text-[11px] font-bold uppercase tracking-widest text-slate-400">WhatsApp number</span>
-                                    <input
-                                        type="tel"
-                                        value={overrideWhatsappPhone}
-                                        onChange={(e) => setOverrideWhatsappPhone(e.target.value)}
-                                        placeholder="Use SMS/patient phone if blank"
-                                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20"
-                                    />
-                                </label>
+                                <InputField
+                                    label="WhatsApp number"
+                                    type="tel"
+                                    value={overrideWhatsappPhone}
+                                    onChange={(e) => setOverrideWhatsappPhone(e.target.value)}
+                                    hint="Uses the SMS or patient phone if blank"
+                                />
                             )}
                             {selectedMethods.includes("POST") && (
                                 <div className="space-y-3">
-                                    <label className="block">
-                                        <span className="mb-1 block text-[11px] font-bold uppercase tracking-widest text-slate-400">Postal address</span>
-                                        <textarea
-                                            value={postalAddress}
-                                            onChange={(e) => setPostalAddress(e.target.value)}
-                                            placeholder="Use patient address if blank"
-                                            rows={3}
-                                            className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20"
-                                        />
-                                    </label>
+                                    <TextareaField
+                                        label="Postal address"
+                                        value={postalAddress}
+                                        onChange={(e) => setPostalAddress(e.target.value)}
+                                        rows={3}
+                                        hint="Uses the patient's address if blank"
+                                    />
                                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                                        <label className="block">
-                                            <span className="mb-1 block text-[11px] font-bold uppercase tracking-widest text-slate-400">Post service</span>
-                                            <input
-                                                value={postalService}
-                                                onChange={(e) => setPostalService(e.target.value)}
-                                                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20"
-                                            />
-                                        </label>
-                                        <label className="block">
-                                            <span className="mb-1 block text-[11px] font-bold uppercase tracking-widest text-slate-400">Tracking no.</span>
-                                            <input
-                                                value={trackingNumber}
-                                                onChange={(e) => setTrackingNumber(e.target.value)}
-                                                placeholder="Auto if blank"
-                                                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20"
-                                            />
-                                        </label>
+                                        <InputField
+                                            label="Post service"
+                                            value={postalService}
+                                            onChange={(e) => setPostalService(e.target.value)}
+                                        />
+                                        <InputField
+                                            label="Tracking number"
+                                            value={trackingNumber}
+                                            onChange={(e) => setTrackingNumber(e.target.value)}
+                                            hint="Generated automatically if blank"
+                                        />
                                     </div>
                                 </div>
                             )}
                         </div>
-                        <button
-                            type="button"
-                            disabled={dispatching || dispatched}
+
+                        <Button
+                            variant="primary"
+                            icon={dispatchIcon}
+                            loading={dispatching}
+                            disabled={dispatched}
                             onClick={() => void handleDispatch()}
-                            className={`w-full h-11 mt-6 text-sm font-bold border-none rounded-lg text-white transition-colors shadow-sm flex items-center justify-center gap-2 ${dispatched ? "bg-emerald-600 hover:bg-emerald-700 shadow-emerald-500/30" : "bg-primary hover:bg-primary/90 shadow-primary/30"}`}
+                            className="mt-4 w-full"
                         >
-                            <span className="material-icons text-[18px]">{dispatched ? "check_circle" : "send"}</span>
-                            {dispatching ? "Dispatching…" : dispatched ? "Dispatched" : `Dispatch via ${selectedMethods.length} Method${selectedMethods.length !== 1 ? "s" : ""}`}
-                        </button>
-                    </div>
+                            {dispatching
+                                ? "Dispatching…"
+                                : dispatched
+                                    ? "Dispatched"
+                                    : dispatchFailed
+                                        ? "Retry dispatch"
+                                        : `Dispatch via ${selectedMethods.length} method${selectedMethods.length !== 1 ? "s" : ""}`}
+                        </Button>
+                    </SectionCard>
 
-                    <div className="bg-white rounded-xl border border-slate-200/60 shadow-sm p-5">
-                        <h3 className="text-xs font-bold text-slate-700 uppercase tracking-widest mb-4 pb-3 border-b border-slate-100">
-                            Delivery Attempts
-                        </h3>
-                        {!detail?.attempts?.length ? (
-                            <div className="rounded-lg border border-dashed border-slate-200 p-4 text-center text-xs font-medium text-slate-400">
-                                No delivery attempts yet.
-                            </div>
-                        ) : (
-                            <div className="space-y-3">
-                                {detail.attempts.map((attempt) => {
-                                    const m = methodConfig[attempt.method];
-                                    const canMarkDelivered = attempt.status !== "DELIVERED" && attempt.status !== "FAILED";
-                                    return (
-                                        <div key={attempt.id} className="rounded-lg border border-slate-100 bg-slate-50/50 p-3">
-                                            <div className="flex items-start gap-3">
-                                                <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${m?.bg ?? "bg-slate-100"}`}>
-                                                    <span className={`material-icons text-[16px] ${m?.color ?? "text-slate-500"}`}>{m?.icon ?? "send"}</span>
-                                                </div>
-                                                <div className="min-w-0 flex-1">
-                                                    <div className="flex items-center justify-between gap-2">
-                                                        <span className="text-sm font-bold text-slate-700">{m?.label ?? attempt.method}</span>
-                                                        <span className={`rounded-md px-2 py-0.5 text-[10px] font-bold ${attempt.status === "DELIVERED" ? "bg-emerald-100 text-emerald-700" : attempt.status === "FAILED" ? "bg-red-100 text-red-700" : "bg-blue-100 text-blue-700"}`}>
-                                                            {attempt.status}
-                                                        </span>
-                                                    </div>
-                                                    {attempt.recipientContact && (
-                                                        <div className="mt-1 break-words text-[11px] font-medium text-slate-500">{attempt.recipientContact}</div>
-                                                    )}
-                                                    {attempt.trackingNumber && (
-                                                        <div className="mt-2 text-[11px] font-bold text-slate-600">
-                                                            Tracking:{" "}
-                                                            {attempt.trackingUrl ? (
-                                                                <a href={attempt.trackingUrl} target="_blank" rel="noreferrer" className="text-primary hover:underline">
-                                                                    {attempt.trackingNumber}
-                                                                </a>
-                                                            ) : attempt.trackingNumber}
-                                                        </div>
-                                                    )}
-                                                    {attempt.failureReason && (
-                                                        <div className="mt-2 rounded-md bg-red-50 px-2 py-1 text-[11px] font-semibold text-red-700">
-                                                            {attempt.failureReason}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </div>
-                                            {canMarkDelivered && (
-                                                <button
-                                                    type="button"
-                                                    disabled={markingAttemptId === attempt.id}
-                                                    onClick={() => void handleMarkDelivered(attempt.id)}
-                                                    className="mt-3 w-full rounded-lg border border-emerald-200 bg-white px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
-                                                >
-                                                    {markingAttemptId === attempt.id ? "Updating..." : "Mark Delivered"}
-                                                </button>
-                                            )}
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        )}
-                    </div>
-
-                    <div className="bg-white rounded-xl border border-slate-200/60 shadow-sm p-5">
-                        <h3 className="text-xs font-bold text-slate-700 uppercase tracking-widest mb-4 pb-3 border-b border-slate-100">
-                            Dispatch Summary
-                        </h3>
-                        <div className="flex flex-col gap-3">
+                    <SectionCard title="Dispatch summary">
+                        <dl className="flex flex-col gap-2.5">
                             {[
                                 { label: "Report ID", value: reportData.reportId },
                                 { label: "Patient", value: reportData.patientName },
                                 { label: "Test", value: reportData.testName },
                                 { label: "Authorized", value: reportData.authorizedTime },
-                                { label: "Methods", value: selectedMethods.length > 0 ? selectedMethods.join(", ") : "None" },
+                                { label: "Methods", value: selectedMethodLabels.length > 0 ? selectedMethodLabels.join(", ") : "None" },
                             ].map((item) => (
-                                <div key={item.label} className="flex justify-between items-start gap-4">
-                                    <span className="text-xs font-medium text-slate-500 shrink-0">{item.label}</span>
-                                    <span className="text-xs font-bold text-slate-700 text-right">{item.value}</span>
+                                <div key={item.label} className="flex items-start justify-between gap-4 text-xs">
+                                    <dt className="shrink-0 text-fg-muted">{item.label}</dt>
+                                    <dd className="min-w-0 break-words text-right font-medium text-fg">{item.value}</dd>
                                 </div>
                             ))}
-                        </div>
-                    </div>
+                        </dl>
+                    </SectionCard>
                 </div>
             </div>
         </div>

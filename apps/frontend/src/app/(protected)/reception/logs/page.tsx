@@ -3,13 +3,32 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { AxiosError } from 'axios';
+import * as XLSX from 'xlsx';
+import { AlertTriangle, CheckCircle2, FileSpreadsheet, History, RefreshCw, Search, X, XCircle } from 'lucide-react';
 import { getAuditLogs, type AuditLog } from '@/lib/api';
-import { PRIORITY_COLORS, SAMPLE_STATUS_COLORS, formatStatusLabel } from '@/constants/sample-lifecycle';
+import Button from '@/components/ui/Button';
+import PageHeader from '@/components/ui/PageHeader';
+import SectionCard from '@/components/ui/SectionCard';
+import EmptyState from '@/components/ui/EmptyState';
+import Pagination from '@/components/ui/Pagination';
+import SegmentedControl from '@/components/ui/SegmentedControl';
+import StatusChip, { humanizeStatus, toneForStatus } from '@/components/ui/StatusChip';
+import { InputField } from '@/components/ui/Field';
+import StatCard from '@/components/shared/StatCard';
+import PriorityBadge from '@/components/shared/PriorityBadge';
+import { formatAuditTime } from '@/components/patient-dashboard/dashboard-data';
 
 const PAGE_SIZE = 8;
+const SKELETON_ROWS = 6;
 const ACTION_FILTERS = ['All Actions', 'ACCEPTED', 'REJECTED'] as const;
 
 type LogActionFilter = typeof ACTION_FILTERS[number];
+
+const ACTION_FILTER_LABELS: Record<LogActionFilter, string> = {
+    'All Actions': 'All actions',
+    ACCEPTED: 'Accepted',
+    REJECTED: 'Rejected',
+};
 
 type AccessioningLogRow = {
     id: string;
@@ -22,7 +41,10 @@ type AccessioningLogRow = {
     action: 'ACCEPTED' | 'REJECTED';
     status: string;
     performedBy: string;
+    /** Formatted timestamp (used in the Excel export and as the invalid-date display fallback). */
     timestamp: string;
+    /** Raw ISO timestamp for the <time> dateTime, absolute display and relative tooltip. */
+    timestampRaw: string;
     notes: string;
     rejectionReason: string;
 };
@@ -34,6 +56,7 @@ export default function AccessioningLogsPage() {
     const [currentPage, setCurrentPage] = useState(1);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [reloadKey, setReloadKey] = useState(0);
 
     useEffect(() => {
         let active = true;
@@ -76,7 +99,7 @@ export default function AccessioningLogsPage() {
         return () => {
             active = false;
         };
-    }, []);
+    }, [reloadKey]);
 
     const filtered = useMemo(() => {
         return logs.filter((l) => {
@@ -98,12 +121,22 @@ export default function AccessioningLogsPage() {
     const accepted = logs.filter(l => l.action === 'ACCEPTED').length;
     const rejected = logs.filter(l => l.action === 'REJECTED').length;
 
+    const hasFilters = Boolean(searchQuery) || actionFilter !== 'All Actions';
+
+    const clearFilters = () => {
+        setSearchQuery('');
+        setActionFilter('All Actions');
+        setCurrentPage(1);
+    };
+
+    const retry = () => setReloadKey((k) => k + 1);
+
     const handleExport = () => {
         if (filtered.length === 0) {
             return;
         }
 
-        const headers = ['Sample ID', 'Patient', 'PID', 'Test', 'Priority', 'Action', 'Status', 'Rejection reason', 'Performed By', 'Timestamp', 'Notes'];
+        const headers = ['Sample ID', 'Patient', 'PID', 'Test', 'Priority', 'Action', 'Status', 'Rejection Reason', 'Performed By', 'Timestamp', 'Notes'];
         const rows = filtered.map((log) => [
             log.sampleId,
             log.patientName,
@@ -118,141 +151,264 @@ export default function AccessioningLogsPage() {
             log.notes,
         ]);
 
-        const csvContent = [headers, ...rows]
-            .map((row) => row.map(escapeCsvValue).join(','))
-            .join('\r\n');
+        const worksheetData = [headers, ...rows];
+        const worksheet = XLSX.utils.aoa_to_sheet(worksheetData);
 
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const url = window.URL.createObjectURL(blob);
-        const link = document.createElement('a');
+        // Auto-fit column widths based on content
+        const colWidths = headers.map((header, colIdx) => {
+            const maxLen = Math.max(
+                header.length,
+                ...rows.map((row) => String(row[colIdx] ?? '').length),
+            );
+            return { wch: Math.min(maxLen + 2, 50) };
+        });
+        worksheet['!cols'] = colWidths;
+
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, 'Accessioning Logs');
+
         const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-
-        link.href = url;
-        link.download = `accessioning-logs-${timestamp}.csv`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        window.URL.revokeObjectURL(url);
+        XLSX.writeFile(workbook, `accessioning-logs-${timestamp}.xlsx`);
     };
 
     return (
-        <div>
-            <div className="mb-6">
-                <h1 className="text-2xl font-bold text-slate-800">Accessioning Logs</h1>
-                <p className="text-sm text-slate-500 mt-1">Audit trail of all sample accessioning actions.</p>
-            </div>
+        <div className="mx-auto max-w-[1400px]">
+            <PageHeader
+                title="Accessioning logs"
+                crumbs={[{ label: 'Lab reception', href: '/reception/accessioning' }, { label: 'Accessioning logs' }]}
+                meta={
+                    <>
+                        <History className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                        <span>Audit trail of sample accessioning actions</span>
+                        {!loading && !error && (
+                            <>
+                                <span aria-hidden="true">·</span>
+                                <span className="tabular-nums">
+                                    {logs.length.toLocaleString()} {logs.length === 1 ? 'action' : 'actions'}
+                                </span>
+                            </>
+                        )}
+                    </>
+                }
+                actions={
+                    <Button icon={FileSpreadsheet} onClick={handleExport} disabled={loading || filtered.length === 0}>
+                        Export to Excel
+                    </Button>
+                }
+            />
 
-            {error && (
-                <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                    {error}
-                </div>
-            )}
+            {/* Screen-reader status for async transitions only — filtered/page counts are
+                already conveyed visually by the SectionCard count and Pagination summary,
+                and announcing them here would re-announce on every search keystroke. */}
+            <p role="status" aria-live="polite" className="sr-only">
+                {loading
+                    ? 'Loading accessioning logs'
+                    : error
+                        ? 'Accessioning logs failed to load'
+                        : `Accessioning logs loaded, ${logs.length} ${logs.length === 1 ? 'action' : 'actions'}.`}
+            </p>
 
             {/* Stats */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 mb-6">
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
-                    <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center mb-2"><span className="material-icons text-blue-600">history</span></div>
-                    <p className="text-2xl font-bold text-slate-800">{logs.length}</p>
-                    <p className="text-xs text-slate-500">Total Actions</p>
-                </div>
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
-                    <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center mb-2"><span className="material-icons text-emerald-600">check_circle</span></div>
-                    <p className="text-2xl font-bold text-slate-800">{accepted}</p>
-                    <p className="text-xs text-slate-500">Accepted</p>
-                </div>
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
-                    <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center mb-2"><span className="material-icons text-red-600">cancel</span></div>
-                    <p className="text-2xl font-bold text-slate-800">{rejected}</p>
-                    <p className="text-xs text-slate-500">Rejected</p>
-                </div>
+            <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <StatCard label="Total actions" value={logs.length} icon={History} color="blue" loading={loading} />
+                <StatCard label="Accepted" value={accepted} icon={CheckCircle2} color="emerald" loading={loading} />
+                <StatCard label="Rejected" value={rejected} icon={XCircle} color="red" loading={loading} />
             </div>
 
-            {/* Table */}
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60">
-                <div className="p-4 border-b border-slate-100">
-                    <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
-                        <div className="relative flex-1">
-                            <span className="material-icons absolute left-3 top-1/2 -translate-y-1/2 text-lg text-slate-400">search</span>
-                            <input type="text" placeholder="Search sample ID, patient..." className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }} />
-                        </div>
-                        <select className="border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20" value={actionFilter} onChange={(e) => { setActionFilter(e.target.value as LogActionFilter); setCurrentPage(1); }}>
-                            {ACTION_FILTERS.map(f => <option key={f} value={f}>{f}</option>)}
-                        </select>
-                        <button
-                            type="button"
-                            onClick={handleExport}
-                            disabled={filtered.length === 0}
-                            className="flex items-center gap-1.5 px-3 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-600 hover:bg-slate-50 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-                        >
-                            <span className="material-icons text-base">download</span>Export
-                        </button>
-                    </div>
+            <SectionCard title="Accessioning actions" count={loading || error ? undefined : filtered.length} flush>
+                {/* Filter toolbar */}
+                <div className="flex flex-wrap items-center gap-2 border-b border-edge bg-surface-muted px-3 py-2">
+                    <InputField
+                        label="Search accessioning logs"
+                        hideLabel
+                        type="search"
+                        value={searchQuery}
+                        onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
+                        placeholder="Search sample ID, patient, PID, test or user"
+                        autoComplete="off"
+                        className="min-w-[200px] flex-1"
+                    />
+                    <SegmentedControl<LogActionFilter>
+                        ariaLabel="Filter by action"
+                        value={actionFilter}
+                        onChange={(next) => { setActionFilter(next); setCurrentPage(1); }}
+                        options={ACTION_FILTERS.map((f) => ({
+                            value: f,
+                            label: ACTION_FILTER_LABELS[f],
+                            count: loading ? undefined : f === 'All Actions' ? logs.length : f === 'ACCEPTED' ? accepted : rejected,
+                        }))}
+                    />
+                    {hasFilters && (
+                        <Button variant="ghost" icon={X} onClick={clearFilters}>
+                            Clear filters
+                        </Button>
+                    )}
                 </div>
-                <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                        <thead>
-                            <tr className="text-left text-xs font-bold text-slate-400 uppercase tracking-wider">
-                                <th className="px-5 py-3 border-b border-slate-100 bg-slate-50/50">Sample ID</th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Patient</th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Test</th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Priority</th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Action</th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Status</th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Details</th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">By</th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Time</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {loading ? (
-                                <tr><td colSpan={9} className="text-center py-12 text-slate-400">Loading accessioning logs...</td></tr>
-                            ) : paginated.length === 0 ? (
-                                <tr><td colSpan={9} className="text-center py-12 text-slate-400">No accessioning logs found</td></tr>
-                            ) : paginated.map((log) => (
-                                <tr key={log.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/50 transition-colors">
-                                    <td className="px-5 py-3 font-semibold text-primary">
-                                        {log.entityId ? (
-                                            <Link href={`/reception/samples/${log.entityId}`} className="hover:underline">
-                                                {log.sampleId}
-                                            </Link>
-                                        ) : (
-                                            log.sampleId
-                                        )}
-                                    </td>
-                                    <td className="px-4 py-3"><p className="font-medium text-slate-700">{log.patientName}</p><p className="text-xs text-slate-400">{log.pid}</p></td>
-                                    <td className="px-4 py-3 text-slate-700">{log.testType}</td>
-                                    <td className="px-4 py-3"><span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold ${PRIORITY_COLORS[log.priority] ?? 'bg-slate-100 text-slate-600'}`}>{log.priority}</span></td>
-                                    <td className="px-4 py-3">
-                                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold ${log.action === 'ACCEPTED' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
-                                            <span className="material-icons text-xs">{log.action === 'ACCEPTED' ? 'check_circle' : 'cancel'}</span>{log.action}
-                                        </span>
-                                    </td>
-                                    <td className="px-4 py-3"><span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold ${SAMPLE_STATUS_COLORS[log.status] ?? 'bg-slate-100 text-slate-600'}`}>{formatStatusLabel(log.status)}</span></td>
-                                    <td className="px-4 py-3 text-xs text-slate-600 max-w-[240px]">
-                                        {log.action === 'REJECTED' && log.rejectionReason ? (
-                                            <p className="font-semibold text-red-700">{formatStatusLabel(log.rejectionReason)}</p>
-                                        ) : null}
-                                        {log.notes ? (
-                                            <p className={`text-slate-500 whitespace-pre-wrap ${log.action === 'REJECTED' && log.rejectionReason ? 'mt-0.5' : ''}`}>{log.notes}</p>
-                                        ) : null}
-                                        {!log.rejectionReason && !log.notes ? <span className="text-slate-400">—</span> : null}
-                                    </td>
-                                    <td className="px-4 py-3 text-slate-500 text-xs">{log.performedBy}</td>
-                                    <td className="px-4 py-3 text-slate-500">{log.timestamp}</td>
+
+                {/* States live outside the table so they centre on small screens */}
+                {loading ? (
+                    <ul aria-hidden="true" className="divide-y divide-edge">
+                        {Array.from({ length: SKELETON_ROWS }).map((_, i) => (
+                            <li key={i} className="flex items-center gap-3 px-4 py-2.5">
+                                <span className="h-3 w-20 shrink-0 rounded bg-skeleton" />
+                                <span className="h-4 w-32 shrink-0 rounded bg-skeleton" />
+                                <span className="hidden h-3 w-28 rounded bg-skeleton md:block" />
+                                <span className="h-4 w-14 rounded bg-skeleton" />
+                                <span className="h-4 w-20 rounded bg-skeleton" />
+                                <span className="hidden h-4 w-24 rounded bg-skeleton lg:block" />
+                                <span className="ml-auto h-3 w-1/4 rounded bg-skeleton" />
+                            </li>
+                        ))}
+                    </ul>
+                ) : error ? (
+                    <EmptyState
+                        icon={AlertTriangle}
+                        title="Couldn't load accessioning logs"
+                        description={error}
+                        action={
+                            <Button size="sm" icon={RefreshCw} onClick={retry}>
+                                Retry
+                            </Button>
+                        }
+                    />
+                ) : filtered.length === 0 ? (
+                    hasFilters ? (
+                        <EmptyState
+                            icon={Search}
+                            title="No actions match"
+                            description="Try a different search term or action filter."
+                            action={
+                                <Button size="sm" icon={X} onClick={clearFilters}>
+                                    Clear filters
+                                </Button>
+                            }
+                        />
+                    ) : (
+                        <EmptyState
+                            icon={History}
+                            title="No accessioning actions yet"
+                            description="Accepted and rejected samples will be recorded here."
+                        />
+                    )
+                ) : (
+                    <div className="overflow-x-auto">
+                        <table className="w-full min-w-[680px] table-fixed text-left text-[13px] md:min-w-[800px] lg:min-w-[960px] xl:min-w-[992px]">
+                            <caption className="sr-only">Accessioning log entries</caption>
+                            <thead>
+                                <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
+                                    <th scope="col" className="w-28 py-2 pl-4 pr-3 font-medium">Sample ID</th>
+                                    <th scope="col" className="w-32 px-3 py-2 font-medium">Patient</th>
+                                    <th scope="col" className="hidden w-32 px-3 py-2 font-medium md:table-cell">Test</th>
+                                    <th scope="col" className="w-20 px-3 py-2 font-medium">Priority</th>
+                                    <th scope="col" className="w-24 px-3 py-2 font-medium">Action</th>
+                                    <th scope="col" className="hidden w-24 px-3 py-2 font-medium lg:table-cell">Status</th>
+                                    <th scope="col" className="px-3 py-2 font-medium">Details</th>
+                                    <th scope="col" className="hidden w-24 px-3 py-2 font-medium xl:table-cell">Performed by</th>
+                                    <th scope="col" className="w-24 px-3 py-2 font-medium">Time</th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-                <div className="flex items-center justify-between px-5 py-3 border-t border-slate-100 text-sm text-slate-500">
-                    <p>Showing {filtered.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1} to {Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length}</p>
-                    <div className="flex items-center gap-2">
-                        <button disabled={currentPage === 1} onClick={() => setCurrentPage(p => p - 1)} className="flex items-center gap-1 px-3 py-1.5 border border-slate-200 rounded-lg text-sm font-medium hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"><span className="material-icons text-base">chevron_left</span>Prev</button>
-                        {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => <button key={page} onClick={() => setCurrentPage(page)} className={`w-8 h-8 rounded-lg text-sm font-bold transition-colors ${currentPage === page ? 'bg-primary text-white shadow-sm' : 'border border-slate-200 hover:bg-slate-50 text-slate-600'}`}>{page}</button>)}
-                        <button disabled={currentPage === totalPages} onClick={() => setCurrentPage(p => p + 1)} className="flex items-center gap-1 px-3 py-1.5 border border-slate-200 rounded-lg text-sm font-medium hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">Next<span className="material-icons text-base">chevron_right</span></button>
+                            </thead>
+                            <tbody className="divide-y divide-edge whitespace-nowrap">
+                                {paginated.map((log) => {
+                                    const hasDetails = Boolean(log.rejectionReason || log.notes);
+                                    const showReason = log.action === 'REJECTED' && Boolean(log.rejectionReason);
+                                    return (
+                                        <tr key={log.id} className="transition-colors hover:bg-surface-hover">
+                                            {/* Sample ID */}
+                                            <td className="py-2 pl-4 pr-3 font-mono text-xs">
+                                                {log.entityId ? (
+                                                    <Link
+                                                        href={`/reception/samples/${log.entityId}`}
+                                                        title={`Open sample ${log.sampleId}`}
+                                                        className="inline-block max-w-full truncate rounded align-middle font-medium text-primary-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-surface"
+                                                    >
+                                                        {log.sampleId}
+                                                    </Link>
+                                                ) : (
+                                                    <span className="inline-block max-w-full truncate align-middle font-medium text-fg-secondary" title={log.sampleId}>
+                                                        {log.sampleId}
+                                                    </span>
+                                                )}
+                                            </td>
+                                            {/* Patient */}
+                                            <td className="px-3 py-2">
+                                                <p className="truncate font-medium text-fg" title={log.patientName}>{log.patientName}</p>
+                                                <p className="truncate font-mono text-xs text-fg-muted" title={log.pid}>{log.pid}</p>
+                                            </td>
+                                            {/* Test */}
+                                            <td className="hidden truncate px-3 py-2 text-fg-secondary md:table-cell" title={log.testType}>
+                                                {log.testType}
+                                            </td>
+                                            {/* Priority */}
+                                            <td className="px-3 py-2">
+                                                <PriorityBadge priority={log.priority} />
+                                            </td>
+                                            {/* Action */}
+                                            <td className="px-3 py-2">
+                                                <StatusChip tone={log.action === 'ACCEPTED' ? 'success' : 'danger'} dot size="sm">
+                                                    {humanizeStatus(log.action)}
+                                                </StatusChip>
+                                            </td>
+                                            {/* Status */}
+                                            <td className="hidden px-3 py-2 lg:table-cell">
+                                                <StatusChip tone={toneForStatus(log.status)} size="sm" title={humanizeStatus(log.status)}>
+                                                    {humanizeStatus(log.status)}
+                                                </StatusChip>
+                                            </td>
+                                            {/* Details */}
+                                            <td className="whitespace-normal break-words px-3 py-2 text-xs">
+                                                {showReason && (
+                                                    <p className="font-medium text-status-danger-fg">{humanizeStatus(log.rejectionReason)}</p>
+                                                )}
+                                                {log.notes ? (
+                                                    <p className={showReason ? 'mt-0.5 whitespace-pre-wrap text-fg-muted' : 'whitespace-pre-wrap text-fg-muted'}>
+                                                        {log.notes}
+                                                    </p>
+                                                ) : null}
+                                                {!hasDetails ? <span className="text-fg-faint">—</span> : null}
+                                            </td>
+                                            {/* Performed by */}
+                                            <td className="hidden truncate px-3 py-2 text-xs text-fg-secondary xl:table-cell" title={log.performedBy}>
+                                                {log.performedBy}
+                                            </td>
+                                            {/* Time — absolute date + clock time stay visible; the
+                                                relative label lives in the tooltip only. */}
+                                            <td className="px-3 py-2 tabular-nums text-fg-secondary">
+                                                {(() => {
+                                                    const parts = formatAuditDateParts(log.timestampRaw);
+                                                    return (
+                                                        <time dateTime={log.timestampRaw} title={formatAuditTime(log.timestampRaw)} className="block">
+                                                            {parts ? (
+                                                                <>
+                                                                    <span className="block text-xs">{parts.date}</span>
+                                                                    <span className="block text-xs text-fg-muted">{parts.time}</span>
+                                                                </>
+                                                            ) : (
+                                                                <span className="block text-xs">{log.timestamp}</span>
+                                                            )}
+                                                        </time>
+                                                    );
+                                                })()}
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
                     </div>
-                </div>
-            </div>
+                )}
+
+                {/* Footer: paging */}
+                {!loading && !error && filtered.length > 0 && (
+                    <Pagination
+                        currentPage={currentPage}
+                        totalPages={totalPages}
+                        totalItems={filtered.length}
+                        pageSize={PAGE_SIZE}
+                        onPageChange={setCurrentPage}
+                        itemLabel="actions"
+                    />
+                )}
+            </SectionCard>
         </div>
     );
 }
@@ -278,6 +434,7 @@ function mapAuditLogToRow(log: AuditLog): AccessioningLogRow | null {
         status: details.status || action,
         performedBy: log.performedBy || 'SYSTEM',
         timestamp: formatTimestamp(log.timestamp),
+        timestampRaw: log.timestamp,
         notes: details.notes || '',
         rejectionReason: details.rejectionReason || '',
     };
@@ -306,6 +463,20 @@ function toPriority(priority: string | undefined): 'STAT' | 'URGENT' | 'NORMAL' 
     return 'NORMAL';
 }
 
+/** Absolute date + 24h clock time for the Time column (en-GB date per DESIGN.md). */
+function formatAuditDateParts(timestamp: string): { date: string; time: string } | null {
+    const date = new Date(timestamp);
+
+    if (Number.isNaN(date.getTime())) {
+        return null;
+    }
+
+    return {
+        date: date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }),
+        time: date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false }),
+    };
+}
+
 function formatTimestamp(timestamp: string): string {
     const date = new Date(timestamp);
 
@@ -328,9 +499,4 @@ function getApiErrorMessage(error: unknown): string {
     }
 
     return 'Unable to load accessioning logs right now. Please try again.';
-}
-
-function escapeCsvValue(value: string): string {
-    const normalized = value.replace(/"/g, '""');
-    return `"${normalized}"`;
 }

@@ -2,6 +2,20 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
+import * as XLSX from "xlsx";
+import { AlertTriangle, FileSpreadsheet, Globe, History, Radio, SearchX, ShieldX, X } from "lucide-react";
+import Button from "@/components/ui/Button";
+import PageHeader from "@/components/ui/PageHeader";
+import { InputField, SelectField } from "@/components/ui/Field";
+import SectionCard from "@/components/ui/SectionCard";
+import EmptyState from "@/components/ui/EmptyState";
+import KpiTile from "@/components/ui/KpiTile";
+import StatusChip, { humanizeStatus, toneForStatus, type ChipTone } from "@/components/ui/StatusChip";
+import Pagination from "@/components/ui/Pagination";
+import DemoDataBanner from "@/components/shared/DemoDataBanner";
+import { formatAuditTime } from "@/components/patient-dashboard/dashboard-data";
+
+const PAGE_SIZE = 10;
 
 // Mock Data for Global Audit Trail
 const MOCK_LOGS = [
@@ -67,7 +81,7 @@ const MOCK_LOGS = [
     },
     {
         id: "LOG-5006",
-        timestamp: "Oct 26, 2023 16:45 PM",
+        timestamp: "Oct 26, 2023 4:45 PM",
         user: "Nilani Fernando",
         role: "Nursing Head",
         branch: "Galle",
@@ -79,6 +93,45 @@ const MOCK_LOGS = [
     },
 ];
 
+/* ------------------------------------------------------------------ */
+/*  Helpers                                                            */
+/* ------------------------------------------------------------------ */
+
+/** Audit outcome → chip tone. FAILED comes from the shared STATUS_TONE map. */
+const LOG_STATUS_TONE: Record<string, ChipTone> = {
+    SUCCESS: "success",
+    WARNING: "pending",
+};
+
+function toneForLogStatus(status: string): ChipTone {
+    return LOG_STATUS_TONE[status.toUpperCase()] ?? toneForStatus(status);
+}
+
+/** Full, unambiguous timestamp for tooltips. */
+function formatFullTimestamp(ts: string): string {
+    const d = new Date(ts);
+    if (Number.isNaN(d.getTime())) return ts || "—";
+    return d.toLocaleString("en-GB", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+    });
+}
+
+/** "09:12" (24h) for the secondary time line on non-relative dates. */
+function formatClock(ts: string): string | null {
+    const d = new Date(ts);
+    if (Number.isNaN(d.getTime())) return null;
+    return d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
+}
+
+/* ------------------------------------------------------------------ */
+/*  Page                                                               */
+/* ------------------------------------------------------------------ */
+
 export default function GlobalAuditTrailsPage() {
     // Filter states
     const [searchQuery, setSearchQuery] = useState("");
@@ -88,6 +141,8 @@ export default function GlobalAuditTrailsPage() {
     const [selectedAction, setSelectedAction] = useState("All Actions");
     const [startDate, setStartDate] = useState("");
     const [endDate, setEndDate] = useState("");
+    // 1-based client-side paging over the filtered mock list
+    const [page, setPage] = useState(1);
 
     // Filter logic
     const filteredLogs = MOCK_LOGS.filter(log => {
@@ -129,15 +184,48 @@ export default function GlobalAuditTrailsPage() {
     const uniqueModules = ["All Modules", ...Array.from(new Set(MOCK_LOGS.map(log => log.module)))];
     const uniqueActions = ["All Actions", ...Array.from(new Set(MOCK_LOGS.map(log => log.action)))];
 
-    const handleExportCSV = () => {
+    const hasFilters = Boolean(
+        searchQuery ||
+            startDate ||
+            endDate ||
+            selectedBranch !== "All Branches" ||
+            selectedRole !== "All Roles" ||
+            selectedModule !== "All Modules" ||
+            selectedAction !== "All Actions"
+    );
+
+    const clearFilters = () => {
+        setSearchQuery("");
+        setStartDate("");
+        setEndDate("");
+        setSelectedBranch("All Branches");
+        setSelectedRole("All Roles");
+        setSelectedModule("All Modules");
+        setSelectedAction("All Actions");
+        setPage(1);
+    };
+
+    /** Wrap a filter setter so any change returns to the first page. */
+    const withPageReset =
+        (setter: (value: string) => void) =>
+        (value: string) => {
+            setter(value);
+            setPage(1);
+        };
+
+    const totalPages = Math.max(1, Math.ceil(filteredLogs.length / PAGE_SIZE));
+    const currentPage = Math.min(page, totalPages);
+    const pageRows = filteredLogs.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
+    const handleExportExcel = () => {
         if (filteredLogs.length === 0) {
             toast.message("No logs to export based on current filters.");
             return;
         }
 
         const headers = ["Timestamp", "User", "Role", "Branch", "Module", "Action", "Entity ID", "Status", "IP Address"];
-        const rows = filteredLogs.map(log => [
-            log.timestamp.replace(/,/g, ''),
+        const rows = filteredLogs.map((log) => [
+            log.timestamp,
             log.user,
             log.role,
             log.branch,
@@ -145,321 +233,249 @@ export default function GlobalAuditTrailsPage() {
             log.action,
             log.entityId,
             log.status,
-            log.ipAddress
+            log.ipAddress,
         ]);
 
-        const csvContent = [headers.join(","), ...rows.map(row => row.join(","))].join("\\n");
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.setAttribute("download", `Global_Audit_Logs_${new Date().toISOString().split('T')[0]}.csv`);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        const worksheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+        const colWidths = headers.map((h, i) => ({
+            wch: Math.min(Math.max(h.length, ...rows.map((r) => String(r[i] ?? "").length)) + 2, 50),
+        }));
+        worksheet["!cols"] = colWidths;
+
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Global Audit Logs");
+        XLSX.writeFile(workbook, `Global_Audit_Logs_${new Date().toISOString().split('T')[0]}.xlsx`);
     };
 
     return (
-        <div className="max-w-[1400px] mx-auto w-full font-sans text-slate-900 min-h-[calc(100vh-136px)] pt-2 pb-10 flex flex-col">
+        <div className="mx-auto w-full max-w-[1400px]">
+            <PageHeader
+                title="Audit trails"
+                crumbs={[{ label: "System" }, { label: "Global administration" }, { label: "Audit trails" }]}
+                meta={
+                    <>
+                        <History className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                        <span>Security events, user actions and administrative changes across all branches</span>
+                        <span aria-hidden="true">·</span>
+                        <span>Log retention 180 days</span>
+                    </>
+                }
+                actions={
+                    <Button variant="primary" icon={FileSpreadsheet} onClick={handleExportExcel}>
+                        Export to Excel
+                    </Button>
+                }
+            />
 
-            {/* Breadcrumb & Header */}
-            <div className="mb-8">
-                <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 mb-2">
-                    <span className="hover:text-slate-800 cursor-pointer transition-colors">System</span>
-                    <span className="text-[10px] opacity-50">/</span>
-                    <span className="hover:text-slate-800 cursor-pointer transition-colors">Global Administration</span>
-                    <span className="text-[10px] opacity-50">/</span>
-                    <span className="text-slate-800 font-bold">Audit Trails</span>
-                </div>
-                <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">Global Audit Trails</h1>
-                <p className="text-sm font-medium text-slate-500 mt-1">
-                    System-wide audit trail for security events, user actions, and administrative changes across all branches.
-                </p>
+            <DemoDataBanner note="Demo data — this audit trail is not yet connected to a live backend; entries and metrics are placeholders." />
+
+            {/* Screen-reader status for filter changes */}
+            <p role="status" aria-live="polite" className="sr-only">
+                {`${filteredLogs.length} of ${MOCK_LOGS.length} audit ${MOCK_LOGS.length === 1 ? "entry" : "entries"} shown${
+                    totalPages > 1 ? `, page ${currentPage} of ${totalPages}` : ""
+                }.`}
+            </p>
+
+            {/* KPI row */}
+            <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <KpiTile label="Global actions" value="84,204" icon={Globe} note="Past 30 days" />
+                <KpiTile label="Failed logins" value="412" icon={ShieldX} tone="danger" delta={{ value: 12, label: "vs previous 30 days" }} />
+                <KpiTile label="Critical incidents" value="42" icon={AlertTriangle} tone="warning" note="Requires audit" />
+                <KpiTile label="Active sessions" value="1,248" icon={Radio} tone="success" note="Across 12 nodes" />
             </div>
 
-            {/* Filters Section */}
-            <div className="bg-white rounded-2xl border border-slate-200 p-5 mb-6 shadow-sm flex flex-col gap-4">
-                <div className="flex flex-wrap lg:flex-nowrap gap-4 items-end">
-
-                    {/* Date Range */}
-                    <div className="flex flex-col gap-1.5 flex-1 min-w-[280px]">
-                        <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest pl-1">Date Range</label>
-                        <div className="flex items-center gap-2 border border-slate-200 rounded-xl px-3 py-2 bg-slate-50/50 hover:bg-slate-50 transition-colors">
-                            <input
-                                type="date"
-                                value={startDate}
-                                onChange={(e) => setStartDate(e.target.value)}
-                                className="w-1/2 bg-transparent text-slate-800 font-bold text-sm focus:outline-none cursor-pointer py-0.5"
-                            />
-                            <span className="text-slate-400 font-black">-</span>
-                            <input
-                                type="date"
-                                value={endDate}
-                                onChange={(e) => setEndDate(e.target.value)}
-                                className="w-1/2 bg-transparent text-slate-800 font-bold text-sm focus:outline-none cursor-pointer py-0.5"
-                            />
-                        </div>
-                    </div>
-
-                    {/* Branch Filter */}
-                    <div className="flex flex-col gap-1.5 flex-1 min-w-[150px]">
-                        <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest pl-1">Branch</label>
-                        <div className="relative">
-                            <select
-                                value={selectedBranch}
-                                onChange={(e) => setSelectedBranch(e.target.value)}
-                                className="w-full appearance-none border border-slate-200 rounded-xl px-4 py-2.5 bg-slate-50 border-transparent text-slate-800 font-bold text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer"
-                            >
-                                {uniqueBranches.map(branch => <option key={branch} value={branch}>{branch}</option>)}
-                            </select>
-                            <span className="material-icons absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-lg">expand_more</span>
-                        </div>
-                    </div>
-
-                    {/* Role Filter */}
-                    <div className="flex flex-col gap-1.5 flex-1 min-w-[150px]">
-                        <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest pl-1">User Role</label>
-                        <div className="relative">
-                            <select
-                                value={selectedRole}
-                                onChange={(e) => setSelectedRole(e.target.value)}
-                                className="w-full appearance-none border border-slate-200 rounded-xl px-4 py-2.5 bg-slate-50 border-transparent text-slate-800 font-bold text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer"
-                            >
-                                {uniqueRoles.map(role => <option key={role} value={role}>{role}</option>)}
-                            </select>
-                            <span className="material-icons absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-lg">expand_more</span>
-                        </div>
-                    </div>
-
-                    {/* Module Filter */}
-                    <div className="flex flex-col gap-1.5 flex-1 min-w-[150px]">
-                        <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest pl-1">Module</label>
-                        <div className="relative">
-                            <select
-                                value={selectedModule}
-                                onChange={(e) => setSelectedModule(e.target.value)}
-                                className="w-full appearance-none border border-slate-200 rounded-xl px-4 py-2.5 bg-slate-50 border-transparent text-slate-800 font-bold text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer"
-                            >
-                                {uniqueModules.map(mod => <option key={mod} value={mod}>{mod}</option>)}
-                            </select>
-                            <span className="material-icons absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-lg">expand_more</span>
-                        </div>
-                    </div>
-
-                    {/* Action Filter */}
-                    <div className="flex flex-col gap-1.5 flex-1 min-w-[150px]">
-                        <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest pl-1">Action Type</label>
-                        <div className="relative">
-                            <select
-                                value={selectedAction}
-                                onChange={(e) => setSelectedAction(e.target.value)}
-                                className="w-full appearance-none border border-slate-200 rounded-xl px-4 py-2.5 bg-slate-50 border-transparent text-slate-800 font-bold text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer"
-                            >
-                                {uniqueActions.map(action => <option key={action} value={action}>{action}</option>)}
-                            </select>
-                            <span className="material-icons absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-lg">expand_more</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div className="flex flex-wrap lg:flex-nowrap gap-4 items-center mt-2">
-                    <div className="flex-1 relative">
-                        <span className="material-icons absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 text-sm">search</span>
-                        <input
-                            type="text"
-                            placeholder="Search logs by User Name, Entity ID or IP Address..."
+            <SectionCard title="System audit trail" count={filteredLogs.length} flush>
+                {/* Filter toolbar */}
+                <div className="border-b border-edge bg-surface-muted px-3 py-3">
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-6">
+                        <InputField
+                            label="Search"
+                            type="search"
                             value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            className="bg-slate-50 border border-slate-100 text-slate-800 font-semibold py-2.5 pl-10 pr-4 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all w-full placeholder:text-slate-400 placeholder:font-medium"
+                            onChange={(e) => withPageReset(setSearchQuery)(e.target.value)}
+                            placeholder="User, entity id or IP address"
+                            autoComplete="off"
+                            className="sm:col-span-2"
                         />
-                    </div>
-                    <div className="flex items-center gap-3">
-                        <button className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-bold transition-colors shadow-sm shadow-blue-500/30 active:scale-95 whitespace-nowrap">
-                            Apply Filters
-                        </button>
-                        <button
-                            onClick={handleExportCSV}
-                            className="flex items-center gap-2 border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:text-slate-900 rounded-xl px-5 py-2.5 font-bold transition-colors whitespace-nowrap shadow-sm"
-                        >
-                            <span className="material-icons text-[18px]">sim_card_download</span>
-                            Export (CSV)
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            {/* KPI Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                {/* Total Actions */}
-                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between hover:border-blue-200 transition-colors">
-                    <div className="flex justify-between items-start mb-3">
-                        <h3 className="text-[11px] font-extrabold text-slate-500 uppercase tracking-widest">Global Actions</h3>
-                        <div className="bg-blue-50 text-blue-600 w-8 h-8 rounded-xl flex items-center justify-center">
-                            <span className="material-icons text-[18px]">public</span>
-                        </div>
-                    </div>
-                    <div className="flex flex-col gap-1 mt-1">
-                        <div className="flex items-baseline gap-2">
-                            <span className="text-3xl font-black text-slate-900 tracking-tight">84,204</span>
-                        </div>
-                        <span className="text-[12px] font-bold text-slate-400">Past 30 days</span>
-                    </div>
-                </div>
-
-                {/* Failed Logins */}
-                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between hover:border-red-200 transition-colors">
-                    <div className="flex justify-between items-start mb-3">
-                        <h3 className="text-[11px] font-extrabold text-slate-500 uppercase tracking-widest">Failed Logins</h3>
-                        <div className="bg-red-50 text-red-500 w-8 h-8 rounded-xl flex items-center justify-center border border-red-100">
-                            <span className="material-icons text-[18px]">gpp_bad</span>
-                        </div>
-                    </div>
-                    <div className="flex items-baseline gap-2 mt-1">
-                        <span className="text-3xl font-black text-slate-900 tracking-tight">412</span>
-                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-700">
-                            <span className="material-icons text-[10px] mr-0.5">trending_up</span> 12%
-                        </span>
-                    </div>
-                </div>
-
-                {/* Critical Actions */}
-                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between hover:border-orange-200 transition-colors">
-                    <div className="flex justify-between items-start mb-3">
-                        <h3 className="text-[11px] font-extrabold text-slate-500 uppercase tracking-widest">Critical Incidents</h3>
-                        <div className="bg-orange-50 text-orange-500 w-8 h-8 rounded-xl flex items-center justify-center">
-                            <span className="material-icons text-[18px]">warning</span>
-                        </div>
-                    </div>
-                    <div className="flex items-baseline gap-2 mt-1">
-                        <span className="text-3xl font-black text-slate-900 tracking-tight">42</span>
-                        <span className="text-[12px] font-bold text-orange-500">Requires Audit</span>
+                        <InputField
+                            label="From date"
+                            type="date"
+                            value={startDate}
+                            onChange={(e) => withPageReset(setStartDate)(e.target.value)}
+                        />
+                        <InputField
+                            label="To date"
+                            type="date"
+                            value={endDate}
+                            onChange={(e) => withPageReset(setEndDate)(e.target.value)}
+                        />
+                        <SelectField label="Branch" value={selectedBranch} onChange={(e) => withPageReset(setSelectedBranch)(e.target.value)}>
+                            {uniqueBranches.map(branch => (
+                                <option key={branch} value={branch}>
+                                    {branch === "All Branches" ? "All branches" : branch}
+                                </option>
+                            ))}
+                        </SelectField>
+                        <SelectField label="User role" value={selectedRole} onChange={(e) => withPageReset(setSelectedRole)(e.target.value)}>
+                            {uniqueRoles.map(role => (
+                                <option key={role} value={role}>
+                                    {role === "All Roles" ? "All roles" : role}
+                                </option>
+                            ))}
+                        </SelectField>
+                        <SelectField label="Module" value={selectedModule} onChange={(e) => withPageReset(setSelectedModule)(e.target.value)}>
+                            {uniqueModules.map(mod => (
+                                <option key={mod} value={mod}>
+                                    {mod === "All Modules" ? "All modules" : mod}
+                                </option>
+                            ))}
+                        </SelectField>
+                        <SelectField label="Action type" value={selectedAction} onChange={(e) => withPageReset(setSelectedAction)(e.target.value)}>
+                            {uniqueActions.map(action => (
+                                <option key={action} value={action}>
+                                    {action === "All Actions" ? "All actions" : action}
+                                </option>
+                            ))}
+                        </SelectField>
+                        {hasFilters && (
+                            <div className="flex items-end sm:col-span-2 lg:col-span-4 lg:justify-end">
+                                <Button variant="ghost" icon={X} onClick={clearFilters}>
+                                    Clear filters
+                                </Button>
+                            </div>
+                        )}
                     </div>
                 </div>
 
-                {/* Active Sessions */}
-                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between hover:border-emerald-200 transition-colors">
-                    <div className="flex justify-between items-start mb-3">
-                        <h3 className="text-[11px] font-extrabold text-slate-500 uppercase tracking-widest">Active Sessions</h3>
-                        <div className="bg-emerald-50 text-emerald-500 w-8 h-8 rounded-xl flex items-center justify-center">
-                            <span className="material-icons text-[18px]">sensors</span>
-                        </div>
-                    </div>
-                    <div className="flex items-baseline gap-2 mt-1">
-                        <span className="text-3xl font-black text-slate-900 tracking-tight">1,248</span>
-                        <span className="text-[12px] font-bold text-emerald-500">Across 12 nodes</span>
-                    </div>
-                </div>
-            </div>
-
-            {/* Audit Trail Table Section */}
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col flex-1 pb-4">
-                <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 bg-slate-50 text-slate-600 rounded-lg flex items-center justify-center">
-                            <span className="material-icons text-[18px]">view_timeline</span>
-                        </div>
-                        <h2 className="text-[15px] font-extrabold text-slate-900">System Audit Trail</h2>
-                    </div>
-                    <div className="flex items-center gap-2 text-slate-400 text-[13px] font-bold cursor-pointer hover:text-slate-600 transition-colors">
-                        <span>Auto-refresh in 45s</span>
-                        <span className="material-icons text-[16px]">sync</span>
-                    </div>
-                </div>
-
-                <div className="overflow-x-auto">
-                    <table className="w-full text-left border-collapse min-w-[1200px]">
-                        <thead>
-                            <tr className="border-b border-slate-200 bg-slate-50/50">
-                                <th className="py-4 px-6 text-[11px] font-extrabold text-slate-500 uppercase tracking-widest">Timestamp</th>
-                                <th className="py-4 px-6 text-[11px] font-extrabold text-slate-500 uppercase tracking-widest">User Details</th>
-                                <th className="py-4 px-6 text-[11px] font-extrabold text-slate-500 uppercase tracking-widest">Branch</th>
-                                <th className="py-4 px-6 text-[11px] font-extrabold text-slate-500 uppercase tracking-widest">Module / Action</th>
-                                <th className="py-4 px-6 text-[11px] font-extrabold text-slate-500 uppercase tracking-widest">Entity ID</th>
-                                <th className="py-4 px-6 text-[11px] font-extrabold text-slate-500 uppercase tracking-widest">Status</th>
-                                <th className="py-4 px-6 text-[11px] font-extrabold text-slate-500 uppercase tracking-widest">IP Address</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                            {filteredLogs.length > 0 ? (
-                                filteredLogs.map((log) => (
-                                    <tr key={log.id} className="hover:bg-slate-50/50 transition-colors group">
-                                        <td className="py-4 px-6">
-                                            <span className="text-[13px] font-semibold text-slate-500 whitespace-nowrap">{log.timestamp}</span>
-                                        </td>
-                                        <td className="py-4 px-6">
-                                            <div className="flex flex-col">
-                                                <span className="text-[14px] font-bold text-slate-900 leading-snug">{log.user}</span>
-                                                <span className="text-[12px] font-semibold text-slate-500">{log.role}</span>
-                                            </div>
-                                        </td>
-                                        <td className="py-4 px-6">
-                                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border ${log.branch === 'Global' ? 'bg-purple-50 text-purple-700 border-purple-100' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
-                                                {log.branch}
-                                            </span>
-                                        </td>
-                                        <td className="py-4 px-6">
-                                            <div className="flex flex-col">
-                                                <span className="text-[13px] font-bold text-slate-800">{log.action}</span>
-                                                <span className="text-[12px] font-medium text-slate-500">{log.module}</span>
-                                            </div>
-                                        </td>
-                                        <td className="py-4 px-6">
-                                            <span className="text-[12px] font-bold text-slate-600 font-mono bg-slate-100 px-2 py-1 rounded select-all">{log.entityId}</span>
-                                        </td>
-                                        <td className="py-4 px-6">
-                                            {log.status === 'SUCCESS' && (
-                                                <span className="inline-flex items-center gap-1.5 text-emerald-600 text-[11px] font-bold tracking-wide">
-                                                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div> SUCCESS
-                                                </span>
-                                            )}
-                                            {log.status === 'FAILED' && (
-                                                <span className="inline-flex items-center gap-1.5 text-red-500 text-[11px] font-bold tracking-wide">
-                                                    <div className="w-1.5 h-1.5 rounded-full bg-red-500"></div> FAILED
-                                                </span>
-                                            )}
-                                            {log.status === 'WARNING' && (
-                                                <span className="inline-flex items-center gap-1.5 text-orange-500 text-[11px] font-bold tracking-wide">
-                                                    <div className="w-1.5 h-1.5 rounded-full bg-orange-500"></div> WARNING
-                                                </span>
-                                            )}
-                                        </td>
-                                        <td className="py-4 px-6">
-                                            <span className="text-[12px] font-semibold text-slate-400 font-mono">{log.ipAddress}</span>
-                                        </td>
-                                    </tr>
-                                ))
-                            ) : (
-                                <tr>
-                                    <td colSpan={7} className="py-12 text-center text-[14px] font-medium text-slate-500 bg-slate-50/50">
-                                        <div className="flex flex-col items-center gap-2">
-                                            <span className="material-icons text-4xl text-slate-300">search_off</span>
-                                            <span>No system logs found matching your criteria.</span>
-                                        </div>
-                                    </td>
+                {/* Empty state lives outside the table so it centres on small screens */}
+                {filteredLogs.length === 0 ? (
+                    hasFilters ? (
+                        <EmptyState
+                            icon={SearchX}
+                            title="No entries match"
+                            description="Try a different search term, date range, branch, role, module or action."
+                            action={
+                                <Button size="sm" icon={X} onClick={clearFilters}>
+                                    Clear filters
+                                </Button>
+                            }
+                        />
+                    ) : (
+                        <EmptyState
+                            icon={History}
+                            title="No audit entries yet"
+                            description="Security events, user actions and administrative changes will be recorded here."
+                        />
+                    )
+                ) : (
+                    <div className="overflow-x-auto">
+                        {/* table-fixed: min-w must clear the fixed columns + a 160px floor for the auto
+                            Action column at every band (base/md 544, lg 688, xl 832). */}
+                        <table className="w-full min-w-[760px] table-fixed text-left text-[13px] lg:min-w-[860px] xl:min-w-[1000px]">
+                            <caption className="sr-only">System audit trail entries</caption>
+                            <thead>
+                                <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
+                                    <th scope="col" className="w-32 py-2 pl-4 pr-3 font-medium">
+                                        Time
+                                    </th>
+                                    <th scope="col" className="w-48 px-3 py-2 font-medium">
+                                        User
+                                    </th>
+                                    <th scope="col" className="hidden w-28 px-3 py-2 font-medium md:table-cell">
+                                        Branch
+                                    </th>
+                                    <th scope="col" className="px-3 py-2 font-medium">
+                                        Action
+                                    </th>
+                                    <th scope="col" className="hidden w-36 px-3 py-2 font-medium lg:table-cell">
+                                        Entity id
+                                    </th>
+                                    <th scope="col" className="w-28 px-3 py-2 font-medium">
+                                        Status
+                                    </th>
+                                    <th scope="col" className="hidden w-36 px-3 py-2 font-medium xl:table-cell">
+                                        IP address
+                                    </th>
                                 </tr>
-                            )}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+                            </thead>
+                            <tbody className="divide-y divide-edge whitespace-nowrap">
+                                {pageRows.map((log) => {
+                                    const relative = formatAuditTime(log.timestamp);
+                                    const clock = formatClock(log.timestamp);
+                                    // Relative labels ("Today 09:12", "2h ago") already carry the time.
+                                    const showClock = clock !== null && !relative.includes(":") && !relative.endsWith("ago") && relative !== "Just now";
+                                    const fullTime = formatFullTimestamp(log.timestamp);
+                                    return (
+                                        <tr key={log.id} className="transition-colors hover:bg-surface-hover">
+                                            {/* Time */}
+                                            <td className="py-2 pl-4 pr-3 tabular-nums text-fg-secondary">
+                                                <span title={fullTime}>{relative}</span>
+                                                {showClock && <span className="block text-xs text-fg-muted">{clock}</span>}
+                                            </td>
+                                            {/* User */}
+                                            <td className="px-3 py-2">
+                                                <span className="block truncate font-medium text-fg" title={log.user}>
+                                                    {log.user}
+                                                </span>
+                                                <span className="block truncate text-xs text-fg-muted">{log.role}</span>
+                                            </td>
+                                            {/* Branch */}
+                                            <td className="hidden px-3 py-2 md:table-cell">
+                                                <StatusChip tone={log.branch === "Global" ? "info" : "neutral"} size="sm" title={log.branch}>
+                                                    {log.branch}
+                                                </StatusChip>
+                                            </td>
+                                            {/* Module / action */}
+                                            <td className="px-3 py-2">
+                                                <span className="block truncate text-fg" title={log.action}>
+                                                    {log.action}
+                                                </span>
+                                                <span className="block truncate text-xs text-fg-muted">{log.module}</span>
+                                            </td>
+                                            {/* Entity id */}
+                                            <td className="hidden px-3 py-2 font-mono text-xs lg:table-cell">
+                                                {log.entityId && log.entityId !== "-" ? (
+                                                    <span
+                                                        title={log.entityId}
+                                                        className="inline-block max-w-full truncate rounded bg-surface-muted px-1.5 py-0.5 align-middle text-fg-secondary ring-1 ring-inset ring-edge select-all"
+                                                    >
+                                                        {log.entityId}
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-fg-faint">—</span>
+                                                )}
+                                            </td>
+                                            {/* Status */}
+                                            <td className="px-3 py-2">
+                                                <StatusChip tone={toneForLogStatus(log.status)} dot size="sm">
+                                                    {humanizeStatus(log.status)}
+                                                </StatusChip>
+                                            </td>
+                                            {/* IP */}
+                                            <td className="hidden truncate px-3 py-2 font-mono text-xs text-fg-muted xl:table-cell" title={log.ipAddress}>
+                                                {log.ipAddress}
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
 
-            {/* Custom Footer */}
-            <div className="mt-6 pt-6 border-t border-slate-200 flex flex-col sm:flex-row justify-between items-center text-xs font-semibold text-slate-400 gap-4">
-                <div className="flex items-center gap-2">
-                    <span>&copy; 2023 Durdans Hospital. Global Admin Suite V 3.1.0</span>
-                    <span className="w-1 h-1 rounded-full bg-slate-300"></span>
-                    <span className="flex items-center gap-1.5">
-                        Log Retention: <span className="text-slate-600 font-bold">180 Days</span>
-                    </span>
-                </div>
-                <div className="flex items-center justify-end gap-6 flex-1">
-                    <a href="#" className="hover:text-slate-600 transition-colors font-bold">Compliance Reports</a>
-                    <button className="bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-lg transition-colors font-bold shadow-sm">
-                        Export Full Dump
-                    </button>
-                </div>
-            </div>
+                {filteredLogs.length > 0 && (
+                    <Pagination
+                        currentPage={currentPage}
+                        totalPages={totalPages}
+                        totalItems={filteredLogs.length}
+                        pageSize={PAGE_SIZE}
+                        onPageChange={setPage}
+                        itemLabel={filteredLogs.length === 1 ? "entry" : "entries"}
+                    />
+                )}
+            </SectionCard>
 
+            <p className="mt-4 text-xs text-fg-muted">&copy; 2023 Durdans Hospital &middot; Global Admin Suite v3.1.0</p>
         </div>
     );
 }

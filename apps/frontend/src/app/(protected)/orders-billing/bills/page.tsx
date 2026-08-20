@@ -2,11 +2,53 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import * as XLSX from 'xlsx';
+import {
+    AlertTriangle,
+    CalendarRange,
+    Eye,
+    FileSpreadsheet,
+    Receipt,
+    RefreshCw,
+    Search,
+    Wallet,
+    X,
+} from 'lucide-react';
 import type { Bill } from '@/types/orders-billing';
-import { formatCurrency, PAYMENT_STATUS_COLORS, formatDate, formatDateTime } from '@/constants/orders-billing';
+import { formatCurrency, formatDateTime } from '@/constants/orders-billing';
 import { getOrdersBillingStats, getOrders, getBillByOrderId } from '@/lib/api';
+import Button from '@/components/ui/Button';
+import PageHeader from '@/components/ui/PageHeader';
+import { InputField } from '@/components/ui/Field';
+import SectionCard from '@/components/ui/SectionCard';
+import EmptyState from '@/components/ui/EmptyState';
+import StatusChip from '@/components/ui/StatusChip';
+import Pagination from '@/components/ui/Pagination';
+import StatCard from '@/components/shared/StatCard';
+import StatusBadge from '@/components/shared/StatusBadge';
+import { formatRegistered } from '@/components/patient-dashboard/dashboard-data';
 
 const PAGE_SIZE = 4;
+const SKELETON_ROWS = 4;
+
+/** Latest payment timestamp on a bill, falling back to the bill date. */
+const getBillDateTime = (bill: any): string => {
+    return bill.payments && bill.payments.length > 0
+        ? bill.payments[bill.payments.length - 1].date ||
+        bill.payments[bill.payments.length - 1].paymentDate ||
+        bill.payments[bill.payments.length - 1].createdAt ||
+        bill.billDate
+        : bill.billDate;
+};
+
+/** "16 Aug 2026" for the applied date-range chip (yyyy-mm-dd input values). */
+function formatDayLabel(value: string): string {
+    const [y, m, d] = value.split('-').map(Number);
+    const dt = new Date(y, (m ?? 1) - 1, d ?? 1);
+    if (Number.isNaN(dt.getTime())) return value;
+    return dt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+}
 
 export default function BillsPaymentsPage() {
     const router = useRouter();
@@ -97,10 +139,7 @@ export default function BillsPaymentsPage() {
                 b.patientName?.toLowerCase().includes(q) ||
                 b.patientId?.toLowerCase().includes(q);
             const matchesStatus = true;
-            const pDate = b.payments && b.payments.length > 0
-                ? b.payments[b.payments.length - 1].date || (b.payments[b.payments.length - 1] as any).paymentDate || (b.payments[b.payments.length - 1] as any).createdAt || b.billDate
-                : b.billDate;
-            const billDate = new Date(pDate as unknown as string);
+            const billDate = new Date(getBillDateTime(b));
             const matchesFrom =
                 !appliedDateFrom || billDate >= new Date(appliedDateFrom);
             const matchesTo =
@@ -109,64 +148,40 @@ export default function BillsPaymentsPage() {
         });
     }, [bills, searchQuery, statusFilter, appliedDateFrom, appliedDateTo]);
 
-    const getBillDateTime = (bill: any) => {
-        return bill.payments && bill.payments.length > 0
-            ? bill.payments[bill.payments.length - 1].date ||
-            bill.payments[bill.payments.length - 1].paymentDate ||
-            bill.payments[bill.payments.length - 1].createdAt ||
-            bill.billDate
-            : bill.billDate;
-    };
-
     const handleExport = () => {
         const exportData = filtered.map((b) => {
             const dateObj = new Date(getBillDateTime(b));
-
             return {
                 billId: b.billId,
                 orderId: b.orderId,
                 patientId: b.patientId,
                 patientName: b.patientName,
                 date: dateObj.toLocaleDateString(),
-                time: dateObj.toLocaleTimeString(), // ✔ now correct
+                time: dateObj.toLocaleTimeString(),
                 totalAmount: b.totalAmount,
             };
         });
 
-        const headers = [
-            "Bill ID",
-            "Order ID",
-            "Patient ID",
-            "Patient Name",
-            "Date",
-            "Time",
-            "Total Amount"
-        ];
+        const headers = ["Bill ID", "Order ID", "Patient ID", "Patient Name", "Date", "Time", "Total Amount"];
+        const rows = exportData.map((row) => [
+            row.billId,
+            row.orderId,
+            row.patientId,
+            row.patientName,
+            row.date,
+            row.time,
+            row.totalAmount,
+        ]);
 
-        const csvRows = [
-            headers.join(","),
-            ...exportData.map(row =>
-                [
-                    row.billId,
-                    row.orderId,
-                    row.patientId,
-                    `"${row.patientName}"`,
-                    row.date,
-                    row.time,
-                    row.totalAmount
-                ].join(",")
-            )
-        ];
+        const worksheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+        const colWidths = headers.map((h, i) => ({
+            wch: Math.min(Math.max(h.length, ...rows.map((r) => String(r[i] ?? '').length)) + 2, 50),
+        }));
+        worksheet['!cols'] = colWidths;
 
-        const blob = new Blob([csvRows.join("\n")], { type: "text/csv" });
-        const url = URL.createObjectURL(blob);
-
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `bills_export_${new Date().toISOString().split("T")[0]}.csv`;
-        a.click();
-
-        URL.revokeObjectURL(url);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, 'Bills');
+        XLSX.writeFile(workbook, `bills_export_${new Date().toISOString().split('T')[0]}.xlsx`);
     };
 
     const totalCollected = bills.reduce(
@@ -187,280 +202,303 @@ export default function BillsPaymentsPage() {
         setCurrentPage(1);
     };
 
-    if (loading) {
-        return (
-            <div className="flex flex-col items-center justify-center py-24 gap-4">
-                <span className="material-icons text-5xl text-slate-300 animate-spin">
-                    progress_activity
-                </span>
-                <p className="text-sm text-slate-400 font-medium">Loading bills...</p>
-            </div>
-        );
-    }
+    const hasDateFilter = Boolean(appliedDateFrom || appliedDateTo);
+    const hasFilters = Boolean(searchQuery || hasDateFilter);
+    const appliedRangeLabel =
+        appliedDateFrom && appliedDateTo
+            ? `${formatDayLabel(appliedDateFrom)} – ${formatDayLabel(appliedDateTo)}`
+            : appliedDateFrom
+                ? `From ${formatDayLabel(appliedDateFrom)}`
+                : `Until ${formatDayLabel(appliedDateTo)}`;
 
-    if (error) {
-        return (
-            <div className="flex flex-col items-center justify-center py-24 gap-4">
-                <span className="material-icons text-5xl text-red-300">error_outline</span>
-                <h2 className="text-xl font-bold text-slate-700">Failed to Load Bills</h2>
-                <p className="text-sm text-red-400">{error}</p>
-                <button
-                    onClick={() => window.location.reload()}
-                    className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-primary border border-primary/30 rounded-xl hover:bg-primary/5 transition-colors"
-                >
-                    <span className="material-icons text-base">refresh</span>
-                    Try Again
-                </button>
-            </div>
-        );
-    }
+    const clearAllFilters = () => {
+        setSearchQuery('');
+        handleResetDateFilter();
+    };
 
     return (
-        <div>
-            {/* Header */}
-            <div className="flex items-center justify-between mb-6">
-                <div>
-                    <h1 className="text-2xl font-bold text-slate-800">Bills &amp; Payments</h1>
-                    <p className="text-sm text-slate-500 mt-1">
-                        Manage invoices and record patient payments
-                    </p>
-                </div>
-                <div className="flex items-center gap-2">
-                    <button
-                        onClick={() => router.push('/orders-billing/payments/new')}
-                        className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-emerald-600 rounded-xl hover:bg-emerald-700 transition-colors shadow-sm"
-                    >
-                        <span className="material-icons text-lg">payments</span>
-                        Record Payment
-                    </button>
-                    <button
-                        onClick={handleExport}
-                        className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-slate-600 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors"
-                    >
-                        <span className="material-icons text-lg">download</span>
-                        Export
-                    </button>
-                </div>
-            </div>
+        <div className="mx-auto max-w-[1400px]">
+            <PageHeader
+                title="Bills and payments"
+                crumbs={[
+                    { label: 'Dashboard', href: '/dashboard' },
+                    { label: 'Orders and billing', href: '/orders-billing' },
+                    { label: 'Bills' },
+                ]}
+                meta={
+                    <>
+                        <Receipt className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                        <span>Paid bills and recorded payments</span>
+                        {!loading && !error && (
+                            <>
+                                <span aria-hidden="true">·</span>
+                                <span className="tabular-nums">
+                                    {bills.length} {bills.length === 1 ? 'bill' : 'bills'}
+                                </span>
+                            </>
+                        )}
+                    </>
+                }
+                actions={
+                    <>
+                        <Button icon={FileSpreadsheet} onClick={handleExport} disabled={loading}>
+                            Export to Excel
+                        </Button>
+                        <Button variant="primary" icon={Wallet} onClick={() => router.push('/orders-billing/payments/new')}>
+                            Record payment
+                        </Button>
+                    </>
+                }
+            />
+
+            {/* Screen-reader status for async changes */}
+            <p role="status" aria-live="polite" className="sr-only">
+                {loading
+                    ? 'Loading bills'
+                    : error
+                        ? 'Bills failed to load'
+                        : `Bills loaded. Showing ${paginated.length} of ${filtered.length} bills${
+                            totalPages > 1 ? `, page ${currentPage} of ${totalPages}` : ''
+                        }.`}
+            </p>
 
             {/* Stats */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 mb-6">
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
-                    <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center mb-2">
-                        <span className="material-icons text-blue-600">receipt_long</span>
-                    </div>
-                    <p className="text-2xl font-bold text-slate-800">
-                        {statsLoading ? (
-                            <span className="text-slate-300 animate-pulse">—</span>
-                        ) : (
-                            bills.length
-                        )}
-                    </p>
-                    <p className="text-xs text-slate-500">Total Bills</p>
-                </div>
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
-                    <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center mb-2">
-                        <span className="material-icons text-emerald-600">
-                            account_balance_wallet
-                        </span>
-                    </div>
-                    <p className="text-2xl font-bold text-slate-800">
-                        {statsLoading ? (
-                            <span className="text-slate-300 animate-pulse">—</span>
-                        ) : (
-                            formatCurrency(totalCollected)
-                        )}
-                    </p>
-                    <p className="text-xs text-slate-500">Total Collected</p>
-                </div>
+            <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <StatCard
+                    label="Paid bills"
+                    value={bills.length}
+                    icon={Receipt}
+                    sub="Bills with a recorded payment"
+                    loading={statsLoading || loading}
+                />
+                <StatCard
+                    label="Total collected"
+                    value={formatCurrency(totalCollected)}
+                    icon={Wallet}
+                    sub="Sum of amounts paid"
+                    loading={statsLoading || loading}
+                />
             </div>
 
-            {/* Filters */}
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-4 mb-6">
-                <div className="flex flex-col gap-3">
-                    <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
-                        <div className="relative flex-1">
-                            <span className="material-icons absolute left-3 top-1/2 -translate-y-1/2 text-lg text-slate-400">
-                                search
-                            </span>
-                            <input
-                                type="text"
-                                placeholder="Search by Bill ID, Patient Name, or Patient ID..."
-                                className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-                                value={searchQuery}
-                                onChange={(e) => handleSearch(e.target.value)}
-                            />
-                        </div>
-                        {/* Status filter removed as only PAID bills are displayed */}
+            <SectionCard title="Bills" count={!loading && !error ? filtered.length : undefined} flush>
+                {/* Filter toolbar */}
+                <div className="flex flex-col gap-2 border-b border-edge bg-surface-muted px-3 py-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <InputField
+                            label="Search bills"
+                            hideLabel
+                            type="search"
+                            value={searchQuery}
+                            onChange={(e) => handleSearch(e.target.value)}
+                            placeholder="Search bill ID, patient name or patient ID"
+                            autoComplete="off"
+                            className="min-w-[200px] flex-1"
+                        />
+                        {hasFilters && (
+                            <Button variant="ghost" icon={X} onClick={clearAllFilters}>
+                                Clear filters
+                            </Button>
+                        )}
                     </div>
-
-                    <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center border-t border-slate-100 pt-3">
-                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider flex-shrink-0 flex items-center gap-1.5">
-                            <span className="material-icons text-sm">date_range</span>
-                            Date Range
+                    <div className="flex flex-wrap items-center gap-2">
+                        <span className="inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-fg-muted">
+                            <CalendarRange className="h-4 w-4" aria-hidden="true" />
+                            Date range
                         </span>
-                        <div className="flex flex-1 items-center gap-2">
-                            <input
-                                type="date"
-                                className="border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-                                value={dateFrom}
-                                onChange={(e) => setDateFrom(e.target.value)}
-                            />
-                            <span className="text-slate-400 text-xs font-semibold">to</span>
-                            <input
-                                type="date"
-                                className="border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-                                value={dateTo}
-                                onChange={(e) => setDateTo(e.target.value)}
-                            />
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <button
-                                onClick={handleApplyDateFilter}
-                                className="px-4 py-2 text-sm font-semibold text-white bg-primary rounded-xl hover:bg-primary/90 transition-colors"
-                            >
-                                Apply Filter
-                            </button>
-                            {(appliedDateFrom || appliedDateTo) && (
-                                <button
-                                    onClick={handleResetDateFilter}
-                                    className="px-3 py-2 text-sm font-semibold text-slate-500 bg-slate-100 rounded-xl hover:bg-slate-200 transition-colors flex items-center gap-1"
-                                >
-                                    <span className="material-icons text-base">close</span>
-                                    Reset
-                                </button>
-                            )}
-                        </div>
-                        {(appliedDateFrom || appliedDateTo) && (
-                            <span className="text-xs font-semibold text-primary bg-primary/10 px-2.5 py-1 rounded-lg flex-shrink-0">
-                                {appliedDateFrom && appliedDateTo
-                                    ? `${appliedDateFrom} → ${appliedDateTo}`
-                                    : appliedDateFrom
-                                        ? `From ${appliedDateFrom}`
-                                        : `Until ${appliedDateTo}`}
-                            </span>
+                        <InputField
+                            label="From date"
+                            hideLabel
+                            type="date"
+                            value={dateFrom}
+                            onChange={(e) => setDateFrom(e.target.value)}
+                            className="w-full sm:w-44"
+                        />
+                        <span className="text-xs text-fg-muted" aria-hidden="true">
+                            to
+                        </span>
+                        <InputField
+                            label="To date"
+                            hideLabel
+                            type="date"
+                            value={dateTo}
+                            onChange={(e) => setDateTo(e.target.value)}
+                            className="w-full sm:w-44"
+                        />
+                        <Button onClick={handleApplyDateFilter}>Apply dates</Button>
+                        {hasDateFilter && (
+                            <>
+                                <Button variant="ghost" icon={X} onClick={handleResetDateFilter}>
+                                    Reset dates
+                                </Button>
+                                <StatusChip tone="info">{appliedRangeLabel}</StatusChip>
+                            </>
                         )}
                     </div>
                 </div>
-            </div>
 
-            {/* Table */}
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 mb-6">
-                <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                        <thead>
-                            <tr className="text-left text-xs font-bold text-slate-400 uppercase tracking-wider">
-                                <th className="px-5 py-3 border-b border-slate-100 bg-slate-50/50">Bill ID</th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Order ID</th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Patient ID</th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Patient</th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Date</th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50 text-right">Total</th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50 text-right">Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {paginated.length === 0 ? (
-                                <tr>
-                                    <td colSpan={7} className="text-center py-12 text-slate-400">
-                                        {bills.length === 0
-                                            ? 'No bills available.'
-                                            : 'No bills found matching your search.'}
-                                    </td>
+                {/* States live outside the table so they centre on small screens */}
+                {loading ? (
+                    <ul aria-hidden="true" className="divide-y divide-edge">
+                        {Array.from({ length: SKELETON_ROWS }).map((_, i) => (
+                            <li key={i} className="flex items-center gap-3 px-4 py-2.5">
+                                <span className="h-3 w-24 shrink-0 rounded bg-skeleton" />
+                                <span className="hidden h-3 w-24 rounded bg-skeleton md:block" />
+                                <span className="hidden h-3 w-20 rounded bg-skeleton lg:block" />
+                                <span className="h-3 w-1/4 rounded bg-skeleton" />
+                                <span className="h-3 w-24 rounded bg-skeleton" />
+                                <span className="h-4 w-12 rounded bg-skeleton" />
+                                <span className="ml-auto h-3 w-24 rounded bg-skeleton" />
+                            </li>
+                        ))}
+                    </ul>
+                ) : error ? (
+                    <EmptyState
+                        icon={AlertTriangle}
+                        title="Couldn't load bills"
+                        description={error}
+                        action={
+                            <Button size="sm" icon={RefreshCw} onClick={() => window.location.reload()}>
+                                Retry
+                            </Button>
+                        }
+                    />
+                ) : paginated.length === 0 ? (
+                    bills.length === 0 ? (
+                        <EmptyState
+                            icon={Receipt}
+                            title="No paid bills yet"
+                            description="Bills appear here once a payment has been recorded against an order."
+                            action={
+                                <Button size="sm" icon={Wallet} onClick={() => router.push('/orders-billing/payments/new')}>
+                                    Record payment
+                                </Button>
+                            }
+                        />
+                    ) : (
+                        <EmptyState
+                            icon={Search}
+                            title="No bills match"
+                            description="Try a different search term or date range."
+                            action={
+                                <Button size="sm" icon={X} onClick={clearAllFilters}>
+                                    Clear filters
+                                </Button>
+                            }
+                        />
+                    )
+                ) : (
+                    <div className="overflow-x-auto">
+                        {/*
+                          table-fixed column budget. Always-on fixed widths: Bill ID 144 + Paid on 144
+                          + Status 96 + Total 144 + Actions 48 = 576. "Patient" is the only auto column and
+                          needs >= 160px to show a name, so min-w must clear fixed-sum + 160 in EVERY band:
+                            base (<md):                576             -> min-w 740    (Patient 164)
+                            md   (+ Order ID 144):     720 + 160 = 880 -> md:min-w 880 (Patient 160)
+                            lg   (+ Patient ID 128):   848 + 160 = 1008 -> lg:min-w 1010 (Patient 162)
+                          At the old flat min-w 720 the fixed columns met the table width exactly at md
+                          (Patient 0px) and overran it at lg, so the patient name vanished.
+                          The card's overflow-x-auto scrolls the surplus; the page never does.
+                        */}
+                        <table className="w-full min-w-[740px] table-fixed text-left text-[13px] md:min-w-[880px] lg:min-w-[1010px]">
+                            <caption className="sr-only">Paid bills</caption>
+                            <thead>
+                                <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
+                                    <th scope="col" className="w-36 py-2 pl-4 pr-3 font-medium">
+                                        Bill ID
+                                    </th>
+                                    <th scope="col" className="hidden w-36 px-3 py-2 font-medium md:table-cell">
+                                        Order ID
+                                    </th>
+                                    <th scope="col" className="hidden w-32 px-3 py-2 font-medium lg:table-cell">
+                                        Patient ID
+                                    </th>
+                                    <th scope="col" className="px-3 py-2 font-medium">
+                                        Patient
+                                    </th>
+                                    <th scope="col" className="w-36 px-3 py-2 font-medium">
+                                        Paid on
+                                    </th>
+                                    <th scope="col" className="w-24 px-3 py-2 font-medium">
+                                        Status
+                                    </th>
+                                    <th scope="col" className="w-36 px-3 py-2 text-right font-medium">
+                                        Total
+                                    </th>
+                                    <th scope="col" className="w-12 py-2 pl-2 pr-3">
+                                        <span className="sr-only">Actions</span>
+                                    </th>
                                 </tr>
-                            ) : (
-                                paginated.map((bill) => (
-                                    <tr
-                                        key={bill.id}
-                                        className="border-b border-slate-50 last:border-0 hover:bg-slate-50/50 transition-colors"
-                                    >
-                                        <td className="px-5 py-3 font-semibold text-primary">
-                                            {bill.billId}
-                                        </td>
-                                        <td className="px-4 py-3 text-slate-500">
-                                            {bill.orderId}
-                                        </td>
-                                        <td className="px-4 py-3 text-slate-500">
-                                            {bill.patientId}
-                                        </td>
-                                        <td className="px-4 py-3">
-                                            <p className="font-medium text-slate-700">
-                                                {bill.patientName}
-                                            </p>
-                                        </td>
-                                        <td className="px-4 py-3 text-slate-500">
-                                            {formatDateTime((bill.payments && bill.payments.length > 0
-                                                ? bill.payments[bill.payments.length - 1].date || (bill.payments[bill.payments.length - 1] as any).paymentDate || (bill.payments[bill.payments.length - 1] as any).createdAt || bill.billDate
-                                                : bill.billDate) as unknown as string)}
-                                        </td>
-                                        <td className="px-4 py-3 text-right font-semibold text-slate-700">
-                                            {formatCurrency(bill.totalAmount)}
-                                        </td>
-                                        <td className="px-4 py-3 text-right">
-                                            <div className="flex items-center justify-end gap-1">
-                                                <button
-                                                    onClick={() =>
-                                                        router.push(
-                                                            `/orders-billing/bills/${bill.id}`
-                                                        )
-                                                    }
-                                                    className="p-1.5 rounded-lg hover:bg-slate-100 transition-colors"
-                                                    title="View Bill"
+                            </thead>
+                            <tbody className="divide-y divide-edge whitespace-nowrap">
+                                {paginated.map((bill) => {
+                                    const paidAtRaw = getBillDateTime(bill);
+                                    const paidAt = new Date(paidAtRaw);
+                                    const paidAtValid = !Number.isNaN(paidAt.getTime());
+                                    return (
+                                        <tr key={bill.id} className="transition-colors hover:bg-surface-hover">
+                                            <td className="py-2 pl-4 pr-3 font-mono text-xs">
+                                                <Link
+                                                    href={`/orders-billing/bills/${bill.id}`}
+                                                    title={bill.billId || undefined}
+                                                    className="inline-block max-w-full truncate rounded align-middle font-medium text-primary-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-surface"
                                                 >
-                                                    <span className="material-icons text-lg text-primary">
-                                                        visibility
-                                                    </span>
-                                                </button>
-                                                {/* Record Payment row action removed */}
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))
-                            )}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+                                                    {bill.billId}
+                                                </Link>
+                                            </td>
+                                            <td className="hidden truncate px-3 py-2 font-mono text-xs text-fg-muted md:table-cell" title={bill.orderId || undefined}>
+                                                {bill.orderId || '—'}
+                                            </td>
+                                            <td className="hidden truncate px-3 py-2 font-mono text-xs text-fg-muted lg:table-cell" title={bill.patientId || undefined}>
+                                                {bill.patientId || '—'}
+                                            </td>
+                                            <td className="truncate px-3 py-2 font-medium text-fg" title={bill.patientName || undefined}>
+                                                {bill.patientName || '—'}
+                                            </td>
+                                            <td className="px-3 py-2 tabular-nums text-fg-secondary">
+                                                {paidAtValid ? (
+                                                    <time dateTime={paidAt.toISOString()} title={formatDateTime(paidAtRaw)}>
+                                                        {formatRegistered(paidAt)}
+                                                    </time>
+                                                ) : (
+                                                    <span className="text-fg-faint">—</span>
+                                                )}
+                                            </td>
+                                            <td className="px-3 py-2">
+                                                <StatusBadge status={bill.paymentStatus} />
+                                            </td>
+                                            <td className="px-3 py-2 text-right font-medium tabular-nums text-fg">
+                                                {formatCurrency(bill.totalAmount)}
+                                            </td>
+                                            <td className="py-2 pl-2 pr-3 text-right">
+                                                <Button
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    icon={Eye}
+                                                    aria-label={`View bill ${bill.billId}`}
+                                                    title="View bill"
+                                                    onClick={() => router.push(`/orders-billing/bills/${bill.id}`)}
+                                                />
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
 
-            {/* Pagination */}
-            <div className="flex items-center justify-between text-sm text-slate-500">
-                <p>
-                    Showing{' '}
-                    {filtered.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1} to{' '}
-                    {Math.min(currentPage * PAGE_SIZE, filtered.length)} of{' '}
-                    {filtered.length}
-                </p>
-                <div className="flex items-center gap-2">
-                    <button
-                        disabled={currentPage === 1}
-                        onClick={() => setCurrentPage((p) => p - 1)}
-                        className="flex items-center gap-1 px-3 py-1.5 border border-slate-200 rounded-lg text-sm font-medium hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                    >
-                        <span className="material-icons text-base">chevron_left</span>
-                        Previous
-                    </button>
-                    {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-                        <button
-                            key={page}
-                            onClick={() => setCurrentPage(page)}
-                            className={`w-8 h-8 rounded-lg text-sm font-bold transition-colors ${currentPage === page
-                                ? 'bg-primary text-white shadow-sm'
-                                : 'border border-slate-200 hover:bg-slate-50 text-slate-600'
-                                }`}
-                        >
-                            {page}
-                        </button>
-                    ))}
-                    <button
-                        disabled={currentPage === totalPages}
-                        onClick={() => setCurrentPage((p) => p + 1)}
-                        className="flex items-center gap-1 px-3 py-1.5 border border-slate-200 rounded-lg text-sm font-medium hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                    >
-                        Next
-                        <span className="material-icons text-base">chevron_right</span>
-                    </button>
-                </div>
-            </div>
+                {/* Footer: paging */}
+                {!loading && !error && filtered.length > 0 && (
+                    <Pagination
+                        currentPage={currentPage}
+                        totalPages={totalPages}
+                        totalItems={filtered.length}
+                        pageSize={PAGE_SIZE}
+                        onPageChange={setCurrentPage}
+                        itemLabel="bills"
+                    />
+                )}
+            </SectionCard>
         </div>
     );
 }

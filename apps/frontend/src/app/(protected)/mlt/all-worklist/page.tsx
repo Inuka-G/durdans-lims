@@ -3,25 +3,46 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AxiosError } from 'axios';
-import {
-    getInstruments,
-    getMltAllWorklist,
-    type InstrumentStatusItem,
-    type MltAllWorklistItem,
-} from '@/lib/api';
-import {
-    INSTRUMENT_STATUS_CONFIG,
-    PRIORITY_COLORS,
-    SAMPLE_STATUS_COLORS,
-    formatStatusLabel,
-} from '@/constants/sample-lifecycle';
+import { AlertTriangle, Eye, History, Layers, RefreshCw, SearchX, X } from 'lucide-react';
+import { getMltAllWorklist, type MltAllWorklistItem } from '@/lib/api';
+import Button from '@/components/ui/Button';
+import PageHeader from '@/components/ui/PageHeader';
+import { InputField, SelectField } from '@/components/ui/Field';
+import SectionCard from '@/components/ui/SectionCard';
+import EmptyState from '@/components/ui/EmptyState';
+import Pagination from '@/components/ui/Pagination';
+import StatusChip, { humanizeStatus, toneForStatus, type ChipTone } from '@/components/ui/StatusChip';
+import PriorityBadge from '@/components/shared/PriorityBadge';
 
 const PAGE_SIZE = 8;
+const SKELETON_ROWS = 6;
+
+/** Option values stay unchanged so the filter logic keeps matching; only the label is sentence case. */
+const OPTION_LABELS: Record<string, string> = {
+    'All Departments': 'All departments',
+    'All Test Types': 'All test types',
+};
+
+/** Lab-side sample statuses that STATUS_TONE does not cover yet are mapped to a chip tone here. */
+const MLT_STATUS_TONE: Record<string, ChipTone> = {
+    PENDING_COLLECTION: 'neutral',
+    RECOLLECTION_REQUIRED: 'pending',
+    RECEIVED_AT_LAB: 'neutral',
+    QUALITY_CHECK: 'pending',
+    ACCEPTED: 'success',
+    IN_TESTING: 'pending',
+    RESULT_ENTERED: 'info',
+    SENT_FOR_VERIFICATION: 'info',
+};
+
+function sampleStatusTone(status: string): ChipTone {
+    const key = (status || '').toUpperCase();
+    return MLT_STATUS_TONE[key] ?? toneForStatus(key);
+}
 
 export default function MLTAllWorklistPage() {
     const router = useRouter();
     const [samples, setSamples] = useState<MltAllWorklistItem[]>([]);
-    const [instruments, setInstruments] = useState<InstrumentStatusItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
@@ -34,23 +55,10 @@ export default function MLTAllWorklistPage() {
         setError(null);
 
         try {
-            const [samplesResult, instrumentsResult] = await Promise.allSettled([
-                getMltAllWorklist(),
-                getInstruments(),
-            ]);
-
-            if (samplesResult.status === 'rejected') {
-                throw samplesResult.reason;
-            }
-
-            setSamples(samplesResult.value);
-
-            if (instrumentsResult.status === 'fulfilled') {
-                setInstruments(instrumentsResult.value);
-            }
+            setSamples(await getMltAllWorklist());
         } catch (err) {
             console.error('Failed to load all MLT worklist items', err);
-            setError(getApiErrorMessage(err, 'Failed to load the all-worklist view. Please try again.'));
+            setError(getApiErrorMessage(err, "Couldn't load the all-worklist view. Check your connection and retry."));
         } finally {
             setLoading(false);
         }
@@ -100,224 +108,292 @@ export default function MLTAllWorklistPage() {
         }
     }, [currentPage, totalPages]);
 
+    const hasFilters =
+        searchQuery.trim().length > 0 || department !== 'All Departments' || testType !== 'All Test Types';
+
+    const clearFilters = () => {
+        setSearchQuery('');
+        setDepartment('All Departments');
+        setTestType('All Test Types');
+        setCurrentPage(1);
+    };
+
+    // "Showing 12 samples in Haematology — Lipid profile" for the live region and card meta.
+    // The dash stays attached to the test part so "12 samples — Lipid profile" keeps its
+    // connector when no department is selected.
+    const scopeLabel = [
+        department !== 'All Departments' ? `in ${department}` : null,
+        testType !== 'All Test Types' ? `— ${testType}` : null,
+    ]
+        .filter(Boolean)
+        .join(' ');
+
     return (
-        <div>
-            <div className="mb-6">
-                <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">Laboratory / Worklist</p>
-                <h1 className="text-2xl font-bold text-slate-800 mt-0.5">All Worklist</h1>
-            </div>
+        <div className="mx-auto max-w-[1400px]">
+            <PageHeader
+                title="All worklist"
+                crumbs={[{ label: 'Laboratory' }, { label: 'Worklist' }]}
+                meta={
+                    <>
+                        <Layers className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                        <span>Cross-department view</span>
+                        <span aria-hidden="true">·</span>
+                        <span>Read-only</span>
+                        {!loading && !error && (
+                            <>
+                                <span aria-hidden="true">·</span>
+                                <span className="tabular-nums">
+                                    {filtered.length} {filtered.length === 1 ? 'sample' : 'samples'}
+                                    {scopeLabel ? ` ${scopeLabel}` : ''}
+                                </span>
+                            </>
+                        )}
+                    </>
+                }
+                actions={
+                    <Button icon={RefreshCw} onClick={() => void loadSamples()} loading={loading}>
+                        Refresh
+                    </Button>
+                }
+            />
 
-            {error && (
-                <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                    {error}
+            {/* Screen-reader status for async changes */}
+            <p role="status" aria-live="polite" className="sr-only">
+                {loading
+                    ? 'Loading all-worklist samples'
+                    : error
+                      ? 'All-worklist view failed to load'
+                      : `All-worklist loaded. Showing ${paginated.length} of ${filtered.length} samples${
+                            scopeLabel ? ` ${scopeLabel}` : ''
+                        }${totalPages > 1 ? `, page ${currentPage} of ${totalPages}` : ''}.`}
+            </p>
+
+            <SectionCard title="Samples" count={loading || error ? undefined : filtered.length} flush>
+                {/* Filter toolbar */}
+                <div className="flex flex-wrap items-center gap-2 border-b border-edge bg-surface-muted px-3 py-2">
+                    <InputField
+                        label="Search all worklist"
+                        hideLabel
+                        type="search"
+                        value={searchQuery}
+                        onChange={(event) => {
+                            setSearchQuery(event.target.value);
+                            setCurrentPage(1);
+                        }}
+                        placeholder="Search sample ID, patient, patient ID or order"
+                        autoComplete="off"
+                        className="min-w-[200px] flex-1"
+                    />
+                    <SelectField
+                        label="Department"
+                        hideLabel
+                        value={department}
+                        onChange={(event) => {
+                            setDepartment(event.target.value);
+                            setCurrentPage(1);
+                        }}
+                        className="w-full sm:w-44"
+                    >
+                        {departments.map((item) => (
+                            <option key={item} value={item}>
+                                {OPTION_LABELS[item] ?? item}
+                            </option>
+                        ))}
+                    </SelectField>
+                    <SelectField
+                        label="Test type"
+                        hideLabel
+                        value={testType}
+                        onChange={(event) => {
+                            setTestType(event.target.value);
+                            setCurrentPage(1);
+                        }}
+                        className="w-full sm:w-56"
+                    >
+                        {testTypes.map((item) => (
+                            <option key={item} value={item}>
+                                {OPTION_LABELS[item] ?? item}
+                            </option>
+                        ))}
+                    </SelectField>
+                    {hasFilters && (
+                        <Button variant="ghost" icon={X} onClick={clearFilters}>
+                            Clear filters
+                        </Button>
+                    )}
                 </div>
-            )}
 
-            <div className="bg-blue-50 border border-blue-100 rounded-2xl px-5 py-3 flex items-center justify-between mb-6">
-                <p className="text-sm text-blue-700 font-medium">
-                    Showing <span className="font-bold">{filtered.length}</span> samples
-                    {department !== 'All Departments' && ` in ${department}`}
-                    {testType !== 'All Test Types' && ` — ${testType}`}
-                </p>
-                <p className="text-xs text-blue-500">Cross-department view — read-only</p>
-            </div>
-
-            <div className="flex gap-5">
-                <div className="flex-1 min-w-0 bg-white rounded-2xl shadow-sm border border-slate-200/60">
-                    <div className="p-4 border-b border-slate-100">
-                        <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
-                            <div className="relative flex-1">
-                                <span className="material-icons absolute left-3 top-1/2 -translate-y-1/2 text-lg text-slate-400">search</span>
-                                <input
-                                    type="text"
-                                    placeholder="Search sample ID, patient, patient ID, or order..."
-                                    className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-                                    value={searchQuery}
-                                    onChange={(event) => {
-                                        setSearchQuery(event.target.value);
-                                        setCurrentPage(1);
-                                    }}
-                                />
-                            </div>
-                            <select
-                                className="border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
-                                value={department}
-                                onChange={(event) => {
-                                    setDepartment(event.target.value);
-                                    setCurrentPage(1);
-                                }}
-                            >
-                                {departments.map((item) => (
-                                    <option key={item} value={item}>
-                                        {item}
-                                    </option>
-                                ))}
-                            </select>
-                            <select
-                                className="border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
-                                value={testType}
-                                onChange={(event) => {
-                                    setTestType(event.target.value);
-                                    setCurrentPage(1);
-                                }}
-                            >
-                                {testTypes.map((item) => (
-                                    <option key={item} value={item}>
-                                        {item}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
+                {/* Refresh failed but the last successful load is still on screen: keep the rows,
+                    surface the failure as a compact strip instead of replacing the table. */}
+                {!loading && error && samples.length > 0 && (
+                    <div className="flex items-center gap-2 bg-status-danger-bg px-4 py-2 text-xs text-status-danger-fg ring-1 ring-inset ring-status-danger-edge">
+                        <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                        <span className="min-w-0 flex-1 truncate" title={error}>
+                            {error}
+                        </span>
+                        <Button size="sm" variant="ghost" icon={RefreshCw} onClick={() => void loadSamples()}>
+                            Retry
+                        </Button>
                     </div>
+                )}
 
-                    {loading ? (
-                        <div className="py-16 text-center">
-                            <div className="inline-block h-8 w-8 animate-spin rounded-full border-2 border-slate-200 border-t-primary" />
-                            <p className="mt-3 text-sm text-slate-500">Loading all-worklist samples...</p>
-                        </div>
+                {/* States live outside the table so they centre on small screens */}
+                {loading ? (
+                    <ul aria-hidden="true" className="divide-y divide-edge">
+                        {Array.from({ length: SKELETON_ROWS }).map((_, i) => (
+                            <li key={i} className="flex items-center gap-3 px-4 py-3">
+                                <span className="h-3.5 w-28 shrink-0 rounded bg-skeleton" />
+                                <span className="flex w-44 shrink-0 flex-col gap-1.5">
+                                    <span className="h-3.5 w-32 rounded bg-skeleton" />
+                                    <span className="h-3 w-20 rounded bg-skeleton" />
+                                </span>
+                                <span className="hidden w-40 flex-col gap-1.5 md:flex">
+                                    <span className="h-3.5 w-36 rounded bg-skeleton" />
+                                    <span className="h-3 w-24 rounded bg-skeleton" />
+                                </span>
+                                <span className="h-4 w-14 rounded bg-skeleton" />
+                                <span className="h-4 w-20 rounded bg-skeleton" />
+                                <span className="ml-auto flex gap-2">
+                                    <span className="h-7 w-16 rounded bg-skeleton" />
+                                    <span className="h-7 w-20 rounded bg-skeleton" />
+                                </span>
+                            </li>
+                        ))}
+                    </ul>
+                ) : error && samples.length === 0 ? (
+                    <EmptyState
+                        icon={AlertTriangle}
+                        title="All-worklist unavailable"
+                        description={error}
+                        action={
+                            <Button size="sm" icon={RefreshCw} onClick={() => void loadSamples()}>
+                                Retry
+                            </Button>
+                        }
+                    />
+                ) : filtered.length === 0 ? (
+                    samples.length === 0 ? (
+                        <EmptyState
+                            icon={Layers}
+                            title="No samples yet"
+                            description="Samples from every department will be listed here as they move through the lab."
+                        />
                     ) : (
-                        <>
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-sm">
-                                    <thead>
-                                        <tr className="text-left text-xs font-bold text-slate-400 uppercase tracking-wider">
-                                            <th className="px-5 py-3 border-b border-slate-100 bg-slate-50/50">Sample ID</th>
-                                            <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Patient Details</th>
-                                            <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Test Type</th>
-                                            <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Priority</th>
-                                            <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Status</th>
-                                            <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50 text-right">Action</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {paginated.length === 0 ? (
-                                            <tr>
-                                                <td colSpan={6} className="text-center py-12 text-slate-400">
-                                                    {samples.length === 0
-                                                        ? 'No samples are currently available in the all-worklist view.'
-                                                        : 'No samples match your filters.'}
-                                                </td>
-                                            </tr>
-                                        ) : (
-                                            paginated.map((sample) => (
-                                                <tr
-                                                    key={sample.sampleId}
-                                                    className="border-b border-slate-50 last:border-0 hover:bg-slate-50/50 transition-colors"
+                        <EmptyState
+                            icon={SearchX}
+                            title="No samples match"
+                            description="Try a different search term, department or test type."
+                            action={
+                                <Button size="sm" icon={X} onClick={clearFilters}>
+                                    Clear filters
+                                </Button>
+                            }
+                        />
+                    )
+                ) : (
+                    <>
+                        <div className="overflow-x-auto">
+                            {/* table-fixed budget: 144 (Sample ID) + 192 (Patient) + 96 (Priority)
+                                + 192 (Status) + 192 (Actions) = 816px of fixed columns. The auto
+                                "Test type" column takes whatever is left, so min-w must stay at
+                                816 + 160 (text-column floor) = 976 or the column collapses. */}
+                            <table className="w-full min-w-[980px] table-fixed text-left text-[13px]">
+                                <caption className="sr-only">Samples across all departments</caption>
+                                <thead>
+                                    <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
+                                        <th scope="col" className="w-36 py-2 pl-4 pr-3 font-medium">
+                                            Sample ID
+                                        </th>
+                                        <th scope="col" className="w-48 px-3 py-2 font-medium">
+                                            Patient
+                                        </th>
+                                        <th scope="col" className="px-3 py-2 font-medium">
+                                            Test type
+                                        </th>
+                                        <th scope="col" className="w-24 px-3 py-2 font-medium">
+                                            Priority
+                                        </th>
+                                        <th scope="col" className="w-48 px-3 py-2 font-medium">
+                                            Status
+                                        </th>
+                                        <th scope="col" className="w-48 py-2 pl-2 pr-3 text-right font-medium">
+                                            <span className="sr-only">Actions</span>
+                                        </th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-edge whitespace-nowrap">
+                                    {paginated.map((sample) => (
+                                        <tr key={sample.sampleId} className="transition-colors hover:bg-surface-hover">
+                                            <td className="truncate py-2 pl-4 pr-3 font-mono text-xs font-medium tabular-nums text-primary-strong" title={sample.barcode}>
+                                                {sample.barcode}
+                                            </td>
+                                            <td className="min-w-0 px-3 py-2">
+                                                <p className="truncate font-medium text-fg" title={sample.patientName}>
+                                                    {sample.patientName}
+                                                </p>
+                                                <p className="truncate text-xs tabular-nums text-fg-muted" title={sample.patientId}>
+                                                    {sample.patientId}
+                                                </p>
+                                            </td>
+                                            <td className="min-w-0 px-3 py-2">
+                                                <p className="truncate text-fg-secondary" title={sample.testName}>
+                                                    {sample.testName}
+                                                </p>
+                                                <p className="truncate text-xs text-fg-muted" title={sample.department}>
+                                                    {sample.department}
+                                                </p>
+                                            </td>
+                                            <td className="px-3 py-2">
+                                                <PriorityBadge priority={sample.priority} />
+                                            </td>
+                                            <td className="px-3 py-2">
+                                                <StatusChip
+                                                    tone={sampleStatusTone(sample.status)}
+                                                    dot
+                                                    title={humanizeStatus(sample.status || '—')}
                                                 >
-                                                    <td className="px-5 py-3 font-semibold text-primary">{sample.barcode}</td>
-                                                    <td className="px-4 py-3">
-                                                        <p className="font-medium text-slate-700">{sample.patientName}</p>
-                                                        <p className="text-xs text-slate-400">{sample.patientId}</p>
-                                                    </td>
-                                                    <td className="px-4 py-3">
-                                                        <p className="text-slate-700">{sample.testName}</p>
-                                                        <p className="text-[10px] text-slate-400">{sample.department}</p>
-                                                    </td>
-                                                    <td className="px-4 py-3">
-                                                        <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold ${
-                                                            PRIORITY_COLORS[sample.priority as keyof typeof PRIORITY_COLORS] ??
-                                                            'bg-slate-100 text-slate-600'
-                                                        }`}>
-                                                            {formatStatusLabel(sample.priority)}
-                                                        </span>
-                                                    </td>
-                                                    <td className="px-4 py-3">
-                                                        <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold ${
-                                                            SAMPLE_STATUS_COLORS[sample.status] ?? 'bg-slate-100 text-slate-600'
-                                                        }`}>
-                                                            {formatStatusLabel(sample.status)}
-                                                        </span>
-                                                    </td>
-                                                    <td className="px-4 py-3 text-right">
-                                                        <div className="flex justify-end gap-2">
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => router.push(`/mlt/result-entry?sampleId=${sample.sampleId}`)}
-                                                                className="px-3 py-1.5 border border-slate-200 text-slate-600 text-xs font-bold rounded-lg hover:bg-slate-50 transition-colors"
-                                                            >
-                                                                <span className="material-icons text-sm mr-1 align-middle">visibility</span>
-                                                                View
-                                                            </button>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => router.push(`/mlt/result-entry?sampleId=${sample.sampleId}&tab=history`)}
-                                                                className="px-3 py-1.5 bg-slate-800 text-white text-xs font-bold rounded-lg hover:bg-slate-700 transition-colors"
-                                                            >
-                                                                <span className="material-icons text-sm mr-1 align-middle">history</span>
-                                                                History
-                                                            </button>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            ))
-                                        )}
-                                    </tbody>
-                                </table>
-                            </div>
-
-                            <div className="flex items-center justify-between px-5 py-3 border-t border-slate-100 text-sm text-slate-500">
-                                <p>
-                                    Showing {filtered.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1} to{' '}
-                                    {Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length}
-                                </p>
-                                <div className="flex items-center gap-2">
-                                    <button
-                                        disabled={currentPage === 1}
-                                        onClick={() => setCurrentPage((page) => page - 1)}
-                                        className="flex items-center gap-1 px-3 py-1.5 border border-slate-200 rounded-lg text-sm font-medium hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                                    >
-                                        <span className="material-icons text-base">chevron_left</span>
-                                        Prev
-                                    </button>
-                                    {Array.from({ length: totalPages }, (_, index) => index + 1).map((page) => (
-                                        <button
-                                            key={page}
-                                            onClick={() => setCurrentPage(page)}
-                                            className={`w-8 h-8 rounded-lg text-sm font-bold transition-colors ${
-                                                currentPage === page
-                                                    ? 'bg-primary text-white shadow-sm'
-                                                    : 'border border-slate-200 hover:bg-slate-50 text-slate-600'
-                                            }`}
-                                        >
-                                            {page}
-                                        </button>
+                                                    {humanizeStatus(sample.status || '—')}
+                                                </StatusChip>
+                                            </td>
+                                            <td className="py-2 pl-2 pr-3 text-right">
+                                                <div className="flex justify-end gap-1.5">
+                                                    <Button
+                                                        size="sm"
+                                                        variant="ghost"
+                                                        icon={Eye}
+                                                        onClick={() => router.push(`/mlt/result-entry?sampleId=${sample.sampleId}`)}
+                                                        aria-label={`View ${sample.barcode}`}
+                                                    >
+                                                        View
+                                                    </Button>
+                                                    <Button
+                                                        size="sm"
+                                                        variant="secondary"
+                                                        icon={History}
+                                                        onClick={() => router.push(`/mlt/result-entry?sampleId=${sample.sampleId}&tab=history`)}
+                                                        aria-label={`History for ${sample.barcode}`}
+                                                    >
+                                                        History
+                                                    </Button>
+                                                </div>
+                                            </td>
+                                        </tr>
                                     ))}
-                                    <button
-                                        disabled={currentPage === totalPages}
-                                        onClick={() => setCurrentPage((page) => page + 1)}
-                                        className="flex items-center gap-1 px-3 py-1.5 border border-slate-200 rounded-lg text-sm font-medium hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                                    >
-                                        Next
-                                        <span className="material-icons text-base">chevron_right</span>
-                                    </button>
-                                </div>
-                            </div>
-                        </>
-                    )}
-                </div>
-
-                <div className="w-48 flex-shrink-0 space-y-3 hidden xl:block">
-                    <p className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider px-1">Instruments</p>
-                    {instruments.length === 0 && (
-                        <div className="bg-white rounded-xl border border-slate-200/60 p-3 shadow-sm">
-                            <p className="text-xs font-semibold text-slate-500">No instruments available</p>
+                                </tbody>
+                            </table>
                         </div>
-                    )}
-                    {instruments.map((instrument) => {
-                        const config = INSTRUMENT_STATUS_CONFIG[instrument.status];
-                        return (
-                            <div key={instrument.id} className="bg-white rounded-xl border border-slate-200/60 p-3 shadow-sm">
-                                <div className="flex items-center gap-2 mb-1.5">
-                                    <span className={`w-2 h-2 rounded-full ${config.dot}`} />
-                                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${config.badge}`}>{config.label}</span>
-                                </div>
-                                <p className="text-xs font-semibold text-slate-700 truncate">{instrument.name}</p>
-                                <p className="text-[10px] text-slate-400">{instrument.testsToday} tests today</p>
-                            </div>
-                        );
-                    })}
-                </div>
-            </div>
+
+                        <Pagination
+                            currentPage={currentPage}
+                            totalPages={totalPages}
+                            totalItems={filtered.length}
+                            pageSize={PAGE_SIZE}
+                            onPageChange={setCurrentPage}
+                            itemLabel="samples"
+                        />
+                    </>
+                )}
+            </SectionCard>
         </div>
     );
 }

@@ -124,13 +124,55 @@ resource "aws_ecr_lifecycle_policy" "this" {
 # users. A production realm must be imported from Secrets Manager instead —
 # see SECURITY.md.
 # ---------------------------------------------------------------------------
+locals {
+  keycloak_realm_seed = jsonencode(merge(
+    jsondecode(file("${path.module}/../keycloak-imports/lims-dev-seed.json")),
+    {
+      # An IP-only demo has no certificate yet. A domain-enabled replacement
+      # returns to Keycloak's external-HTTPS requirement automatically.
+      sslRequired = var.domain_name == "" ? "none" : "external"
+    }
+  ))
+}
+
 resource "aws_s3_object" "keycloak_realm_seed" {
-  bucket = aws_s3_bucket.patient_docs.id
-  key    = "bootstrap/lims-dev-seed.json"
-  source = "${path.module}/../keycloak-imports/lims-dev-seed.json"
-  etag   = filemd5("${path.module}/../keycloak-imports/lims-dev-seed.json")
+  bucket  = aws_s3_bucket.patient_docs.id
+  key     = "bootstrap/lims-dev-seed.json"
+  content = local.keycloak_realm_seed
+  etag    = md5(local.keycloak_realm_seed)
 
   # Prevents a stale realm from being served if the file changes but the
   # object is cached by the CLI.
   cache_control = "no-cache"
 }
+
+# The host fetches this immutable deployment helper during bootstrap. Keeping it
+# in S3 avoids inflating EC2 user_data and gives CI one audited entry point for
+# health verification and rollback.
+resource "aws_s3_object" "deploy_service_script" {
+  bucket = aws_s3_bucket.patient_docs.id
+  key    = "bootstrap/deploy-service.sh"
+  source = "${path.module}/../scripts/deploy-service.sh"
+  etag   = filemd5("${path.module}/../scripts/deploy-service.sh")
+
+  cache_control = "no-cache"
+}
+
+resource "aws_s3_object" "keycloak_theme_login_ftl" {
+  bucket = aws_s3_bucket.patient_docs.id
+  key    = "bootstrap/keycloak-themes/lims-theme/login/login.ftl"
+  source = "${path.module}/../keycloak-themes/lims-theme/login/login.ftl"
+  etag   = filemd5("${path.module}/../keycloak-themes/lims-theme/login/login.ftl")
+
+  cache_control = "no-cache"
+}
+
+resource "aws_s3_object" "keycloak_theme_properties" {
+  bucket = aws_s3_bucket.patient_docs.id
+  key    = "bootstrap/keycloak-themes/lims-theme/login/theme.properties"
+  source = "${path.module}/../keycloak-themes/lims-theme/login/theme.properties"
+  etag   = filemd5("${path.module}/../keycloak-themes/lims-theme/login/theme.properties")
+
+  cache_control = "no-cache"
+}
+

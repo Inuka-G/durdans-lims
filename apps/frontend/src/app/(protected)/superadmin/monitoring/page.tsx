@@ -1,6 +1,17 @@
 "use client";
 
-import DemoDataBanner from '@/components/shared/DemoDataBanner';
+import type { LucideIcon } from "lucide-react";
+import {
+    AlertTriangle,
+    Cpu,
+    FileText,
+    HardDrive,
+    History,
+    MemoryStick,
+    Server,
+    ShieldAlert,
+    Terminal,
+} from "lucide-react";
 import {
     AreaChart,
     Area,
@@ -8,8 +19,15 @@ import {
     YAxis,
     Tooltip,
     ResponsiveContainer,
-    CartesianGrid
+    CartesianGrid,
 } from "recharts";
+import DemoDataBanner from "@/components/shared/DemoDataBanner";
+import PageHeader from "@/components/ui/PageHeader";
+import SectionCard from "@/components/ui/SectionCard";
+import StatusChip, { type ChipTone } from "@/components/ui/StatusChip";
+import Button from "@/components/ui/Button";
+import EmptyState from "@/components/ui/EmptyState";
+import { cn } from "@/lib/utils";
 
 // Mock Data
 const kafkaStreamData = [
@@ -28,274 +46,251 @@ const kafkaStreamData = [
     { time: "Now", value: 850 },
 ];
 
+const services: { name: string; state: string; tone: ChipTone }[] = [
+    { name: "API backend", state: "Online", tone: "success" },
+    { name: "Auth server", state: "Online", tone: "success" },
+    { name: "Kafka broker", state: "Online", tone: "success" },
+    { name: "Notification hub", state: "Degraded", tone: "danger" },
+    { name: "ELK stack", state: "Online", tone: "success" },
+];
+
+const CHART_TICK = { fontSize: 11, fill: "var(--fg-muted)" };
+
+/**
+ * MeterTile — KpiTile anatomy (icon + label → value → context) with a
+ * utilisation bar between value and context. KpiTile has no meter slot, so
+ * this is composed locally from the same token classes.
+ */
+function MeterTile({
+    label,
+    value,
+    icon: Icon,
+    percent,
+    tone = "neutral",
+    detail,
+}: {
+    label: string;
+    value: string;
+    icon: LucideIcon;
+    percent: number;
+    tone?: "neutral" | "warning" | "danger";
+    detail: string;
+}) {
+    const clamped = Math.max(0, Math.min(100, percent));
+    const bar = tone === "danger" ? "bg-status-danger" : tone === "warning" ? "bg-status-pending" : "bg-primary";
+    return (
+        <div className="rounded-lg border border-edge bg-surface px-4 py-3.5">
+            <span className="flex items-center gap-2 text-xs font-medium text-fg-muted">
+                <Icon className="h-4 w-4 shrink-0 text-fg-faint" aria-hidden="true" />
+                <span className="truncate">{label}</span>
+            </span>
+            <span className="mt-1.5 block text-[26px] font-semibold leading-none tabular-nums text-fg">{value}</span>
+            <div
+                role="progressbar"
+                aria-label={label}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={clamped}
+                aria-valuetext={value}
+                className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-surface-hover"
+            >
+                <div className={cn("h-full rounded-full", bar)} style={{ width: `${clamped}%` }} />
+            </div>
+            <span className="mt-2 block text-xs leading-4 tabular-nums text-fg-muted">{detail}</span>
+        </div>
+    );
+}
+
 export default function SystemMonitoringPage() {
     return (
-        <div className="max-w-[1600px] mx-auto w-full font-sans text-slate-900 min-h-screen flex flex-col xl:flex-row xl:flex-wrap gap-6">
-            <div className="basis-full"><DemoDataBanner /></div>
+        <div className="mx-auto w-full max-w-[1400px]">
+            <PageHeader
+                crumbs={[{ label: "Super admin", href: "/superadmin" }, { label: "System monitoring" }]}
+                title="System monitoring"
+                meta={
+                    <>
+                        <Server className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                        <span>Server health status</span>
+                        <span aria-hidden="true">·</span>
+                        <span>Updated just now</span>
+                    </>
+                }
+            />
 
-            {/* Main Content Area */}
-            <div className="flex-1 flex flex-col gap-6">
+            <DemoDataBanner />
 
-                {/* Server Health Status Header */}
-                <div className="flex items-center justify-between mt-2">
-                    <div className="flex items-center gap-2 text-slate-500 font-bold text-xs uppercase tracking-widest">
-                        <span className="material-icons text-sm">dns</span>
-                        Server Health Status
-                    </div>
-                    <span className="text-xs font-semibold text-slate-400">Updated: Just Now</span>
-                </div>
-
-                {/* KPI Metrics Row */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-
-                    {/* CPU Usage */}
-                    <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm flex flex-col justify-between">
-                        <div className="flex justify-between items-end mb-4">
-                            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">CPU Usage</h3>
-                            <span className="text-xl font-extrabold text-blue-500">42.8%</span>
-                        </div>
-                        <div className="mb-3">
-                            <div className="w-full bg-slate-100 rounded-full h-2">
-                                <div className="bg-blue-500 h-2 rounded-full" style={{ width: '42.8%' }}></div>
-                            </div>
-                        </div>
-                        <div className="flex justify-between text-[10px] font-bold text-slate-400">
-                            <span>Core 01: 38%</span>
-                            <span>Core 02: 48%</span>
-                        </div>
-                    </div>
-
-                    {/* Memory Utilization */}
-                    <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm flex flex-col justify-between">
-                        <div className="flex justify-between items-end mb-4">
-                            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Memory Utilization</h3>
-                            <span className="text-xl font-extrabold text-indigo-500">12.4 GB</span>
-                        </div>
-                        <div className="mb-3">
-                            <div className="w-full bg-slate-100 rounded-full h-2">
-                                <div className="bg-indigo-500 h-2 rounded-full" style={{ width: '75%' }}></div>
-                            </div>
-                        </div>
-                        <div className="flex justify-between text-[10px] font-bold text-slate-400">
-                            <span>Used: 12.4GB</span>
-                            <span>Free: 4.2GB</span>
-                        </div>
-                    </div>
-
-                    {/* Disk I/O */}
-                    <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm flex flex-col justify-between">
-                        <div className="flex justify-between items-end mb-4">
-                            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Disk I/O</h3>
-                            <span className="text-xl font-extrabold text-emerald-500">125 MB/s</span>
-                        </div>
-                        <div className="mb-3">
-                            <div className="w-full bg-slate-100 rounded-full h-2">
-                                <div className="bg-emerald-500 h-2 rounded-full" style={{ width: '40%' }}></div>
-                            </div>
-                        </div>
-                        <div className="flex justify-between text-[10px] font-bold text-slate-400">
-                            <span>Reads: 85MB/s</span>
-                            <span>Writes: 40MB/s</span>
-                        </div>
-                    </div>
-
-                </div>
-
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-                    {/* Kafka Event Stream Chart */}
-                    <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 p-6 shadow-sm flex flex-col min-h-[350px]">
-                        <div className="flex justify-between items-start mb-4">
-                            <div>
-                                <h2 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider">Kafka Event Stream</h2>
-                                <p className="text-xs font-medium text-slate-500 mt-1">Throughput messages per second (avg/s)</p>
-                            </div>
-                            <div className="flex items-center gap-2 text-emerald-500 font-bold text-xs bg-emerald-50 px-2 py-1 rounded">
-                                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
-                                Live
-                                <span className="material-icons text-[14px] ml-1">fullscreen</span>
-                            </div>
-                        </div>
-
-                        <div className="relative flex-1 w-full mt-4">
-                            <div className="absolute top-4 right-10 bg-white border border-blue-100 shadow-sm p-3 rounded-xl z-10 font-mono text-xs">
-                                <div className="text-blue-600 font-bold mb-1">Current: <span className="text-slate-800">1,482 msg/s</span></div>
-                                <div className="text-slate-500">Peak: 2,180 msg/s</div>
-                            </div>
-
-                            <ResponsiveContainer width="100%" height="100%">
-                                <AreaChart data={kafkaStreamData} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
-                                    <defs>
-                                        <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.15} />
-                                            <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
-                                        </linearGradient>
-                                    </defs>
-                                    <CartesianGrid strokeDasharray="3 3" vertical={true} horizontal={true} stroke="#e2e8f0" />
-                                    <XAxis
-                                        dataKey="time"
-                                        axisLine={false}
-                                        tickLine={false}
-                                        tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 600 }}
-                                        dy={10}
-                                    />
-                                    <YAxis hide />
-                                    <Tooltip
-                                        contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.05)', fontSize: '12px', fontWeight: 'bold' }}
-                                    />
-                                    <Area
-                                        type="monotone"
-                                        dataKey="value"
-                                        stroke="#3b82f6"
-                                        strokeWidth={4}
-                                        fillOpacity={1}
-                                        fill="url(#colorValue)"
-                                    />
-                                </AreaChart>
-                            </ResponsiveContainer>
-                        </div>
-                    </div>
-
-                    {/* Core Microservices */}
-                    <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm flex flex-col">
-                        <h2 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider mb-6">Core Microservices</h2>
-
-                        <div className="flex flex-col gap-4 flex-1">
-                            {/* Service 1 */}
-                            <div className="flex items-center justify-between p-3 rounded-lg hover:bg-slate-50 transition-colors">
-                                <div className="flex items-center gap-3">
-                                    <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]"></div>
-                                    <span className="text-sm font-bold text-slate-700">API Backend</span>
-                                </div>
-                                <span className="text-[10px] font-extrabold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded uppercase tracking-wider">Online</span>
-                            </div>
-
-                            {/* Service 2 */}
-                            <div className="flex items-center justify-between p-3 rounded-lg hover:bg-slate-50 transition-colors">
-                                <div className="flex items-center gap-3">
-                                    <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]"></div>
-                                    <span className="text-sm font-bold text-slate-700">Auth Server</span>
-                                </div>
-                                <span className="text-[10px] font-extrabold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded uppercase tracking-wider">Online</span>
-                            </div>
-
-                            {/* Service 3 */}
-                            <div className="flex items-center justify-between p-3 rounded-lg hover:bg-slate-50 transition-colors">
-                                <div className="flex items-center gap-3">
-                                    <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]"></div>
-                                    <span className="text-sm font-bold text-slate-700">Kafka Broker</span>
-                                </div>
-                                <span className="text-[10px] font-extrabold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded uppercase tracking-wider">Online</span>
-                            </div>
-
-                            {/* Service 4 */}
-                            <div className="flex items-center justify-between p-3 rounded-lg bg-red-50/50 border border-red-100">
-                                <div className="flex items-center gap-3">
-                                    <div className="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_5px_rgba(239,68,68,0.5)]"></div>
-                                    <span className="text-sm font-bold text-slate-900">Notification Hub</span>
-                                </div>
-                                <span className="text-[10px] font-extrabold text-red-600 bg-red-100 px-2.5 py-1 rounded uppercase tracking-wider">Degraded</span>
-                            </div>
-
-                            {/* Service 5 */}
-                            <div className="flex items-center justify-between p-3 rounded-lg hover:bg-slate-50 transition-colors">
-                                <div className="flex items-center gap-3">
-                                    <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]"></div>
-                                    <span className="text-sm font-bold text-slate-700">ELK Stack</span>
-                                </div>
-                                <span className="text-[10px] font-extrabold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded uppercase tracking-wider">Online</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Live Authentication Logs Placeholder */}
-                <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm mt-2 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                        <h2 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider">Live Authentication Logs</h2>
-                        <div className="w-2 h-2 rounded-full bg-red-400 animate-pulse"></div>
-                    </div>
-                    <div className="flex items-center gap-2 text-[10px] font-semibold text-slate-400">
-                        <span>Autoscroll enabled</span>
-                        <span className="material-icons text-[14px]">toggle_on</span>
-                    </div>
-                </div>
-
+            {/* ── Utilisation row ── */}
+            <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <MeterTile label="CPU usage" value="42.8%" icon={Cpu} percent={42.8} detail="Core 01: 38% · Core 02: 48%" />
+                <MeterTile
+                    label="Memory utilisation"
+                    value="12.4 GB"
+                    icon={MemoryStick}
+                    percent={75}
+                    tone="warning"
+                    detail="Used 12.4 GB · Free 4.2 GB"
+                />
+                <MeterTile label="Disk I/O" value="125 MB/s" icon={HardDrive} percent={40} detail="Reads 85 MB/s · Writes 40 MB/s" />
             </div>
 
-            {/* Right Sidebar */}
-            <div className="w-full xl:w-[320px] flex flex-col gap-6 flex-shrink-0">
+            {/* ── Main grid: stream + services first; alerts + quick links beside them on wide screens ── */}
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_320px] xl:items-start">
+                <div className="flex flex-col gap-4">
+                    <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+                        {/* Kafka event stream */}
+                        <SectionCard
+                            title="Kafka event stream"
+                            className="lg:col-span-2"
+                            bodyClassName="px-2 pb-2 pt-3"
+                            actions={
+                                <StatusChip tone="success" dot>
+                                    Live
+                                </StatusChip>
+                            }
+                        >
+                            <figure className="m-0">
+                                <figcaption className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-2 pb-2 text-xs text-fg-muted">
+                                    <span>Throughput, messages per second</span>
+                                    <span className="inline-flex flex-wrap gap-x-3 tabular-nums">
+                                        <span>
+                                            Current <span className="font-semibold text-fg">1,482 msg/s</span>
+                                        </span>
+                                        <span>
+                                            Peak <span className="font-semibold text-fg">2,180 msg/s</span>
+                                        </span>
+                                    </span>
+                                </figcaption>
+                                <div className="h-64" aria-hidden="true">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <AreaChart data={kafkaStreamData} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+                                            <defs>
+                                                <linearGradient id="kafkaStreamFill" x1="0" y1="0" x2="0" y2="1">
+                                                    <stop offset="5%" stopColor="var(--color-primary)" stopOpacity={0.2} />
+                                                    <stop offset="95%" stopColor="var(--color-primary)" stopOpacity={0} />
+                                                </linearGradient>
+                                            </defs>
+                                            <CartesianGrid strokeDasharray="3 3" stroke="var(--edge)" vertical={false} />
+                                            <XAxis
+                                                dataKey="time"
+                                                axisLine={false}
+                                                tickLine={false}
+                                                tick={CHART_TICK}
+                                                interval="preserveStartEnd"
+                                            />
+                                            <YAxis axisLine={false} tickLine={false} tick={CHART_TICK} width={40} />
+                                            <Tooltip
+                                                contentStyle={{
+                                                    borderRadius: 6,
+                                                    border: "1px solid var(--edge)",
+                                                    background: "var(--surface)",
+                                                    color: "var(--fg)",
+                                                    boxShadow: "0 2px 8px rgb(15 23 42 / 0.12)",
+                                                    fontSize: 12,
+                                                    padding: "6px 10px",
+                                                }}
+                                                itemStyle={{ color: "var(--fg)" }}
+                                                labelStyle={{ color: "var(--fg-muted)" }}
+                                                formatter={(value) => [`${value} msg/s`, "Throughput"]}
+                                            />
+                                            <Area
+                                                type="monotone"
+                                                dataKey="value"
+                                                name="Throughput"
+                                                stroke="var(--color-primary)"
+                                                strokeWidth={2}
+                                                fillOpacity={1}
+                                                fill="url(#kafkaStreamFill)"
+                                            />
+                                        </AreaChart>
+                                    </ResponsiveContainer>
+                                </div>
+                            </figure>
+                        </SectionCard>
 
-                {/* Critical Alerts Dashboard */}
-                <div className="flex flex-col">
-                    <div className="flex items-center justify-between mb-4">
-                        <h2 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider">Critical Alerts</h2>
-                        <div className="bg-red-500 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center shadow-sm">2</div>
+                        {/* Core microservices */}
+                        <SectionCard title="Core microservices" count={services.length} flush>
+                            <ul className="divide-y divide-edge">
+                                {services.map((s) => (
+                                    <li key={s.name} className="flex items-center justify-between gap-2 px-4 py-2 text-[13px] text-fg hover:bg-surface-hover">
+                                        <span className="min-w-0 truncate font-medium">{s.name}</span>
+                                        <StatusChip tone={s.tone} dot size="sm">
+                                            {s.state}
+                                        </StatusChip>
+                                    </li>
+                                ))}
+                            </ul>
+                        </SectionCard>
                     </div>
 
-                    <div className="space-y-4">
-                        {/* High Latency Alert */}
-                        <div className="bg-red-50/80 border border-red-100 rounded-xl p-5 shadow-sm">
-                            <div className="flex items-start gap-3">
-                                <span className="material-icons text-red-500 text-lg mt-0.5">warning_amber</span>
-                                <div>
-                                    <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider mb-1">High Latency</h3>
-                                    <p className="text-xs font-medium text-red-600/90 leading-relaxed">
-                                        Cluster-B responding with avg. 1250ms delay. DB sync lag detected.
-                                    </p>
-                                    <a href="#" className="inline-block mt-3 text-xs font-bold text-red-600 underline underline-offset-2 decoration-red-300 hover:decoration-red-600 transition-colors">
-                                        Trace Route
-                                    </a>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Brute Force Alert */}
-                        <div className="bg-orange-50/80 border border-orange-100/80 rounded-xl p-5 shadow-sm">
-                            <div className="flex items-start gap-3">
-                                <span className="material-icons text-orange-500 text-lg mt-0.5">security</span>
-                                <div>
-                                    <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider mb-1">Brute Force Attempt</h3>
-                                    <p className="text-xs font-medium text-orange-700/90 leading-relaxed">
-                                        Multiple failed login attempts from IP 45.22.10.12 (User: admin_remote_92).
-                                    </p>
-                                    <a href="#" className="inline-block mt-3 text-xs font-bold text-orange-600 underline underline-offset-2 decoration-orange-300 hover:decoration-orange-600 transition-colors">
-                                        Ban IP Range
-                                    </a>
-                                </div>
-                            </div>
-                        </div>
-
-                        <button className="w-full py-3 mt-2 text-xs font-bold text-slate-500 hover:text-slate-900 hover:bg-white border border-transparent hover:border-slate-200 rounded-lg transition-all uppercase tracking-wider">
-                            Clear All Logs
-                        </button>
-                    </div>
+                    {/* Live authentication logs */}
+                    <SectionCard
+                        title="Live authentication logs"
+                        flush
+                        actions={
+                            <>
+                                <span className="text-xs text-fg-muted">Autoscroll on</span>
+                                <StatusChip tone="danger" dot>
+                                    Live
+                                </StatusChip>
+                            </>
+                        }
+                    >
+                        <EmptyState
+                            icon={FileText}
+                            title="No log stream connected"
+                            description="Authentication events will stream here once the backend is wired."
+                            compact
+                        />
+                    </SectionCard>
                 </div>
 
-                {/* Admin Quick Links */}
-                <div className="bg-slate-900 rounded-2xl p-6 shadow-lg shadow-slate-900/20 mt-2">
-                    <h2 className="text-xs font-extrabold text-slate-400 uppercase tracking-widest mb-5">Admin Quick Links</h2>
+                {/* Side column */}
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-1">
+                    {/* Critical alerts */}
+                    <SectionCard title="Critical alerts" count={2}>
+                        <ul aria-label="Critical alerts" className="space-y-3">
+                            <li className="rounded-md border border-status-danger-edge bg-status-danger-bg p-3 text-status-danger-fg">
+                                <p className="mb-1 flex items-center gap-2 text-sm font-semibold">
+                                    <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
+                                    High latency
+                                </p>
+                                <p className="text-xs leading-relaxed">Cluster-B responding with avg. 1250 ms delay. DB sync lag detected.</p>
+                                <Button size="sm" className="mt-2.5">
+                                    Trace route
+                                </Button>
+                            </li>
+                            <li className="rounded-md border border-status-pending-edge bg-status-pending-bg p-3 text-status-pending-fg">
+                                <p className="mb-1 flex items-center gap-2 text-sm font-semibold">
+                                    <ShieldAlert className="h-4 w-4 shrink-0" aria-hidden="true" />
+                                    Brute force attempt
+                                </p>
+                                <p className="text-xs leading-relaxed">Multiple failed login attempts from IP 45.22.10.12 (user admin_remote_92).</p>
+                                <Button size="sm" className="mt-2.5">
+                                    Ban IP range
+                                </Button>
+                            </li>
+                        </ul>
+                        <Button variant="ghost" size="sm" className="mt-3 w-full">
+                            Clear all logs
+                        </Button>
+                    </SectionCard>
 
-                    <div className="space-y-3">
-                        <button className="w-full flex items-center gap-3 px-4 py-3.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-slate-600 rounded-xl transition-all group">
-                            <span className="material-icons text-blue-400 group-hover:text-blue-300 text-[18px]">terminal</span>
-                            <span className="text-xs font-bold text-white uppercase tracking-wider">Access Console</span>
-                        </button>
-
-                        <button className="w-full flex items-center gap-3 px-4 py-3.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-slate-600 rounded-xl transition-all group">
-                            <span className="material-icons text-indigo-400 group-hover:text-indigo-300 text-[18px]">history</span>
-                            <span className="text-xs font-bold text-white uppercase tracking-wider">Rollback Cluster</span>
-                        </button>
-
-                        <button className="w-full flex items-center gap-3 px-4 py-3.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-slate-600 rounded-xl transition-all group">
-                            <span className="material-icons text-emerald-400 group-hover:text-emerald-300 text-[18px]">description</span>
-                            <span className="text-xs font-bold text-white uppercase tracking-wider">System Config</span>
-                        </button>
-                    </div>
+                    {/* Admin quick links */}
+                    <SectionCard title="Admin quick links">
+                        <div className="flex flex-col gap-2">
+                            <Button icon={Terminal} className="w-full justify-start">
+                                Access console
+                            </Button>
+                            <Button icon={History} className="w-full justify-start">
+                                Rollback cluster
+                            </Button>
+                            <Button icon={FileText} className="w-full justify-start">
+                                System config
+                            </Button>
+                        </div>
+                    </SectionCard>
                 </div>
-
             </div>
-
         </div>
     );
 }

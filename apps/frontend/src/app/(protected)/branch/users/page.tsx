@@ -1,26 +1,31 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { AlertTriangle, Building2, History, RefreshCw, Search, Users, X } from "lucide-react";
 import { getAuditLogs, getMetadata, type AuditLog } from "@/lib/api";
+import Button from "@/components/ui/Button";
+import PageHeader from "@/components/ui/PageHeader";
+import { InputField, SelectField } from "@/components/ui/Field";
+import SectionCard from "@/components/ui/SectionCard";
+import EmptyState from "@/components/ui/EmptyState";
+import StatusChip from "@/components/ui/StatusChip";
+import { formatAuditTime } from "@/components/patient-dashboard/dashboard-data";
 
 type BranchActor = {
     id: string;
     initials: string;
-    bgColor: string;
-    textColor: string;
     displayName: string;
     username: string;
     roles: string[];
     branchCode: string;
     actionCount: number;
-    lastActivity: string;
     rawLastActivity: string;
     lastIpAddress: string;
     activityStatus: "RECENT" | "OLDER";
 };
 
 const PAGE_SIZE = 250;
+const SKELETON_ROWS = 6;
 
 const ROLE_BY_ENTITY: Record<string, string> = {
     PATIENT: "Front Desk Officer",
@@ -37,14 +42,6 @@ const ROLE_BY_ENTITY: Record<string, string> = {
     CLINICAL_AUTHORIZATION: "Doctor",
     REPORT_DISPATCH: "Dispatch Officer",
 };
-
-const AVATAR_STYLES = [
-    ["bg-blue-100", "text-blue-600"],
-    ["bg-emerald-100", "text-emerald-700"],
-    ["bg-violet-100", "text-violet-700"],
-    ["bg-amber-100", "text-amber-700"],
-    ["bg-rose-100", "text-rose-700"],
-] as const;
 
 function formatName(value: string) {
     const trimmed = value.trim();
@@ -84,17 +81,19 @@ function inferRole(log: AuditLog) {
     return "Branch Staff";
 }
 
-function formatTimestamp(value?: string) {
-    if (!value) return "-";
+/** Full, unambiguous timestamp for tooltips. */
+function formatFullTimestamp(value?: string) {
+    if (!value) return "—";
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return value;
 
-    return date.toLocaleString("en-LK", {
-        year: "numeric",
-        month: "short",
+    return date.toLocaleString("en-GB", {
         day: "2-digit",
+        month: "short",
+        year: "numeric",
         hour: "2-digit",
         minute: "2-digit",
+        hour12: false,
     });
 }
 
@@ -117,25 +116,21 @@ function buildActors(logs: AuditLog[]) {
     });
 
     return Array.from(grouped.entries())
-        .map(([username, actorLogs], index): BranchActor => {
+        .map(([username, actorLogs]): BranchActor => {
             const sortedLogs = [...actorLogs].sort(
                 (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
             );
             const latest = sortedLogs[0];
             const displayName = formatName(username);
-            const [bgColor, textColor] = AVATAR_STYLES[index % AVATAR_STYLES.length];
 
             return {
                 id: username,
                 initials: getInitials(displayName),
-                bgColor,
-                textColor,
                 displayName,
                 username,
                 roles: Array.from(new Set(actorLogs.map(inferRole))).sort(),
                 branchCode: latest?.branchCode || "-",
                 actionCount: actorLogs.length,
-                lastActivity: formatTimestamp(latest?.timestamp),
                 rawLastActivity: latest?.timestamp || "",
                 lastIpAddress: latest?.ipAddress || "-",
                 activityStatus: latest?.timestamp && isRecentActivity(latest.timestamp) ? "RECENT" : "OLDER",
@@ -204,174 +199,273 @@ export default function BranchUserManagementPage() {
         });
     }, [searchQuery, selectedRoleFilter, selectedStatusFilter, users]);
 
-    return (
-        <div className="w-full bg-[#f8fafc] min-h-[calc(100vh-76px)] p-8 font-sans">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
-                <div>
-                    <h1 className="text-2xl font-extrabold text-[#0f172a] tracking-tight">
-                        Branch Users - {branchName}
-                    </h1>
-                    <p className="text-[13px] font-medium text-[#64748b] mt-1">
-                        Staff observed from real branch audit activity.
-                    </p>
-                </div>
-                <button
-                    onClick={loadUsers}
-                    className="flex items-center justify-center gap-2 bg-[#1277E1] hover:bg-blue-600 text-white px-5 py-2.5 rounded-xl font-bold transition-colors shadow-sm active:scale-95"
-                >
-                    <span className="material-icons text-[18px]">refresh</span>
-                    Refresh Users
-                </button>
-            </div>
+    const hasFilters = Boolean(searchQuery || selectedRoleFilter !== "All Roles" || selectedStatusFilter !== "All Activity");
 
-            <div className="bg-white border text-sm border-[#ecf0f6] shadow-[0_1px_2px_0_rgba(0,0,0,0.02)] rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-                <div className="relative flex-1 max-w-[600px]">
-                    <span className="material-icons text-[18px] absolute left-4 top-1/2 -translate-y-1/2 text-[#94a3b8]">search</span>
-                    <input
-                        type="text"
-                        placeholder="Search by actor, branch, or IP address..."
+    const clearFilters = () => {
+        setSearchQuery("");
+        setSelectedRoleFilter("All Roles");
+        setSelectedStatusFilter("All Activity");
+    };
+
+    return (
+        <div className="mx-auto max-w-[1400px]">
+            <PageHeader
+                title="Branch users"
+                crumbs={[{ label: "Branch", href: "/branch" }, { label: "Users" }]}
+                meta={
+                    <>
+                        <Building2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                        <span>{branchName}</span>
+                        <span aria-hidden="true">·</span>
+                        <span>Staff observed from branch audit activity</span>
+                        {!loading && !error && (
+                            <>
+                                <span aria-hidden="true">·</span>
+                                <span className="tabular-nums">
+                                    {users.length.toLocaleString()} {users.length === 1 ? "actor" : "actors"}
+                                </span>
+                            </>
+                        )}
+                    </>
+                }
+                actions={
+                    <Button variant="primary" icon={RefreshCw} onClick={loadUsers} loading={loading && users.length > 0}>
+                        Refresh users
+                    </Button>
+                }
+            />
+
+            {/* Screen-reader status for async changes */}
+            <p role="status" aria-live="polite" className="sr-only">
+                {loading
+                    ? "Loading branch users"
+                    : error
+                      ? "Branch users failed to load"
+                      : `Branch users loaded. Showing ${filteredUsers.length} of ${users.length} audit actors.`}
+            </p>
+
+            <SectionCard
+                title="Audit actors"
+                count={!loading && !error ? filteredUsers.length : undefined}
+                flush
+                actions={
+                    <Button href="/branch/activity-logs" variant="ghost" size="sm" icon={History}>
+                        Open activity logs
+                    </Button>
+                }
+            >
+                {/* Filter toolbar */}
+                <div className="flex flex-wrap items-center gap-2 border-b border-edge bg-surface-muted px-3 py-2">
+                    <InputField
+                        label="Search branch users"
+                        hideLabel
+                        type="search"
                         value={searchQuery}
                         onChange={(event) => setSearchQuery(event.target.value)}
-                        className="bg-[#f8fafc] border border-[#ecf0f6] text-[#0f172a] font-semibold py-2.5 pl-11 pr-4 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#1277E1]/20 focus:border-[#1277E1] transition-all w-full placeholder:text-[#94a3b8] placeholder:font-medium text-[13px]"
+                        placeholder="Search by actor, branch or IP address"
+                        autoComplete="off"
+                        className="min-w-[200px] flex-1"
                     />
-                </div>
-
-                <div className="flex items-center gap-3">
-                    <div className="relative w-[190px]">
-                        <select
-                            value={selectedRoleFilter}
-                            onChange={(event) => setSelectedRoleFilter(event.target.value)}
-                            className="w-full appearance-none bg-white border border-[#ecf0f6] text-[#475569] font-bold py-2.5 pl-4 pr-10 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#1277E1]/20 focus:border-[#1277E1] transition-all cursor-pointer text-[13px]"
-                        >
-                            {roleOptions.map((role) => (
-                                <option key={role} value={role}>{role}</option>
-                            ))}
-                        </select>
-                        <span className="material-icons absolute right-3 top-1/2 -translate-y-1/2 text-[#94a3b8] pointer-events-none text-lg">expand_more</span>
-                    </div>
-
-                    <div className="relative w-[150px]">
-                        <select
-                            value={selectedStatusFilter}
-                            onChange={(event) => setSelectedStatusFilter(event.target.value)}
-                            className="w-full appearance-none bg-white border border-[#ecf0f6] text-[#475569] font-bold py-2.5 pl-4 pr-10 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#1277E1]/20 focus:border-[#1277E1] transition-all cursor-pointer text-[13px]"
-                        >
-                            <option value="All Activity">All Activity</option>
-                            <option value="Recent">Recent</option>
-                            <option value="Older">Older</option>
-                        </select>
-                        <span className="material-icons absolute right-3 top-1/2 -translate-y-1/2 text-[#94a3b8] pointer-events-none text-lg">expand_more</span>
-                    </div>
-                </div>
-            </div>
-
-            <div className="bg-white border border-[#ecf0f6] shadow-[0_1px_2px_0_rgba(0,0,0,0.02)] rounded-2xl overflow-hidden flex-1 flex flex-col">
-                <div className="overflow-x-auto flex-1">
-                    <table className="w-full text-left border-collapse min-w-[900px]">
-                        <thead>
-                            <tr className="border-b border-[#ecf0f6] bg-[#f8fafc]">
-                                <th className="py-4 px-6 text-[11px] font-extrabold text-[#94a3b8] uppercase tracking-widest w-[28%]">Actor</th>
-                                <th className="py-4 px-6 text-[11px] font-extrabold text-[#94a3b8] uppercase tracking-widest w-[22%]">Observed Roles</th>
-                                <th className="py-4 px-6 text-[11px] font-extrabold text-[#94a3b8] uppercase tracking-widest w-[12%]">Branch</th>
-                                <th className="py-4 px-6 text-[11px] font-extrabold text-[#94a3b8] uppercase tracking-widest text-center w-[12%]">Actions Logged</th>
-                                <th className="py-4 px-6 text-[11px] font-extrabold text-[#94a3b8] uppercase tracking-widest w-[16%]">Last Activity</th>
-                                <th className="py-4 px-6 text-[11px] font-extrabold text-[#94a3b8] uppercase tracking-widest w-[12%]">Last IP</th>
-                                <th className="py-4 px-6 text-[11px] font-extrabold text-[#94a3b8] uppercase tracking-widest text-right w-[8%]">Audit</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-[#f8fafc]">
-                            {loading ? (
-                                <tr>
-                                    <td colSpan={7} className="py-10 text-center text-[#64748b] font-medium text-[13px]">
-                                        Loading branch users...
-                                    </td>
-                                </tr>
-                            ) : error ? (
-                                <tr>
-                                    <td colSpan={7} className="py-10 text-center text-red-500 font-medium text-[13px]">
-                                        {error}
-                                    </td>
-                                </tr>
-                            ) : filteredUsers.length > 0 ? (
-                                filteredUsers.map((user) => (
-                                    <tr key={user.id} className="hover:bg-[#f8fafc]/50 transition-colors group">
-                                        <td className="py-4 px-6">
-                                            <div className="flex items-center gap-3">
-                                                <div className={`w-8 h-8 rounded-full ${user.bgColor} ${user.textColor} flex items-center justify-center text-[10px] font-extrabold`}>
-                                                    {user.initials}
-                                                </div>
-                                                <div>
-                                                    <span className="block text-[14px] font-extrabold text-[#0f172a]">{user.displayName}</span>
-                                                    <span className="block text-[11px] font-semibold text-[#94a3b8]">{user.username}</span>
-                                                </div>
-                                            </div>
-                                        </td>
-                                        <td className="py-4 px-6">
-                                            <div className="flex flex-wrap gap-1.5 items-start">
-                                                {user.roles.map((role) => (
-                                                    <span key={role} className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-[#eff6ff] text-[#1277E1]">
-                                                        {role}
-                                                    </span>
-                                                ))}
-                                            </div>
-                                        </td>
-                                        <td className="py-4 px-6">
-                                            <span className="text-[13px] font-bold text-[#64748b]">{user.branchCode}</span>
-                                        </td>
-                                        <td className="py-4 px-6 text-center">
-                                            <span className="text-[13px] font-extrabold text-[#0f172a]">{user.actionCount.toLocaleString()}</span>
-                                        </td>
-                                        <td className="py-4 px-6">
-                                            <div className="flex flex-col gap-1">
-                                                <span className="text-[13px] font-medium text-[#64748b]">{user.lastActivity}</span>
-                                                <span className={`inline-flex w-fit items-center gap-1.5 rounded-md border px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-widest ${
-                                                    user.activityStatus === "RECENT"
-                                                        ? "border-[#86efac]/30 text-[#16a34a] bg-green-50"
-                                                        : "border-[#fbbf24]/30 text-[#b45309] bg-amber-50"
-                                                }`}>
-                                                    <span className={`w-1.5 h-1.5 rounded-full ${user.activityStatus === "RECENT" ? "bg-[#22c55e]" : "bg-[#f59e0b]"}`} />
-                                                    {user.activityStatus}
-                                                </span>
-                                            </div>
-                                        </td>
-                                        <td className="py-4 px-6">
-                                            <span className="text-[12px] font-mono text-[#64748b]">{user.lastIpAddress}</span>
-                                        </td>
-                                        <td className="py-4 px-6 text-right">
-                                            <Link
-                                                href={`/branch/activity-logs`}
-                                                className="inline-flex items-center justify-center text-[#94a3b8] hover:text-[#1277E1] transition-colors p-1"
-                                                title="View audit trail"
-                                            >
-                                                <span className="material-icons text-[18px]">history</span>
-                                            </Link>
-                                        </td>
-                                    </tr>
-                                ))
-                            ) : (
-                                <tr>
-                                    <td colSpan={7} className="py-8 text-center text-[#64748b] font-medium text-[13px]">
-                                        No branch users found from audit activity.
-                                    </td>
-                                </tr>
-                            )}
-                        </tbody>
-                    </table>
-                </div>
-
-                <div className="p-4 border-t border-[#ecf0f6] flex items-center justify-between text-[13px]">
-                    <span className="text-[#64748b] font-medium">
-                        Showing {filteredUsers.length} of {users.length} audit actors
-                    </span>
-                    <Link
-                        href="/branch/activity-logs"
-                        className="text-[#1277E1] hover:text-blue-700 font-bold flex items-center gap-1"
+                    <SelectField
+                        label="Role"
+                        hideLabel
+                        value={selectedRoleFilter}
+                        onChange={(event) => setSelectedRoleFilter(event.target.value)}
+                        className="w-full sm:w-48"
                     >
-                        Open Activity Logs
-                        <span className="material-icons text-[16px]">open_in_new</span>
-                    </Link>
+                        {roleOptions.map((role) => (
+                            <option key={role} value={role}>
+                                {role === "All Roles" ? "All roles" : role}
+                            </option>
+                        ))}
+                    </SelectField>
+                    <SelectField
+                        label="Activity"
+                        hideLabel
+                        value={selectedStatusFilter}
+                        onChange={(event) => setSelectedStatusFilter(event.target.value)}
+                        className="w-full sm:w-40"
+                    >
+                        <option value="All Activity">All activity</option>
+                        <option value="Recent">Recent (30 days)</option>
+                        <option value="Older">Older</option>
+                    </SelectField>
+                    {hasFilters && (
+                        <Button variant="ghost" icon={X} onClick={clearFilters}>
+                            Clear filters
+                        </Button>
+                    )}
                 </div>
-            </div>
+
+                {/* States live outside the table so they centre on small screens */}
+                {loading ? (
+                    <ul aria-hidden="true" className="divide-y divide-edge">
+                        {Array.from({ length: SKELETON_ROWS }).map((_, i) => (
+                            <li key={i} className="flex items-center gap-3 px-4 py-2.5">
+                                <span className="h-8 w-8 shrink-0 rounded-full bg-skeleton" />
+                                <span className="flex flex-col gap-1.5">
+                                    <span className="h-3.5 w-32 rounded bg-skeleton" />
+                                    <span className="h-3 w-24 rounded bg-skeleton" />
+                                </span>
+                                <span className="hidden h-4 w-24 rounded bg-skeleton md:block" />
+                                <span className="hidden h-3 w-16 rounded bg-skeleton md:block" />
+                                <span className="ml-auto h-3 w-10 rounded bg-skeleton" />
+                                <span className="hidden h-3 w-28 rounded bg-skeleton lg:block" />
+                                <span className="hidden h-3 w-24 rounded bg-skeleton xl:block" />
+                            </li>
+                        ))}
+                    </ul>
+                ) : error ? (
+                    <EmptyState
+                        icon={AlertTriangle}
+                        title="Branch users unavailable"
+                        description={`${error} Retry to load them again.`}
+                        action={
+                            <Button size="sm" icon={RefreshCw} onClick={loadUsers}>
+                                Retry
+                            </Button>
+                        }
+                    />
+                ) : filteredUsers.length === 0 ? (
+                    hasFilters ? (
+                        <EmptyState
+                            icon={Search}
+                            title="No users match"
+                            description="Try a different search term, role or activity filter."
+                            action={
+                                <Button size="sm" icon={X} onClick={clearFilters}>
+                                    Clear filters
+                                </Button>
+                            }
+                        />
+                    ) : (
+                        <EmptyState
+                            icon={Users}
+                            title="No branch users yet"
+                            description="Staff appear here once their actions are recorded in the branch audit log."
+                        />
+                    )
+                ) : (
+                    <div className="overflow-x-auto">
+                        {/* table-fixed budget — fixed cols + a >=160px floor for the auto "Observed roles" col:
+                            base 224+112+176+48 = 560 (+200 auto);
+                            md   +96  = 656 -> min-w 820 (+164 auto);
+                            lg   +128 = 784 -> min-w 950 (+166 auto). */}
+                        <table className="w-full min-w-[760px] table-fixed text-left text-[13px] md:min-w-[820px] lg:min-w-[950px]">
+                            <caption className="sr-only">Branch users observed from audit activity</caption>
+                            <thead>
+                                <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
+                                    <th scope="col" className="w-56 py-2 pl-4 pr-3 font-medium">
+                                        Actor
+                                    </th>
+                                    <th scope="col" className="px-3 py-2 font-medium">
+                                        Observed roles
+                                    </th>
+                                    <th scope="col" className="hidden w-24 px-3 py-2 font-medium md:table-cell">
+                                        Branch
+                                    </th>
+                                    <th scope="col" className="w-28 px-3 py-2 text-right font-medium">
+                                        Actions logged
+                                    </th>
+                                    <th scope="col" className="w-44 px-3 py-2 font-medium">
+                                        Last activity
+                                    </th>
+                                    <th scope="col" className="hidden w-32 px-3 py-2 font-medium lg:table-cell">
+                                        Last IP
+                                    </th>
+                                    <th scope="col" className="w-12 py-2 pl-2 pr-3">
+                                        <span className="sr-only">Audit</span>
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-edge whitespace-nowrap">
+                                {filteredUsers.map((user) => {
+                                    const fullTime = formatFullTimestamp(user.rawLastActivity);
+                                    return (
+                                        <tr key={user.id} className="transition-colors hover:bg-surface-hover">
+                                            {/* Actor */}
+                                            <td className="py-2 pl-4 pr-3">
+                                                <div className="flex min-w-0 items-center gap-3">
+                                                    <span
+                                                        aria-hidden="true"
+                                                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-muted text-[11px] font-semibold text-fg-secondary ring-1 ring-inset ring-edge"
+                                                    >
+                                                        {user.initials}
+                                                    </span>
+                                                    <div className="min-w-0">
+                                                        <span className="block truncate font-medium text-fg" title={user.displayName}>
+                                                            {user.displayName}
+                                                        </span>
+                                                        <span className="block truncate text-xs text-fg-muted" title={user.username}>
+                                                            {user.username}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            {/* Observed roles */}
+                                            <td className="whitespace-normal px-3 py-2">
+                                                <div className="flex flex-wrap gap-1">
+                                                    {user.roles.map((role) => (
+                                                        <StatusChip key={role} tone="neutral" size="sm" title={role}>
+                                                            {role}
+                                                        </StatusChip>
+                                                    ))}
+                                                </div>
+                                            </td>
+                                            {/* Branch */}
+                                            <td className="hidden truncate px-3 py-2 text-fg-secondary md:table-cell" title={user.branchCode}>
+                                                {user.branchCode}
+                                            </td>
+                                            {/* Actions logged */}
+                                            <td className="px-3 py-2 text-right font-medium tabular-nums text-fg">
+                                                {user.actionCount.toLocaleString()}
+                                            </td>
+                                            {/* Last activity */}
+                                            <td className="px-3 py-2">
+                                                <div className="flex flex-col items-start gap-1">
+                                                    <time dateTime={user.rawLastActivity || undefined} title={fullTime} className="tabular-nums text-fg-secondary">
+                                                        {user.rawLastActivity ? formatAuditTime(user.rawLastActivity) : "—"}
+                                                    </time>
+                                                    <StatusChip
+                                                        tone={user.activityStatus === "RECENT" ? "success" : "neutral"}
+                                                        size="sm"
+                                                        dot
+                                                        title={user.activityStatus === "RECENT" ? "Active in the last 30 days" : "No activity in the last 30 days"}
+                                                    >
+                                                        {user.activityStatus === "RECENT" ? "Recent" : "Older"}
+                                                    </StatusChip>
+                                                </div>
+                                            </td>
+                                            {/* Last IP */}
+                                            <td className="hidden truncate px-3 py-2 font-mono text-xs text-fg-muted lg:table-cell" title={user.lastIpAddress}>
+                                                {user.lastIpAddress}
+                                            </td>
+                                            {/* Audit */}
+                                            <td className="py-2 pl-2 pr-3 text-right">
+                                                <Button
+                                                    href="/branch/activity-logs"
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    icon={History}
+                                                    aria-label={`View audit trail for ${user.displayName}`}
+                                                    className="w-7 px-0 text-fg-faint hover:text-fg-secondary"
+                                                />
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+
+                {/* Footer: result count */}
+                {!loading && !error && filteredUsers.length > 0 && (
+                    <div className="border-t border-edge px-4 py-2 text-xs text-fg-muted">
+                        Showing {filteredUsers.length} of {users.length} audit actors
+                    </div>
+                )}
+            </SectionCard>
         </div>
     );
 }

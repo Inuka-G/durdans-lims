@@ -1,8 +1,23 @@
 'use client';
 
 import axios from 'axios';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import {
+    Activity,
+    AlertOctagon,
+    AlertTriangle,
+    ArrowLeft,
+    CheckCircle2,
+    FlaskConical,
+    History,
+    ListChecks,
+    MessageSquare,
+    SearchX,
+    Stethoscope,
+    Undo2,
+    User,
+} from 'lucide-react';
 import {
     approveTechnically,
     getVerificationResultDetails,
@@ -10,55 +25,97 @@ import {
     TestResultDetail,
 } from '@/lib/api';
 import { useAuth } from '@/hooks/useAuth';
-import { PRIORITY_COLORS, formatStatusLabel as formatEnumTokenLabel } from '@/constants/sample-lifecycle';
 import { formatDisplayId } from '@/lib/format-id';
+import Button from '@/components/ui/Button';
+import PageHeader, { type Crumb } from '@/components/ui/PageHeader';
+import SectionCard from '@/components/ui/SectionCard';
+import EmptyState from '@/components/ui/EmptyState';
+import KpiTile from '@/components/ui/KpiTile';
+import Modal from '@/components/ui/Modal';
+import StatusChip, { humanizeStatus, toneForStatus, type ChipTone } from '@/components/ui/StatusChip';
+import { TextareaField } from '@/components/ui/Field';
+import PriorityBadge from '@/components/shared/PriorityBadge';
+import { formatAuditTime, formatRegistered } from '@/components/patient-dashboard/dashboard-data';
+
+const REVIEW_CRUMBS: Crumb[] = [
+    { label: 'Dashboard', href: '/dashboard' },
+    { label: 'Verification', href: '/verification' },
+    { label: 'Pending', href: '/verification/pending' },
+];
+
+/** Same control anatomy as the pending / bulk-approval worklists. */
+const CHECKBOX_CLASS =
+    'h-4 w-4 shrink-0 rounded border-edge-strong accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-50';
+
+/** Supervisor gate — every check must be confirmed before a case can be approved. */
+const SUPERVISOR_CHECKLIST = [
+    { id: 'patientTestMatch', label: 'Patient and test group match confirmed' },
+    { id: 'allParametersEntered', label: 'All required parameters are entered' },
+    { id: 'flagsReviewed', label: 'Abnormal and critical flags have been reviewed' },
+    { id: 'qcReviewed', label: 'QC status and instrument output reviewed' },
+    { id: 'notesReviewed', label: 'MLT notes and any return/recheck context reviewed' },
+] as const;
+
+const createEmptyChecklist = (): Record<string, boolean> =>
+    Object.fromEntries(SUPERVISOR_CHECKLIST.map((item) => [item.id, false]));
 
 const formatReferenceRange = (low?: number | null, high?: number | null) => {
     if (low == null || high == null) {
-        return '-';
+        return '—';
     }
 
-    return `${low} - ${high}`;
+    return `${low} – ${high}`;
 };
 
-const RESULT_FLAG_CONFIG: Record<string, { label: string; className: string }> = {
-    NORMAL: { label: 'NORMAL', className: 'bg-slate-100 text-slate-600' },
-    LOW: { label: 'LOW', className: 'bg-amber-100 text-amber-700' },
-    HIGH: { label: 'HIGH', className: 'bg-amber-100 text-amber-700' },
-    CRITICAL_LOW: { label: 'CRITICAL LOW', className: 'bg-red-100 text-red-700' },
-    CRITICAL_HIGH: { label: 'CRITICAL HIGH', className: 'bg-red-100 text-red-700' },
+/** Result flag → chip tone (colour = meaning; unknown flags stay neutral). */
+const FLAG_TONE: Record<string, ChipTone> = {
+    NORMAL: 'neutral',
+    LOW: 'pending',
+    HIGH: 'pending',
+    CRITICAL_LOW: 'danger',
+    CRITICAL_HIGH: 'danger',
 };
 
-const getFlagDisplay = (flag?: string | null) => {
+const toneForFlag = (flag?: string | null): ChipTone => {
     if (!flag) {
-        return '-';
+        return 'neutral';
     }
 
-    return RESULT_FLAG_CONFIG[flag.toUpperCase()]?.label ?? formatEnumTokenLabel(flag);
+    return FLAG_TONE[flag.toUpperCase()] ?? 'neutral';
 };
 
-const getFlagClassName = (flag?: string | null) => {
-    if (!flag) {
-        return 'text-slate-400';
+const isCriticalFlag = (flag?: string | null) => {
+    const normalized = flag?.toUpperCase();
+    return normalized === 'CRITICAL_HIGH' || normalized === 'CRITICAL_LOW';
+};
+
+/** Verification workflow status → chip tone. */
+const WORKFLOW_TONE: Record<string, ChipTone> = {
+    ENTERED: 'pending',
+    RETURNED_FOR_RECHECK: 'pending',
+    TECHNICALLY_VERIFIED: 'success',
+    CLINICALLY_AUTHORIZED: 'success',
+    REJECTED: 'danger',
+};
+
+const toneForWorkflowStatus = (status?: string | null): ChipTone => {
+    if (!status) {
+        return 'pending';
     }
 
-    return RESULT_FLAG_CONFIG[flag.toUpperCase()]?.className ?? 'bg-slate-100 text-slate-600';
+    return WORKFLOW_TONE[status.toUpperCase()] ?? toneForStatus(status);
 };
 
 const formatWorkflowStatusLabel = (status?: string | null) => {
     if (!status) {
-        return 'Pending Verification';
+        return 'Pending verification';
     }
 
     if (status === 'RETURNED_FOR_RECHECK') {
-        return 'Returned to Supervisor';
+        return 'Returned to supervisor';
     }
 
-    return status
-        .toLowerCase()
-        .split('_')
-        .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
-        .join(' ');
+    return humanizeStatus(status);
 };
 
 const formatGenderLabel = (gender?: string | null) => {
@@ -66,31 +123,36 @@ const formatGenderLabel = (gender?: string | null) => {
         return null;
     }
 
-    return gender
-        .toLowerCase()
-        .split('_')
-        .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
-        .join(' ');
+    return humanizeStatus(gender);
 };
 
-const formatTimestamp = (value?: string | null) => {
+const toDate = (value?: string | null): Date | null => {
     if (!value) {
-        return '-';
+        return null;
     }
 
     const parsed = new Date(value);
-    if (Number.isNaN(parsed.getTime())) {
-        return value;
-    }
-
-    return parsed.toLocaleString('en-LK', {
-        year: 'numeric',
-        month: 'short',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-    });
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
+
+/** "Today 09:12" / "Yesterday 14:02" / "16 Aug 2026" */
+const formatWhen = (value?: string | null) => formatRegistered(toDate(value));
+
+/** "2h ago" / "Today 09:12" / "16 Aug 2026" — for activity-style meta lines. */
+const formatRelative = (value?: string | null) => (value ? formatAuditTime(value) : '—');
+
+const initialsFor = (name: string | null | undefined, fallback: string) =>
+    (name ?? fallback)
+        .split(/\s+/)
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((segment) => segment.charAt(0).toUpperCase())
+        .join('') || fallback;
+
+const REVIEWED_NOTICE =
+    'This case has already been processed. Actions reopen only after a clinical return for recheck.';
+
+const CHECKLIST_NOTICE = 'Complete all supervisor verification checks before approving this case.';
 
 export default function ReviewCasePage() {
     const router = useRouter();
@@ -106,26 +168,33 @@ export default function ReviewCasePage() {
     const [returnReason, setReturnReason] = useState('');
     const [returnError, setReturnError] = useState<string | null>(null);
     const [approveNote, setApproveNote] = useState('');
+    const [reviewChecklist, setReviewChecklist] = useState<Record<string, boolean>>(createEmptyChecklist);
     const [submitError, setSubmitError] = useState<string | null>(null);
+    const [requiresQcOverride, setRequiresQcOverride] = useState(false);
+
+    const loadResultDetails = useCallback(async () => {
+        try {
+            setLoading(true);
+            setError(null);
+            const response = await getVerificationResultDetails(resultId);
+            setResultDetail(response);
+        } catch (loadError) {
+            console.error('Failed to load verification result details', loadError);
+            setError("Couldn't load the verification result. Please try again.");
+        } finally {
+            setLoading(false);
+        }
+    }, [resultId]);
 
     useEffect(() => {
-        const loadResultDetails = async () => {
-            try {
-                setLoading(true);
-                setError(null);
-                const response = await getVerificationResultDetails(resultId);
-                setResultDetail(response);
-            } catch (loadError) {
-                console.error('Failed to load verification result details', loadError);
-                setError('Failed to load verification result details. Please try again.');
-            } finally {
-                setLoading(false);
-            }
-        };
-
         if (resultId) {
             void loadResultDetails();
         }
+    }, [resultId, loadResultDetails]);
+
+    // Each case must be confirmed on its own evidence, never on the previous case's ticks.
+    useEffect(() => {
+        setReviewChecklist(createEmptyChecklist());
     }, [resultId]);
 
     const labResults = useMemo(() => {
@@ -143,49 +212,38 @@ export default function ReviewCasePage() {
                       (referenceHigh != null && !Number.isNaN(numericValue) && numericValue > referenceHigh);
 
             return {
+                key: `${parameter.parameterCode}-${parameter.parameterName}`,
                 parameter: parameter.parameterName,
-                result: parameter.resultText ?? parameter.resultValue ?? '-',
-                unit: parameter.unit ?? '-',
-                flag: getFlagDisplay(parameter.flag),
+                result: parameter.resultText ?? parameter.resultValue ?? '—',
+                unit: parameter.unit ?? '—',
                 rawFlag: parameter.flag,
                 referenceRange: formatReferenceRange(parameter.referenceRangeLow, parameter.referenceRangeHigh),
                 isAbnormal,
+                isCritical: isCriticalFlag(parameter.flag),
             };
         });
     }, [resultDetail]);
 
     const abnormalCount = labResults.filter((row) => row.isAbnormal).length;
-    const criticalCount = labResults.filter(
-        (row) => row.rawFlag === 'CRITICAL_HIGH' || row.rawFlag === 'CRITICAL_LOW'
-    ).length;
-    const specimenPriorityBadge = useMemo(() => {
-        const raw = resultDetail?.priority;
-        if (!raw) {
-            return null;
-        }
-
-        const key = raw.toUpperCase() as keyof typeof PRIORITY_COLORS;
-
-        return {
-            label: formatEnumTokenLabel(raw),
-            className: PRIORITY_COLORS[key] ?? 'bg-slate-100 text-slate-700',
-        };
-    }, [resultDetail?.priority]);
+    const criticalCount = labResults.filter((row) => row.isCritical).length;
 
     const mltNotesAuthor =
         resultDetail?.mltName?.trim() ||
         resultDetail?.technicianName?.trim() ||
         'Unknown technician';
     const patientDemographics = [
-        resultDetail?.patientAge != null ? `${resultDetail.patientAge}Y` : null,
+        resultDetail?.patientAge != null ? `${resultDetail.patientAge} y` : null,
         formatGenderLabel(resultDetail?.patientGender),
     ]
         .filter(Boolean)
-        .join(' / ');
+        .join(' · ');
     const reviewerName = user?.name || user?.preferred_username || 'Current user';
     const reviewerRole = 'Lab Supervisor';
     const canReviewActions =
         resultDetail?.status === 'ENTERED' || resultDetail?.status === 'RETURNED_FOR_RECHECK';
+    const completedChecklistCount = SUPERVISOR_CHECKLIST.filter((item) => reviewChecklist[item.id]).length;
+    const isChecklistComplete = completedChecklistCount === SUPERVISOR_CHECKLIST.length;
+    const displayId = formatDisplayId(resultId, 'RES');
 
     const resolveSubmitErrorMessage = (
         action: 'approve' | 'return',
@@ -215,12 +273,71 @@ export default function ReviewCasePage() {
         router.push('/verification/pending');
     };
 
+    const toggleChecklistItem = (itemId: string) => {
+        setReviewChecklist((current) => ({
+            ...current,
+            [itemId]: !current[itemId],
+        }));
+        if (submitError) {
+            setSubmitError(null);
+        }
+    };
+
+    // Stable references so the Modal's focus/keyboard effect doesn't re-run every render.
+    const closeReturnModal = useCallback(() => {
+        setShowReturnModal(false);
+        setReturnReason('');
+        setReturnError(null);
+        setSubmitError(null);
+    }, []);
+
+    const closeApproveModal = useCallback(() => {
+        setShowApproveModal(false);
+        setApproveNote('');
+        setReviewChecklist(createEmptyChecklist());
+        setRequiresQcOverride(false);
+        setSubmitError(null);
+    }, []);
+
+    const openReturnModal = () => {
+        if (!canReviewActions) {
+            setSubmitError(REVIEWED_NOTICE);
+            return;
+        }
+        setShowReturnModal(true);
+        setReturnError(null);
+        setSubmitError(null);
+    };
+
+    const openApproveModal = () => {
+        if (!canReviewActions) {
+            setSubmitError(REVIEWED_NOTICE);
+            return;
+        }
+        if (!isChecklistComplete) {
+            setSubmitError(CHECKLIST_NOTICE);
+            return;
+        }
+        setShowApproveModal(true);
+        setSubmitError(null);
+    };
+
     const handleApprove = async () => {
         if (!canReviewActions) {
-            setSubmitError('This case has already been processed. Actions reopen only after a clinical return for recheck.');
+            setSubmitError(REVIEWED_NOTICE);
+            return;
+        }
+        if (!isChecklistComplete) {
+            setSubmitError(CHECKLIST_NOTICE);
             return;
         }
         const trimmedSupervisorNote = approveNote.trim();
+
+        if (requiresQcOverride && trimmedSupervisorNote.length < 20) {
+            setSubmitError('A QC override reason of at least 20 characters is required.');
+            return;
+        }
+
         const supervisorNote = trimmedSupervisorNote
             ? `Added by ${reviewerName} (${reviewerRole}): ${trimmedSupervisorNote}`
             : undefined;
@@ -232,13 +349,20 @@ export default function ReviewCasePage() {
                 status: 'TECHNICALLY_VERIFIED',
                 mltNotes: resultDetail?.mltNotes ?? undefined,
                 supervisorNote,
+                qcOverrideReason: trimmedSupervisorNote || undefined,
             });
             setShowApproveModal(false);
             setApproveNote('');
+            setReviewChecklist(createEmptyChecklist());
+            setRequiresQcOverride(false);
             router.push('/verification/pending');
         } catch (submitError) {
             console.error('Failed to approve result', submitError);
-            setSubmitError(resolveSubmitErrorMessage('approve', submitError));
+            const message = resolveSubmitErrorMessage('approve', submitError);
+            if (message.startsWith('QC hold')) {
+                setRequiresQcOverride(true);
+            }
+            setSubmitError(message);
         } finally {
             setIsSubmitting(false);
         }
@@ -275,506 +399,533 @@ export default function ReviewCasePage() {
         }
     };
 
+    // ── Loading state ─────────────────────────────────────────────────────────
     if (loading) {
         return (
-            <div className="flex h-full items-center justify-center">
-                <div className="flex flex-col items-center gap-3 rounded-2xl border border-slate-200 bg-white px-8 py-10 shadow-sm">
-                    <div className="h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-slate-800" />
-                    <p className="text-sm font-medium text-slate-700">Loading verification result...</p>
+            <div className="mx-auto max-w-5xl">
+                <PageHeader title="Result review" crumbs={[...REVIEW_CRUMBS, { label: 'Loading…' }]} />
+                <p role="status" aria-live="polite" className="sr-only">
+                    Loading verification result
+                </p>
+                <div aria-hidden="true">
+                    <div className="mb-4 rounded-lg border border-edge bg-surface px-4 py-3">
+                        <span className="block h-4 w-48 rounded bg-skeleton" />
+                    </div>
+                    <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                        {Array.from({ length: 3 }).map((_, i) => (
+                            <span key={i} className="block h-[86px] rounded-lg border border-edge bg-surface" />
+                        ))}
+                    </div>
+                    <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
+                        <div className="rounded-lg border border-edge bg-surface p-4">
+                            <span className="block h-4 w-32 rounded bg-skeleton" />
+                            <div className="mt-4 space-y-2">
+                                {Array.from({ length: 6 }).map((_, i) => (
+                                    <span key={i} className="block h-8 rounded bg-skeleton" />
+                                ))}
+                            </div>
+                        </div>
+                        <div className="space-y-4">
+                            <div className="rounded-lg border border-edge bg-surface p-4">
+                                <span className="block h-4 w-36 rounded bg-skeleton" />
+                                <div className="mt-4 space-y-2">
+                                    {Array.from({ length: 5 }).map((_, i) => (
+                                        <span key={i} className="block h-9 rounded bg-skeleton" />
+                                    ))}
+                                </div>
+                            </div>
+                            <div className="rounded-lg border border-edge bg-surface p-4">
+                                <span className="block h-4 w-28 rounded bg-skeleton" />
+                                <div className="mt-4 space-y-2">
+                                    {Array.from({ length: 3 }).map((_, i) => (
+                                        <span key={i} className="block h-12 rounded bg-skeleton" />
+                                    ))}
+                                </div>
+                            </div>
+                            <div className="rounded-lg border border-edge bg-surface p-4">
+                                <span className="block h-4 w-20 rounded bg-skeleton" />
+                                <span className="mt-4 block h-16 rounded bg-skeleton" />
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         );
     }
 
+    // ── Error / not found state ───────────────────────────────────────────────
     if (error || !resultDetail) {
         return (
-            <div className="flex h-full items-center justify-center">
-                <div className="max-w-md rounded-2xl border border-slate-200 bg-white px-8 py-10 text-center shadow-sm">
-                    <p className="text-lg font-bold text-slate-900">Unable to load result details</p>
-                    <p className="mt-2 text-sm text-slate-500">
-                        {error ?? 'The requested result could not be loaded.'}
-                    </p>
-                    <button
-                        type="button"
-                        onClick={() => router.push('/verification/pending')}
-                        className="mt-5 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary/90"
-                    >
-                        Back to Pending List
-                    </button>
+            <div className="mx-auto max-w-5xl">
+                <PageHeader title="Result review" crumbs={[...REVIEW_CRUMBS, { label: displayId }]} />
+                <div role={error ? 'alert' : undefined} className="rounded-lg border border-edge bg-surface">
+                    <EmptyState
+                        icon={error ? AlertTriangle : SearchX}
+                        title={error ? "Couldn't load result" : 'Result not found'}
+                        description={error ?? `No verification result matches ${displayId}.`}
+                        action={
+                            <div className="flex flex-wrap items-center justify-center gap-2">
+                                {error && (
+                                    <Button size="sm" onClick={() => void loadResultDetails()}>
+                                        Retry
+                                    </Button>
+                                )}
+                                <Button size="sm" icon={ArrowLeft} href="/verification/pending">
+                                    Back to pending list
+                                </Button>
+                            </div>
+                        }
+                    />
                 </div>
             </div>
         );
     }
 
+    const workflowChip = (
+        <StatusChip tone={toneForWorkflowStatus(resultDetail.status)} dot>
+            {formatWorkflowStatusLabel(resultDetail.status)}
+        </StatusChip>
+    );
+
     return (
-        <div className="flex flex-col h-full space-y-6">
-            {showReturnModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-                    <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-2xl">
-                        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
-                            <div>
-                                <h2 className="text-lg font-bold text-slate-900">Return to MLT</h2>
-                                <p className="mt-1 text-sm text-slate-500">
-                                    Add the reason this case should be sent back.
-                                </p>
-                            </div>
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    if (isSubmitting) {
-                                        return;
-                                    }
-                                    setShowReturnModal(false);
-                                    setReturnReason('');
-                                    setReturnError(null);
-                                    setSubmitError(null);
-                                }}
-                                className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-50 hover:text-slate-600"
-                            >
-                                <span className="material-icons text-[18px]">close</span>
-                            </button>
-                        </div>
+        <div className="mx-auto max-w-5xl">
+            <PageHeader
+                title="Result review"
+                crumbs={[...REVIEW_CRUMBS, { label: displayId }]}
+                meta={
+                    <>
+                        <span className="font-mono text-fg-secondary">{displayId}</span>
+                        <span aria-hidden="true">·</span>
+                        <span>Updated {formatRelative(resultDetail.updatedAt)}</span>
+                    </>
+                }
+                actions={
+                    <>
+                        <Button variant="ghost" icon={ArrowLeft} onClick={handleBack}>
+                            Back
+                        </Button>
+                        <Button
+                            icon={Undo2}
+                            onClick={openReturnModal}
+                            disabled={isSubmitting || !canReviewActions}
+                        >
+                            Return to MLT
+                        </Button>
+                        <Button
+                            variant="primary"
+                            icon={CheckCircle2}
+                            onClick={openApproveModal}
+                            disabled={isSubmitting || !canReviewActions || !isChecklistComplete}
+                        >
+                            Approve and release
+                        </Button>
+                    </>
+                }
+            />
 
-                        <div className="px-6 py-5">
-                            <label className="block text-sm font-semibold text-slate-700" htmlFor="return-reason">
-                                Return Reason
-                            </label>
-                            <textarea
-                                id="return-reason"
-                                value={returnReason}
-                                onChange={(event) => {
-                                    setReturnReason(event.target.value);
-                                    if (returnError) {
-                                        setReturnError(null);
-                                    }
-                                    if (submitError) {
-                                        setSubmitError(null);
-                                    }
-                                }}
-                                rows={5}
-                                placeholder="Enter the reason for return."
-                                className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-                            />
-                            {returnError && (
-                                <p className="mt-2 text-sm font-medium text-red-600">{returnError}</p>
-                            )}
-                        </div>
-
-                        <div className="flex items-center justify-end gap-3 border-t border-slate-100 px-6 py-4 bg-slate-50/60">
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setShowReturnModal(false);
-                                    setReturnReason('');
-                                    setReturnError(null);
-                                    setSubmitError(null);
-                                }}
-                                disabled={isSubmitting}
-                                className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                type="button"
-                                onClick={handleReturn}
-                                disabled={isSubmitting}
-                                className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
-                            >
-                                Confirm Return to MLT
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {showApproveModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-                    <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-2xl">
-                        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
-                            <div>
-                                <h2 className="text-lg font-bold text-slate-900">Approve for Clinical Review</h2>
-                                <p className="mt-1 text-sm text-slate-500">
-                                    Add an optional handoff note.
-                                </p>
-                            </div>
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    if (isSubmitting) {
-                                        return;
-                                    }
-                                    setShowApproveModal(false);
-                                    setApproveNote('');
-                                    setSubmitError(null);
-                                }}
-                                className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-50 hover:text-slate-600"
-                            >
-                                <span className="material-icons text-[18px]">close</span>
-                            </button>
-                        </div>
-
-                        <div className="px-6 py-5">
-                            <label className="block text-sm font-semibold text-slate-700" htmlFor="approve-note">
-                                Lab Supervisor Note
-                            </label>
-                            <textarea
-                                id="approve-note"
-                                value={approveNote}
-                                onChange={(event) => {
-                                    setApproveNote(event.target.value);
-                                    if (submitError) {
-                                        setSubmitError(null);
-                                    }
-                                }}
-                                rows={5}
-                                placeholder="Add a note for the pathologist."
-                                className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-                            />
-                            {submitError && (
-                                <p className="mt-2 text-sm font-medium text-red-600">{submitError}</p>
-                            )}
-                        </div>
-
-                        <div className="flex items-center justify-end gap-3 border-t border-slate-100 px-6 py-4 bg-slate-50/60">
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setShowApproveModal(false);
-                                    setApproveNote('');
-                                    setSubmitError(null);
-                                }}
-                                disabled={isSubmitting}
-                                className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                type="button"
-                                onClick={handleApprove}
-                                disabled={isSubmitting}
-                                className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
-                            >
-                                Confirm Approval
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            <div className="bg-white border border-slate-200 rounded-xl px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm">
-                <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-                    <button
-                        onClick={handleBack}
-                        className="flex items-center gap-2 text-sm font-semibold text-slate-500 hover:text-primary transition-colors"
-                    >
-                        <span className="material-icons text-[18px]">arrow_back</span>
-                        Back
-                    </button>
-                    <div className="hidden sm:block w-px h-6 bg-slate-200" />
-                    <div className="flex items-center gap-3 flex-wrap">
-                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                            Reviewing Case
-                        </span>
-                        <span className="px-2.5 py-1 bg-slate-100/80 rounded-md text-xs font-bold text-slate-600 font-mono border border-slate-200">
-                            {formatDisplayId(resultId, 'RES')}
-                        </span>
-                        <span className="text-base font-bold text-slate-800">
+            {/* Sample context banner */}
+            <section
+                aria-label="Case context"
+                className="sticky top-16 z-20 mb-4 rounded-lg border border-edge bg-surface px-4 py-3"
+            >
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                    <div className="flex min-w-0 items-center gap-2">
+                        <User className="h-5 w-5 shrink-0 text-fg-faint" aria-hidden="true" />
+                        <span className="truncate text-sm font-semibold text-fg">
                             {resultDetail.patientName ?? 'Unknown patient'}
                         </span>
+                        {patientDemographics && (
+                            <span className="whitespace-nowrap text-sm text-fg-muted">{patientDemographics}</span>
+                        )}
+                    </div>
+                    <div className="flex min-w-0 items-center gap-1.5 text-sm text-fg-secondary">
+                        <FlaskConical className="h-4 w-4 shrink-0 text-fg-faint" aria-hidden="true" />
+                        <span className="truncate">{resultDetail.testType ?? 'Lab result review'}</span>
+                    </div>
+                    <div className="flex items-center gap-2 sm:ml-auto">
+                        {workflowChip}
+                        {resultDetail.priority && <PriorityBadge priority={resultDetail.priority} />}
                     </div>
                 </div>
+            </section>
 
-                <div className="flex flex-wrap items-center gap-3 text-sm text-slate-500">
-                    {patientDemographics && (
-                        <div className="flex items-center gap-1.5">
-                            <span className="material-icons text-[16px] text-slate-400">person</span>
-                            <span>{patientDemographics}</span>
-                        </div>
-                    )}
-                    <div className="flex items-center gap-1.5">
-                        <span className="material-icons text-[16px] text-slate-400">science</span>
-                        <span>{resultDetail.testType ?? 'Lab Result Review'}</span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                        <span className="material-icons text-[16px] text-slate-400">pending_actions</span>
-                        <span>{formatWorkflowStatusLabel(resultDetail.status)}</span>
-                    </div>
-                    {specimenPriorityBadge && (
-                        <span
-                            className={`px-3 py-1 rounded-md text-[11px] font-bold ${specimenPriorityBadge.className}`}
-                        >
-                            {specimenPriorityBadge.label}
-                        </span>
-                    )}
+            {submitError && !showApproveModal && !showReturnModal && (
+                <div
+                    role="alert"
+                    className="mb-4 flex items-start gap-2 rounded-lg border border-status-danger-edge bg-status-danger-bg px-4 py-3 text-sm text-status-danger-fg"
+                >
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span>{submitError}</span>
                 </div>
+            )}
+
+            {!canReviewActions && (
+                <p
+                    role="status"
+                    className="mb-4 rounded-lg border border-edge bg-surface-muted px-4 py-2.5 text-xs text-fg-secondary"
+                >
+                    This case is already reviewed. Actions reopen only when clinical sends it back for recheck.
+                </p>
+            )}
+
+            {/* Review summary */}
+            <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <KpiTile label="Parameters" value={labResults.length} icon={ListChecks} note="In this test group" />
+                <KpiTile
+                    label="Abnormal"
+                    value={abnormalCount}
+                    icon={AlertTriangle}
+                    tone={abnormalCount > 0 ? 'warning' : 'neutral'}
+                    note={abnormalCount > 0 ? 'Outside reference range' : 'All within range'}
+                />
+                <KpiTile
+                    label="Critical"
+                    value={criticalCount}
+                    icon={AlertOctagon}
+                    tone={criticalCount > 0 ? 'danger' : 'neutral'}
+                    note={criticalCount > 0 ? 'Needs immediate attention' : 'No critical values'}
+                />
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6 pb-12">
-                <div className="bg-white rounded-xl border border-slate-200/60 shadow-sm overflow-hidden flex flex-col">
-                    <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-                        <span className="text-sm font-bold text-slate-800">
-                            {resultDetail.testType ?? 'Selected Test Group'}
-                        </span>
-                        <span className="text-[11px] text-slate-400 font-medium">
-                            Last updated: {formatTimestamp(resultDetail.updatedAt)}
-                        </span>
-                    </div>
-
-                    <div className="overflow-x-auto flex-1">
-                        <table className="w-full text-sm">
-                            <thead>
-                                <tr className="bg-slate-50/50 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">
-                                    <th className="px-5 py-3 border-b border-slate-100">Parameter</th>
-                                    <th className="px-4 py-3 border-b border-slate-100">Result</th>
-                                    <th className="px-4 py-3 border-b border-slate-100">Unit</th>
-                                    <th className="px-4 py-3 border-b border-slate-100">Flag</th>
-                                    <th className="px-4 py-3 border-b border-slate-100">Reference Range</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {labResults.map((row) => (
-                                    <tr
-                                        key={row.parameter}
-                                        className={`border-b border-slate-50 last:border-0 ${row.isAbnormal ? 'bg-red-50/30' : 'bg-white'}`}
-                                    >
-                                        <td className="px-5 py-3 text-slate-700 font-semibold text-[13px]">
-                                            {row.parameter}
-                                        </td>
-                                        <td className={`px-4 py-3 text-[15px] font-bold ${row.isAbnormal ? 'text-red-600' : 'text-slate-800'}`}>
-                                            {row.result}
-                                        </td>
-                                        <td className="px-4 py-3 text-xs text-slate-500">
-                                            {row.unit}
-                                        </td>
-                                        <td className="px-4 py-3">
-                                            {!row.rawFlag ? (
-                                                <span className="text-sm text-slate-400">-</span>
-                                            ) : (
-                                                <span
-                                                    className={`inline-flex items-center justify-center min-h-6 rounded-md px-2 py-1 text-[11px] font-bold ${getFlagClassName(row.rawFlag)}`}
-                                                >
-                                                    {row.flag}
-                                                </span>
-                                            )}
-                                        </td>
-                                        <td className="px-4 py-3 text-xs text-slate-500">
-                                            {row.referenceRange}
-                                        </td>
+            <div className="grid gap-4 pb-12 lg:grid-cols-[1fr_320px]">
+                {/* Results table */}
+                <SectionCard
+                    title={resultDetail.testType ?? 'Selected test group'}
+                    count={labResults.length}
+                    flush
+                    className="min-w-0 self-start"
+                >
+                    {labResults.length === 0 ? (
+                        <EmptyState
+                            compact
+                            icon={Activity}
+                            title="No parameters recorded"
+                            description="This result has no parameter values to review yet."
+                        />
+                    ) : (
+                        <div className="overflow-x-auto">
+                            <table className="w-full min-w-[640px] table-fixed text-left text-[13px]">
+                                <thead>
+                                    <tr className="border-b border-edge text-xs font-medium text-fg-muted">
+                                        <th scope="col" className="py-2 pl-4 pr-3 font-medium">
+                                            Parameter
+                                        </th>
+                                        <th scope="col" className="w-28 px-3 py-2 font-medium">
+                                            Result
+                                        </th>
+                                        <th scope="col" className="w-20 px-3 py-2 font-medium">
+                                            Unit
+                                        </th>
+                                        <th scope="col" className="w-32 px-3 py-2 font-medium">
+                                            Flag
+                                        </th>
+                                        <th scope="col" className="w-36 px-3 py-2 font-medium">
+                                            Reference range
+                                        </th>
                                     </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-
-                    <div className="px-6 py-4 bg-slate-50/50 border-t border-slate-100 flex items-center justify-end gap-3 mt-auto">
-                        {submitError && !showApproveModal && !showReturnModal && (
-                            <p className="mr-auto text-sm font-medium text-red-600">{submitError}</p>
-                        )}
-                        {!canReviewActions && (
-                            <p className="mr-auto text-xs font-medium text-slate-500">
-                                This case is already reviewed. Actions reopen only when clinical sends it back for recheck.
-                            </p>
-                        )}
-                        <button
-                            onClick={() => {
-                                if (!canReviewActions) {
-                                    setSubmitError('This case has already been processed. Actions reopen only after a clinical return for recheck.');
-                                    return;
-                                }
-                                setShowReturnModal(true);
-                                setReturnError(null);
-                                setSubmitError(null);
-                            }}
-                            disabled={isSubmitting || !canReviewActions}
-                            className="h-10 px-5 text-sm font-bold border border-slate-200 rounded-lg bg-white text-slate-600 hover:bg-slate-50 transition-colors flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                            <span className="material-icons text-[18px]">keyboard_return</span>
-                            Return to MLT
-                        </button>
-                        <button
-                            onClick={() => {
-                                if (!canReviewActions) {
-                                    setSubmitError('This case has already been processed. Actions reopen only after a clinical return for recheck.');
-                                    return;
-                                }
-                                setShowApproveModal(true);
-                                setSubmitError(null);
-                            }}
-                            disabled={isSubmitting || !canReviewActions}
-                            className="h-10 px-6 text-sm font-bold border-none rounded-lg bg-primary text-white hover:bg-primary/90 transition-colors flex items-center gap-2 shadow-sm shadow-primary/30 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                            <span className="material-icons text-[18px]">check_circle</span>
-                            Approve &amp; Release
-                        </button>
-                    </div>
-                </div>
-
-                <div className="flex flex-col gap-6">
-                    <div className="bg-white rounded-xl border border-slate-200/60 shadow-sm p-5">
-                        <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
-                            <span className="text-xs font-bold text-slate-700 uppercase tracking-widest">
-                                Review Summary
-                            </span>
-                        </div>
-                        <div className="grid grid-cols-2 gap-3">
-                            <div className="rounded-lg border border-slate-100 bg-slate-50 px-4 py-3">
-                                <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-                                    Parameters
-                                </div>
-                                <div className="mt-2 text-2xl font-bold text-slate-800">
-                                    {labResults.length}
-                                </div>
-                            </div>
-                            <div className="rounded-lg border border-slate-100 bg-slate-50 px-4 py-3">
-                                <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-                                    Abnormal
-                                </div>
-                                <div className="mt-2 text-2xl font-bold text-amber-600">
-                                    {abnormalCount}
-                                </div>
-                            </div>
-                            <div className="rounded-lg border border-slate-100 bg-slate-50 px-4 py-3">
-                                <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-                                    Critical
-                                </div>
-                                <div className="mt-2 text-2xl font-bold text-red-600">
-                                    {criticalCount}
-                                </div>
-                            </div>
-                            <div className="rounded-lg border border-slate-100 bg-slate-50 px-4 py-3">
-                                <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-                                    Status
-                                </div>
-                                <div className="mt-2 text-sm font-bold text-slate-800">
-                                    {formatWorkflowStatusLabel(resultDetail.status)}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="bg-white rounded-xl border border-slate-200/60 shadow-sm p-5">
-                        <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
-                            <span className="text-xs font-bold text-slate-700 uppercase tracking-widest">
-                                Previous Visits
-                            </span>
-                        </div>
-
-                        {resultDetail.previousVisits && resultDetail.previousVisits.length > 0 ? (
-                            <div className="space-y-3">
-                                {resultDetail.previousVisits.map((visit) => (
-                                    <button
-                                        key={visit.sampleId}
-                                        type="button"
-                                        onClick={() => router.push(`/verification/review/${visit.resultId}`)}
-                                        className="w-full rounded-lg border border-slate-100 bg-slate-50 px-4 py-3 text-left transition hover:border-primary/30 hover:bg-white"
-                                    >
-                                        <div className="flex items-start justify-between gap-3">
-                                            <div>
-                                                <div className="text-sm font-semibold text-slate-800">
-                                                    {formatTimestamp(visit.visitedAt)}
-                                                </div>
-                                                <div className="mt-1 text-xs text-slate-500">
-                                                    {visit.parameterCount ?? 0} parameters
-                                                    {' • '}
-                                                    {visit.abnormalCount ?? 0} abnormal
-                                                    {' • '}
-                                                    {visit.criticalCount ?? 0} critical
-                                                </div>
-                                            </div>
-                                            <div className="flex flex-col items-end gap-1 shrink-0">
-                                                {visit.priorityLevel && (
-                                                    <span
-                                                        className={`rounded-md px-2.5 py-1 text-[11px] font-bold border border-slate-200 ${
-                                                            PRIORITY_COLORS[
-                                                                visit.priorityLevel.toUpperCase() as keyof typeof PRIORITY_COLORS
-                                                            ] ?? 'bg-slate-50 text-slate-600'
-                                                        }`}
-                                                    >
-                                                        {formatEnumTokenLabel(visit.priorityLevel)}
-                                                    </span>
+                                </thead>
+                                <tbody className="divide-y divide-edge whitespace-nowrap">
+                                    {labResults.map((row) => (
+                                        <tr key={row.key} className="hover:bg-surface-hover">
+                                            <td className="truncate py-2 pl-4 pr-3 font-medium text-fg" title={row.parameter}>
+                                                {row.parameter}
+                                            </td>
+                                            <td
+                                                className={`px-3 py-2 font-semibold tabular-nums ${
+                                                    row.isCritical
+                                                        ? 'text-status-danger-fg'
+                                                        : row.isAbnormal
+                                                          ? 'text-status-pending-fg'
+                                                          : 'text-fg'
+                                                }`}
+                                            >
+                                                {row.result}
+                                            </td>
+                                            <td className="px-3 py-2 text-xs text-fg-muted">{row.unit}</td>
+                                            <td className="px-3 py-2">
+                                                {row.rawFlag ? (
+                                                    <StatusChip tone={toneForFlag(row.rawFlag)} size="sm" dot>
+                                                        {humanizeStatus(row.rawFlag)}
+                                                    </StatusChip>
+                                                ) : (
+                                                    <span className="text-fg-faint">—</span>
                                                 )}
-                                                <span className="rounded-md bg-white px-2.5 py-1 text-[11px] font-bold text-slate-600 border border-slate-200">
-                                                    {visit.status ? formatWorkflowStatusLabel(visit.status) : '—'}
-                                                </span>
-                                            </div>
-                                        </div>
-                                    </button>
-                                ))}
-                            </div>
-                        ) : (
-                            <p className="text-sm text-slate-500">
-                                No previous visits for this test group.
+                                            </td>
+                                            <td className="px-3 py-2 text-xs tabular-nums text-fg-muted">
+                                                {row.referenceRange}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </SectionCard>
+
+                {/* Side panels */}
+                <div className="flex min-w-0 flex-col gap-4">
+                    {/* Supervisor checklist — gates the approve action */}
+                    <SectionCard
+                        title="Supervisor checklist"
+                        actions={
+                            <StatusChip tone={isChecklistComplete ? 'success' : 'pending'} size="sm">
+                                {completedChecklistCount}/{SUPERVISOR_CHECKLIST.length} checked
+                            </StatusChip>
+                        }
+                        flush
+                    >
+                        <ul className="divide-y divide-edge">
+                            {SUPERVISOR_CHECKLIST.map((item) => {
+                                const checked = reviewChecklist[item.id] ?? false;
+                                const checkboxId = `checklist-${item.id}`;
+
+                                return (
+                                    <li
+                                        key={item.id}
+                                        className={`flex items-start gap-3 px-4 py-2.5 transition-colors ${
+                                            checked ? 'bg-status-verified-bg' : ''
+                                        } ${canReviewActions ? 'hover:bg-surface-hover' : 'opacity-60'}`}
+                                    >
+                                        <input
+                                            id={checkboxId}
+                                            type="checkbox"
+                                            checked={checked}
+                                            disabled={!canReviewActions}
+                                            onChange={() => toggleChecklistItem(item.id)}
+                                            className={`mt-0.5 ${CHECKBOX_CLASS} ${
+                                                canReviewActions ? 'cursor-pointer' : ''
+                                            }`}
+                                        />
+                                        <label
+                                            htmlFor={checkboxId}
+                                            className={`min-w-0 flex-1 break-words text-[13px] font-medium leading-5 ${
+                                                canReviewActions ? 'cursor-pointer' : 'cursor-not-allowed'
+                                            } ${checked ? 'text-status-verified-fg' : 'text-fg-secondary'}`}
+                                        >
+                                            {item.label}
+                                        </label>
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                        {!isChecklistComplete && canReviewActions && (
+                            <p
+                                role="status"
+                                className="border-t border-edge bg-surface-muted px-4 py-2.5 text-xs text-status-pending-fg"
+                            >
+                                Approve stays locked until every check is confirmed.
                             </p>
                         )}
-                    </div>
+                    </SectionCard>
 
-                    <div className="bg-white rounded-xl border border-slate-200/60 shadow-sm p-5">
-                        <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
-                            <span className="text-xs font-bold text-slate-700 uppercase tracking-widest">
-                                MLT Notes
-                            </span>
-                        </div>
+                    <SectionCard title="Previous visits" count={resultDetail.previousVisits?.length ?? 0} flush>
+                        {resultDetail.previousVisits && resultDetail.previousVisits.length > 0 ? (
+                            <ul className="divide-y divide-edge">
+                                {resultDetail.previousVisits.map((visit) => (
+                                    <li key={visit.sampleId}>
+                                        <button
+                                            type="button"
+                                            onClick={() => router.push(`/verification/review/${visit.resultId}`)}
+                                            className="flex w-full items-start justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+                                        >
+                                            <span className="min-w-0">
+                                                <span className="block text-sm font-medium text-fg">
+                                                    {formatWhen(visit.visitedAt)}
+                                                </span>
+                                                <span className="mt-0.5 block text-xs tabular-nums text-fg-muted">
+                                                    {visit.parameterCount ?? 0} parameters · {visit.abnormalCount ?? 0} abnormal ·{' '}
+                                                    {visit.criticalCount ?? 0} critical
+                                                </span>
+                                            </span>
+                                            <span className="flex shrink-0 flex-col items-end gap-1">
+                                                {visit.priorityLevel && <PriorityBadge priority={visit.priorityLevel} />}
+                                                <StatusChip tone={toneForWorkflowStatus(visit.status)} size="sm">
+                                                    {visit.status ? formatWorkflowStatusLabel(visit.status) : '—'}
+                                                </StatusChip>
+                                            </span>
+                                        </button>
+                                    </li>
+                                ))}
+                            </ul>
+                        ) : (
+                            <EmptyState
+                                compact
+                                icon={History}
+                                title="No previous visits"
+                                description="No earlier results for this test group."
+                            />
+                        )}
+                    </SectionCard>
+
+                    <SectionCard title="MLT notes">
                         <div className="flex gap-3">
-                            <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center shrink-0">
-                                <span className="text-white text-[10px] font-bold">
-                                    {(mltNotesAuthor ?? 'ML')
-                                        .split(/\s+/)
-                                        .filter(Boolean)
-                                        .slice(0, 2)
-                                        .map((segment) => segment.charAt(0).toUpperCase())
-                                        .join('') || 'ML'}
-                                </span>
-                            </div>
-                            <div className="pt-0.5 flex-1">
-                                <div className="flex items-center justify-between mb-1 gap-3">
-                                    <span className="text-xs font-bold text-slate-700">{mltNotesAuthor}</span>
-                                    <span className="text-[10px] font-medium text-slate-400">
-                                        {formatTimestamp(resultDetail.updatedAt)}
+                            <span
+                                aria-hidden="true"
+                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary-soft text-[11px] font-semibold text-primary-strong"
+                            >
+                                {initialsFor(mltNotesAuthor, 'ML')}
+                            </span>
+                            <div className="min-w-0 flex-1">
+                                <div className="mb-1 flex items-center justify-between gap-3">
+                                    <span className="truncate text-xs font-semibold text-fg">{mltNotesAuthor}</span>
+                                    <span className="shrink-0 text-[11px] text-fg-muted">
+                                        {formatRelative(resultDetail.updatedAt)}
                                     </span>
                                 </div>
-                                <p className="text-xs text-slate-600 leading-relaxed italic bg-slate-50 p-3 rounded-lg border border-slate-100">
-                                    &quot;{resultDetail.mltNotes || 'No MLT notes available.'}&quot;
+                                <p className="whitespace-pre-wrap break-words rounded-md border border-edge bg-surface-muted p-3 text-xs leading-relaxed text-fg-secondary">
+                                    {resultDetail.mltNotes || 'No MLT notes available.'}
                                 </p>
                             </div>
                         </div>
-                    </div>
+                    </SectionCard>
 
                     {resultDetail.clinicalNote && (
-                        <div className="bg-white rounded-xl border border-slate-200/60 shadow-sm p-5">
-                            <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
-                                <span className="text-xs font-bold text-slate-700 uppercase tracking-widest">
-                                    Clinical Note
-                                </span>
-                            </div>
+                        <SectionCard title="Clinical note">
                             <div className="flex gap-3">
-                                <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
-                                    <span className="text-amber-700 text-[10px] font-bold">
-                                        {(resultDetail.pathologistName ?? 'CL')
-                                            .split(/\s+/)
-                                            .filter(Boolean)
-                                            .slice(0, 2)
-                                            .map((segment) => segment.charAt(0).toUpperCase())
-                                            .join('') || 'CL'}
-                                    </span>
-                                </div>
-                                <div className="pt-0.5 flex-1">
-                                    <div className="flex items-center justify-between mb-1 gap-3">
-                                        <span className="text-xs font-bold text-slate-700">
-                                            {resultDetail.pathologistName ?? 'Pathologist'}
+                                <span
+                                    aria-hidden="true"
+                                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-status-pending-bg text-[11px] font-semibold text-status-pending-fg"
+                                >
+                                    {initialsFor(resultDetail.pathologistName, 'CL')}
+                                </span>
+                                <div className="min-w-0 flex-1">
+                                    <div className="mb-1 flex items-center justify-between gap-3">
+                                        <span className="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-fg">
+                                            <Stethoscope className="h-4 w-4 shrink-0 text-fg-faint" aria-hidden="true" />
+                                            <span className="truncate">{resultDetail.pathologistName ?? 'Pathologist'}</span>
                                         </span>
-                                        <span className="text-[10px] font-medium text-slate-400">
-                                            {formatTimestamp(resultDetail.updatedAt)}
+                                        <span className="shrink-0 text-[11px] text-fg-muted">
+                                            {formatRelative(resultDetail.updatedAt)}
                                         </span>
                                     </div>
-                                    <p className="text-xs text-slate-600 leading-relaxed italic bg-slate-50 p-3 rounded-lg border border-slate-100">
-                                        &quot;{resultDetail.clinicalNote}&quot;
+                                    <p className="whitespace-pre-wrap break-words rounded-md border border-edge bg-surface-muted p-3 text-xs leading-relaxed text-fg-secondary">
+                                        {resultDetail.clinicalNote}
                                     </p>
                                 </div>
                             </div>
-                        </div>
+                        </SectionCard>
                     )}
                 </div>
             </div>
+
+            {/* Return to MLT dialog */}
+            <Modal
+                open={showReturnModal}
+                onClose={closeReturnModal}
+                dismissible={!isSubmitting}
+                title="Return to MLT"
+                description="Add the reason this case should be sent back."
+                footer={
+                    <>
+                        <Button onClick={closeReturnModal} disabled={isSubmitting}>
+                            Cancel
+                        </Button>
+                        <Button variant="danger" icon={Undo2} onClick={handleReturn} loading={isSubmitting}>
+                            Return to MLT
+                        </Button>
+                    </>
+                }
+            >
+                <TextareaField
+                    id="return-reason"
+                    label="Return reason"
+                    required
+                    rows={5}
+                    value={returnReason}
+                    onChange={(event) => {
+                        setReturnReason(event.target.value);
+                        if (returnError) {
+                            setReturnError(null);
+                        }
+                        if (submitError) {
+                            setSubmitError(null);
+                        }
+                    }}
+                    placeholder="Enter the reason for return."
+                    error={returnError}
+                    hint="The MLT will see this note with the returned case."
+                />
+            </Modal>
+
+            {/* Approve dialog */}
+            <Modal
+                open={showApproveModal}
+                onClose={closeApproveModal}
+                dismissible={!isSubmitting}
+                title="Approve for clinical review"
+                description={
+                    requiresQcOverride
+                        ? 'QC is on hold. Add a documented release reason of at least 20 characters.'
+                        : 'Add an optional handoff note for the pathologist.'
+                }
+                footer={
+                    <>
+                        <Button onClick={closeApproveModal} disabled={isSubmitting}>
+                            Cancel
+                        </Button>
+                        <Button
+                            variant="primary"
+                            icon={CheckCircle2}
+                            onClick={handleApprove}
+                            loading={isSubmitting}
+                            disabled={!isChecklistComplete}
+                        >
+                            Confirm approval
+                        </Button>
+                    </>
+                }
+            >
+                <div className="space-y-3">
+                    <div className="flex items-start gap-2 text-sm">
+                        <MessageSquare className="mt-0.5 h-4 w-4 shrink-0 text-fg-faint" aria-hidden="true" />
+                        <p className="text-fg-secondary">
+                            Signing as <span className="font-medium text-fg">{reviewerName}</span> ({reviewerRole}).
+                        </p>
+                    </div>
+                    <div className="flex items-start gap-2 rounded-md border border-edge bg-surface-muted px-3 py-2 text-xs">
+                        <ListChecks className="mt-px h-4 w-4 shrink-0 text-fg-faint" aria-hidden="true" />
+                        <p className="min-w-0 text-fg-secondary">
+                            Supervisor checklist{' '}
+                            <span className="font-medium tabular-nums text-fg">
+                                {completedChecklistCount}/{SUPERVISOR_CHECKLIST.length}
+                            </span>{' '}
+                            confirmed.
+                            {!isChecklistComplete && ' Complete every check before approving this case.'}
+                        </p>
+                    </div>
+                    <TextareaField
+                        id="approve-note"
+                        label="Lab supervisor note"
+                        required={requiresQcOverride}
+                        rows={5}
+                        value={approveNote}
+                        minLength={requiresQcOverride ? 20 : undefined}
+                        onChange={(event) => {
+                            setApproveNote(event.target.value);
+                            if (submitError) {
+                                setSubmitError(null);
+                            }
+                        }}
+                        placeholder={
+                            requiresQcOverride
+                                ? 'Explain why this result is being released over the QC hold.'
+                                : 'Add a note for the pathologist.'
+                        }
+                        error={
+                            submitError
+                                ? requiresQcOverride
+                                    ? `${submitError} (${approveNote.trim().length}/20)`
+                                    : submitError
+                                : undefined
+                        }
+                        hint={
+                            requiresQcOverride
+                                ? `${approveNote.trim().length}/20 characters minimum`
+                                : 'Optional. Shown to the pathologist with the case.'
+                        }
+                    />
+                </div>
+            </Modal>
         </div>
     );
 }

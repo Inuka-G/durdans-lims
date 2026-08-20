@@ -21,9 +21,9 @@ variable "vpc_cidr" {
 
 # --- Compute (single EC2 host running the compose stack) ---
 variable "ec2_instance_type" {
-  description = "t3.small (2 vCPU / 2 GB) fits the whole compose stack with the app DB on RDS."
+  description = "t3.medium (2 vCPU / 4 GB) gives Java, Keycloak, Kafka and Next.js enough memory for a stable demo."
   type        = string
-  default     = "t3.small"
+  default     = "t3.medium"
 }
 
 variable "ec2_volume_size_gb" {
@@ -125,6 +125,34 @@ variable "github_repos" {
   default     = ["durdans-lims"]
 }
 
+variable "github_owner_id" {
+  description = "Immutable GitHub owner ID included in current OIDC subject claims."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.github_owner_id == "" || can(regex("^[0-9]+$", var.github_owner_id))
+    error_message = "github_owner_id must be empty or a numeric GitHub owner ID."
+  }
+}
+
+variable "github_repo_ids" {
+  description = "Map of repo name to immutable GitHub repo ID for OIDC subjects."
+  type        = map(string)
+  default     = {}
+
+  validation {
+    condition     = alltrue([for id in values(var.github_repo_ids) : can(regex("^[0-9]+$", id))])
+    error_message = "Every github_repo_ids value must be a numeric GitHub repository ID."
+  }
+}
+
+variable "github_deploy_branch" {
+  description = "Only this branch may assume the AWS deployment role."
+  type        = string
+  default     = "main"
+}
+
 variable "create_github_oidc_provider" {
   description = "Create the GitHub OIDC provider. Set false if your account already has one."
   type        = bool
@@ -134,7 +162,7 @@ variable "create_github_oidc_provider" {
 # --- Cost guardrails ---
 variable "budget_monthly_usd" {
   type    = number
-  default = 40
+  default = 60
 }
 
 variable "alert_email" {

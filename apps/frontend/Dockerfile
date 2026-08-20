@@ -47,6 +47,12 @@ ENV NODE_ENV=production \
     HOSTNAME=0.0.0.0
 RUN addgroup -g 1001 -S nodejs && adduser -S -u 1001 -G nodejs nextjs
 
+# The runtime executes only `node server.js`; npm, npx and the Pebble ACME test
+# binary are build tooling. Remove them from the production image and its
+# vulnerability surface.
+RUN rm -rf /usr/local/lib/node_modules/npm \
+    && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/bin/pebble
+
 # Standalone output: server.js + minimal node_modules, plus static assets.
 COPY --from=build --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=build --chown=nextjs:nodejs /app/.next/static ./.next/static

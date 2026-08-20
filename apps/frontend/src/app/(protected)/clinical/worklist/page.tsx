@@ -1,16 +1,40 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import {
+    AlertTriangle,
+    ClipboardCheck,
+    Flag,
+    Inbox,
+    RefreshCw,
+    Search,
+    Stethoscope,
+    X,
+} from "lucide-react";
 import {
     getPendingClinicalResults,
     TestResultSummary,
 } from "@/lib/api";
 import { formatDisplayId } from "@/lib/format-id";
+import { cn } from "@/lib/utils";
+import Button from "@/components/ui/Button";
+import PageHeader from "@/components/ui/PageHeader";
+import KpiTile from "@/components/ui/KpiTile";
+import SectionCard from "@/components/ui/SectionCard";
+import SegmentedControl from "@/components/ui/SegmentedControl";
+import EmptyState from "@/components/ui/EmptyState";
+import Pagination from "@/components/ui/Pagination";
+import StatusChip, { humanizeStatus } from "@/components/ui/StatusChip";
+import { InputField } from "@/components/ui/Field";
+import PriorityBadge from "@/components/shared/PriorityBadge";
+import { formatAuditTime } from "@/components/patient-dashboard/dashboard-data";
 
 const PAGE_SIZE = 10;
 const FETCH_PAGE_SIZE = 100;
+const SKELETON_ROWS = 6;
 
+/** Full, unambiguous timestamp for tooltips. */
 const formatTimestamp = (value?: string | null) => {
     if (!value) {
         return "-";
@@ -21,57 +45,142 @@ const formatTimestamp = (value?: string | null) => {
         return value;
     }
 
-    return parsed.toLocaleString("en-LK", {
+    return parsed.toLocaleString("en-GB", {
         year: "numeric",
         month: "short",
         day: "2-digit",
         hour: "2-digit",
         minute: "2-digit",
+        hour12: false,
     });
 };
 
 const getClinicalStatusBadge = (status?: string | null) => {
     if (status === "TECHNICALLY_VERIFIED") {
         return (
-            <span className="px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-700 border border-blue-200">
-                Pending Review
-            </span>
+            <StatusChip tone="info" dot>
+                Pending review
+            </StatusChip>
         );
     }
 
-    return (
-        <span className="px-3 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-600 border border-slate-200">
-            {status ?? "Unknown"}
-        </span>
-    );
+    return <StatusChip tone="neutral">{status ? humanizeStatus(status) : "Unknown"}</StatusChip>;
 };
+
+const isFlaggedResult = (flag?: string | null): flag is string =>
+    Boolean(flag) && flag !== "NORMAL";
+
+const isCriticalFlag = (flag?: string | null) =>
+    flag === "CRITICAL_HIGH" || flag === "CRITICAL_LOW";
 
 const getFlagBadge = (flag?: string | null) => {
-    if (!flag || flag === "NORMAL") {
+    if (!isFlaggedResult(flag)) {
         return (
-            <span className="px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700 border border-emerald-200">
+            <StatusChip tone="success" dot>
                 Normal
-            </span>
+            </StatusChip>
         );
     }
 
-    if (flag === "CRITICAL_HIGH" || flag === "CRITICAL_LOW") {
+    if (isCriticalFlag(flag)) {
         return (
-            <span className="px-3 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-700 border border-red-200">
-                {flag === "CRITICAL_HIGH" ? "Critical High" : "Critical Low"}
-            </span>
+            <StatusChip tone="danger" dot>
+                {flag === "CRITICAL_HIGH" ? "Critical high" : "Critical low"}
+            </StatusChip>
         );
     }
 
     return (
-        <span className="px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-700 border border-amber-200">
-            {flag.replaceAll("_", " ")}
-        </span>
+        <StatusChip tone="pending" dot>
+            {humanizeStatus(flag)}
+        </StatusChip>
     );
 };
+
+/* ------------------------------------------------------------------ */
+/*  Filtering — three independent dimensions plus free-text search      */
+/* ------------------------------------------------------------------ */
 
 type FlagFilter = "ALL" | "FLAGGED" | "CRITICAL" | "HIGH" | "LOW" | "NORMAL";
 type PriorityFilter = "ALL" | "STAT" | "URGENT" | "NORMAL";
+type StatusFilter = "ALL" | "PENDING";
+
+type FilterOption<TValue extends string> = {
+    value: TValue;
+    label: string;
+};
+
+const STATUS_OPTIONS: readonly FilterOption<StatusFilter>[] = [
+    { value: "ALL", label: "All statuses" },
+    { value: "PENDING", label: "Pending review" },
+];
+
+const PRIORITY_OPTIONS: readonly FilterOption<PriorityFilter>[] = [
+    { value: "ALL", label: "All priorities" },
+    { value: "STAT", label: "STAT" },
+    { value: "URGENT", label: "Urgent" },
+    { value: "NORMAL", label: "Normal" },
+];
+
+const FLAG_OPTIONS: readonly FilterOption<FlagFilter>[] = [
+    { value: "ALL", label: "All flags" },
+    { value: "FLAGGED", label: "Flagged" },
+    { value: "CRITICAL", label: "Critical" },
+    { value: "HIGH", label: "High" },
+    { value: "LOW", label: "Low" },
+    { value: "NORMAL", label: "Normal" },
+];
+
+const matchesStatus = (result: TestResultSummary, filter: StatusFilter) =>
+    filter === "ALL" || result.status === "TECHNICALLY_VERIFIED";
+
+const matchesPriority = (result: TestResultSummary, filter: PriorityFilter) =>
+    filter === "ALL" || result.priorityLevel === filter;
+
+const matchesFlag = (result: TestResultSummary, filter: FlagFilter) => {
+    const resultFlag = result.flag ?? "NORMAL";
+
+    return (
+        filter === "ALL" ||
+        (filter === "NORMAL" && resultFlag === "NORMAL") ||
+        (filter === "FLAGGED" && isFlaggedResult(resultFlag)) ||
+        (filter === "CRITICAL" && isCriticalFlag(resultFlag)) ||
+        (filter === "HIGH" && (resultFlag === "HIGH" || resultFlag === "CRITICAL_HIGH")) ||
+        (filter === "LOW" && (resultFlag === "LOW" || resultFlag === "CRITICAL_LOW"))
+    );
+};
+
+const matchesSearch = (result: TestResultSummary, query: string) => {
+    if (query.length === 0) {
+        return true;
+    }
+
+    const displayResultId = formatDisplayId(result.resultId, "RES").toLowerCase();
+
+    return (
+        result.resultId.toLowerCase().includes(query) ||
+        displayResultId.includes(query) ||
+        (result.patientName ?? "").toLowerCase().includes(query) ||
+        (result.patientCode ?? "").toLowerCase().includes(query) ||
+        (result.testType ?? "").toLowerCase().includes(query) ||
+        (result.technicianName ?? "").toLowerCase().includes(query) ||
+        (result.priorityLevel ?? "").toLowerCase().includes(query)
+    );
+};
+
+const buildFilterOptions = <TValue extends string>(
+    rows: TestResultSummary[],
+    options: readonly FilterOption<TValue>[],
+    matches: (result: TestResultSummary, value: TValue) => boolean
+) =>
+    options.map((option) => ({
+        ...option,
+        count: rows.filter((row) => matches(row, option.value)).length,
+    }));
+
+/* ------------------------------------------------------------------ */
+/*  Page                                                               */
+/* ------------------------------------------------------------------ */
 
 export default function ClinicalWorklistPage() {
     const router = useRouter();
@@ -80,10 +189,14 @@ export default function ClinicalWorklistPage() {
     const [error, setError] = useState<string | null>(null);
     const [flagFilter, setFlagFilter] = useState<FlagFilter>("ALL");
     const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>("ALL");
+    const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
     const [search, setSearch] = useState("");
     const [page, setPage] = useState(0);
+    const [reloadKey, setReloadKey] = useState(0);
 
     useEffect(() => {
+        let active = true;
+
         const loadPendingClinicalResults = async () => {
             try {
                 setLoading(true);
@@ -92,7 +205,9 @@ export default function ClinicalWorklistPage() {
                 const firstPage = await getPendingClinicalResults(0, FETCH_PAGE_SIZE);
 
                 if (firstPage.totalPages <= 1) {
-                    setResults(firstPage.content ?? []);
+                    if (active) {
+                        setResults(firstPage.content ?? []);
+                    }
                     return;
                 }
 
@@ -102,64 +217,96 @@ export default function ClinicalWorklistPage() {
                     )
                 );
 
-                setResults([
-                    ...(firstPage.content ?? []),
-                    ...remainingPages.flatMap((resultPage) => resultPage.content ?? []),
-                ]);
+                if (active) {
+                    setResults([
+                        ...(firstPage.content ?? []),
+                        ...remainingPages.flatMap((resultPage) => resultPage.content ?? []),
+                    ]);
+                }
             } catch (loadError) {
                 console.error("Failed to load pending clinical results", loadError);
-                setError("Failed to load pending clinical results. Please try again.");
-                setResults([]);
+                if (active) {
+                    setError("Couldn't load pending clinical results. Check your connection and retry.");
+                    setResults([]);
+                }
             } finally {
-                setLoading(false);
+                if (active) {
+                    setLoading(false);
+                }
             }
         };
 
         void loadPendingClinicalResults();
-    }, []);
+
+        return () => {
+            active = false;
+        };
+    }, [reloadKey]);
+
+    const retry = useCallback(() => setReloadKey((key) => key + 1), []);
 
     const pendingCount = results.filter((result) => result.status === "TECHNICALLY_VERIFIED").length;
-    const flaggedCount = results.filter((result) => result.flag && result.flag !== "NORMAL").length;
-    const criticalCount = results.filter(
-        (result) => result.flag === "CRITICAL_HIGH" || result.flag === "CRITICAL_LOW"
-    ).length;
-    const priorityCounts = {
-        STAT: results.filter((result) => result.priorityLevel === "STAT").length,
-        URGENT: results.filter((result) => result.priorityLevel === "URGENT").length,
-        NORMAL: results.filter((result) => result.priorityLevel === "NORMAL").length,
-    };
+    const flaggedCount = results.filter((result) => isFlaggedResult(result.flag)).length;
+    const criticalCount = results.filter((result) => isCriticalFlag(result.flag)).length;
 
-    const filteredResults = useMemo(() => {
+    const searchedResults = useMemo(() => {
         const query = search.trim().toLowerCase();
 
-        return results.filter((result) => {
-            const resultFlag = result.flag ?? "NORMAL";
-            const matchesFlag =
-                flagFilter === "ALL" ||
-                (flagFilter === "NORMAL" && resultFlag === "NORMAL") ||
-                (flagFilter === "FLAGGED" && resultFlag !== "NORMAL") ||
-                (flagFilter === "CRITICAL" &&
-                    (resultFlag === "CRITICAL_HIGH" || resultFlag === "CRITICAL_LOW")) ||
-                (flagFilter === "HIGH" && (resultFlag === "HIGH" || resultFlag === "CRITICAL_HIGH")) ||
-                (flagFilter === "LOW" && (resultFlag === "LOW" || resultFlag === "CRITICAL_LOW"));
+        return results.filter((result) => matchesSearch(result, query));
+    }, [results, search]);
 
-            const matchesPriority =
-                priorityFilter === "ALL" || result.priorityLevel === priorityFilter;
+    // Each control counts the rows left by the other two controls, so a number
+    // always previews how many rows picking that option would actually show.
+    const statusOptions = useMemo(
+        () =>
+            buildFilterOptions(
+                searchedResults.filter(
+                    (result) =>
+                        matchesPriority(result, priorityFilter) && matchesFlag(result, flagFilter)
+                ),
+                STATUS_OPTIONS,
+                matchesStatus
+            ),
+        [flagFilter, priorityFilter, searchedResults]
+    );
 
-            const displayResultId = formatDisplayId(result.resultId, "RES").toLowerCase();
+    const priorityOptions = useMemo(
+        () =>
+            buildFilterOptions(
+                searchedResults.filter(
+                    (result) =>
+                        matchesStatus(result, statusFilter) && matchesFlag(result, flagFilter)
+                ),
+                PRIORITY_OPTIONS,
+                matchesPriority
+            ),
+        [flagFilter, searchedResults, statusFilter]
+    );
 
-            const matchesSearch =
-                query.length === 0 ||
-                result.resultId.toLowerCase().includes(query) ||
-                displayResultId.includes(query) ||
-                (result.patientName ?? "").toLowerCase().includes(query) ||
-                (result.testType ?? "").toLowerCase().includes(query) ||
-                (result.technicianName ?? "").toLowerCase().includes(query) ||
-                (result.priorityLevel ?? "").toLowerCase().includes(query);
+    const flagOptions = useMemo(
+        () =>
+            buildFilterOptions(
+                searchedResults.filter(
+                    (result) =>
+                        matchesStatus(result, statusFilter) &&
+                        matchesPriority(result, priorityFilter)
+                ),
+                FLAG_OPTIONS,
+                matchesFlag
+            ),
+        [priorityFilter, searchedResults, statusFilter]
+    );
 
-            return matchesFlag && matchesPriority && matchesSearch;
-        });
-    }, [flagFilter, priorityFilter, results, search]);
+    const filteredResults = useMemo(
+        () =>
+            searchedResults.filter(
+                (result) =>
+                    matchesStatus(result, statusFilter) &&
+                    matchesPriority(result, priorityFilter) &&
+                    matchesFlag(result, flagFilter)
+            ),
+        [flagFilter, priorityFilter, searchedResults, statusFilter]
+    );
 
     const totalPages = Math.max(1, Math.ceil(filteredResults.length / PAGE_SIZE));
     const paginatedResults = useMemo(() => {
@@ -169,7 +316,7 @@ export default function ClinicalWorklistPage() {
 
     useEffect(() => {
         setPage(0);
-    }, [flagFilter, priorityFilter, search]);
+    }, [flagFilter, priorityFilter, search, statusFilter]);
 
     useEffect(() => {
         if (page > totalPages - 1) {
@@ -181,236 +328,289 @@ export default function ClinicalWorklistPage() {
         router.push(`/clinical/review/${result.resultId}`);
     };
 
+    const hasFilters =
+        statusFilter !== "ALL" ||
+        priorityFilter !== "ALL" ||
+        flagFilter !== "ALL" ||
+        search.trim().length > 0;
+
+    const clearFilters = () => {
+        setStatusFilter("ALL");
+        setPriorityFilter("ALL");
+        setFlagFilter("ALL");
+        setSearch("");
+    };
+
     return (
-        <div className="max-w-[1400px] mx-auto">
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-8">
-                <div>
-                    <p className="text-sm font-semibold uppercase tracking-[0.24em] text-sky-700">
-                        Clinical Approval
-                    </p>
-                    <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-900">
-                        Clinical Worklist
-                    </h1>
-                </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-6">
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
-                    <div className="flex items-center justify-between mb-4">
-                        <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center">
-                            <span className="material-icons text-blue-600">medical_services</span>
-                        </div>
-                    </div>
-                    <p className="text-3xl font-bold text-slate-800">{pendingCount}</p>
-                    <p className="mt-1 text-sm font-semibold text-slate-600">Pending Review</p>
-                </div>
-
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
-                    <div className="flex items-center justify-between mb-4">
-                        <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center">
-                            <span className="material-icons text-amber-600">flag</span>
-                        </div>
-                    </div>
-                    <p className="text-3xl font-bold text-slate-800">{flaggedCount}</p>
-                    <p className="mt-1 text-sm font-semibold text-slate-600">Flagged Results</p>
-                </div>
-
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
-                    <div className="flex items-center justify-between mb-4">
-                        <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center">
-                            <span className="material-icons text-red-600">warning</span>
-                        </div>
-                    </div>
-                    <p className="text-3xl font-bold text-slate-800">{criticalCount}</p>
-                    <p className="mt-1 text-sm font-semibold text-slate-600">Critical Cases</p>
-                </div>
-            </div>
-
-            <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm p-4 mb-6">
-                <div className="flex flex-col xl:flex-row xl:items-center gap-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                        {[
-                            { id: "ALL" as const, label: "All", count: results.length },
-                            { id: "FLAGGED" as const, label: "Flagged", count: flaggedCount },
-                            { id: "CRITICAL" as const, label: "Critical Cases", count: criticalCount },
-                            { id: "HIGH" as const, label: "High", count: results.filter((result) => result.flag === "HIGH" || result.flag === "CRITICAL_HIGH").length },
-                            { id: "LOW" as const, label: "Low", count: results.filter((result) => result.flag === "LOW" || result.flag === "CRITICAL_LOW").length },
-                            { id: "NORMAL" as const, label: "Normal", count: results.filter((result) => !result.flag || result.flag === "NORMAL").length },
-                        ].map((item) => (
-                            <button
-                                key={item.id}
-                                onClick={() => setFlagFilter(item.id)}
-                                className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors border ${flagFilter === item.id
-                                    ? "bg-primary text-white border-primary"
-                                    : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
-                                    }`}
-                            >
-                                {item.label}
-                                <span
-                                    className={`ml-2 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${flagFilter === item.id
-                                        ? "bg-white/20 text-white"
-                                        : "bg-slate-100 text-slate-500"
-                                        }`}
-                                >
-                                    {item.count}
+        <div className="mx-auto max-w-[1400px]">
+            <PageHeader
+                title="Clinical worklist"
+                crumbs={[{ label: "Clinical approval" }, { label: "Worklist" }]}
+                meta={
+                    <>
+                        <Stethoscope className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                        <span>Technically verified results awaiting pathologist review</span>
+                        {!loading && !error && (
+                            <>
+                                <span aria-hidden="true">·</span>
+                                <span className="tabular-nums">
+                                    {results.length.toLocaleString()} {results.length === 1 ? "result" : "results"}
                                 </span>
-                            </button>
-                        ))}
-                    </div>
+                            </>
+                        )}
+                    </>
+                }
+                actions={
+                    <Button icon={RefreshCw} onClick={retry} loading={loading}>
+                        Refresh
+                    </Button>
+                }
+            />
 
-                    <select
-                        value={priorityFilter}
-                        onChange={(event) => setPriorityFilter(event.target.value as PriorityFilter)}
-                        className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/20"
-                    >
-                        <option value="ALL">All priorities ({results.length})</option>
-                        <option value="STAT">STAT ({priorityCounts.STAT})</option>
-                        <option value="URGENT">Urgent ({priorityCounts.URGENT})</option>
-                        <option value="NORMAL">Normal ({priorityCounts.NORMAL})</option>
-                    </select>
+            {/* Screen-reader status for load/error transitions only — match counts and
+                paging are already conveyed by the visible SectionCard count and Pagination */}
+            <p role="status" aria-live="polite" className="sr-only">
+                {loading
+                    ? "Loading clinical worklist"
+                    : error
+                      ? "Clinical worklist failed to load"
+                      : "Clinical worklist loaded"}
+            </p>
 
-                    <div className="relative xl:ml-auto flex-1 xl:max-w-[420px]">
-                        <span className="material-icons absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">
-                            search
-                        </span>
-                        <input
-                            type="text"
-                            placeholder="Search by result ID, patient, test group, or MLT..."
-                            value={search}
-                            onChange={(event) => setSearch(event.target.value)}
-                            className="w-full pl-10 pr-4 py-2.5 text-sm font-medium border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-                        />
-                    </div>
-                </div>
+            <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <KpiTile
+                    label="Pending review"
+                    value={pendingCount}
+                    icon={ClipboardCheck}
+                    note="Technically verified"
+                    loading={loading}
+                />
+                <KpiTile
+                    label="Flagged results"
+                    value={flaggedCount}
+                    icon={Flag}
+                    tone="warning"
+                    note="Outside reference range"
+                    loading={loading}
+                />
+                <KpiTile
+                    label="Critical cases"
+                    value={criticalCount}
+                    icon={AlertTriangle}
+                    tone="danger"
+                    note="Critical high or low"
+                    loading={loading}
+                />
             </div>
 
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 overflow-hidden">
-                <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                        <thead>
-                            <tr className="bg-slate-50/50 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">
-                                <th className="px-6 py-4 border-b border-slate-100">Result ID</th>
-                                <th className="px-4 py-4 border-b border-slate-100">Patient</th>
-                                <th className="px-4 py-4 border-b border-slate-100">Test Group</th>
-                                <th className="px-4 py-4 border-b border-slate-100">Verified By</th>
-                                <th className="px-4 py-4 border-b border-slate-100">Priority</th>
-                                <th className="px-4 py-4 border-b border-slate-100">Flag</th>
-                                <th className="px-4 py-4 border-b border-slate-100">Status</th>
-                                <th className="px-6 py-4 border-b border-slate-100 text-right">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {loading ? (
-                                <tr>
-                                    <td colSpan={8} className="px-6 py-16 text-center text-slate-400 text-sm">
-                                        Loading clinical worklist...
-                                    </td>
-                                </tr>
-                            ) : error ? (
-                                <tr>
-                                    <td colSpan={8} className="px-6 py-16 text-center">
-                                        <div className="flex flex-col items-center gap-3">
-                                            <span className="text-sm text-slate-500">{error}</span>
-                                            <button
-                                                type="button"
-                                                onClick={() => window.location.reload()}
-                                                className="px-4 py-2 text-xs font-bold rounded-lg bg-primary text-white hover:bg-primary/90 transition-colors"
-                                            >
-                                                Retry
-                                            </button>
-                                        </div>
-                                    </td>
-                                </tr>
-                            ) : filteredResults.length === 0 ? (
-                                <tr>
-                                    <td colSpan={8} className="px-6 py-16 text-center text-slate-400 text-sm">
-                                        No clinical cases found matching your filters.
-                                    </td>
-                                </tr>
-                            ) : (
-                                paginatedResults.map((result) => (
-                                    <tr
-                                        key={result.resultId}
-                                        className="border-b border-slate-50 last:border-0 hover:bg-slate-50/50 transition-colors"
-                                    >
-                                        <td className="px-6 py-4">
-                                            <div>
-                                                <div className="font-mono text-[13px] font-bold text-slate-700 break-all">
-                                                    {formatDisplayId(result.resultId, "RES")}
-                                                </div>
-                                                <div className="mt-1 text-xs font-medium text-slate-400">
-                                                    Updated {formatTimestamp(result.updatedAt ?? result.createdAt)}
-                                                </div>
-                                            </div>
-                                        </td>
-                                        <td className="px-4 py-4">
-                                            <div className="text-sm font-bold text-slate-800">
-                                                {result.patientName || "Unknown patient"}
-                                            </div>
-                                        </td>
-                                        <td className="px-4 py-4">
-                                            <span className="text-sm font-semibold text-slate-700">
-                                                {result.testType || "Unknown Test Group"}
-                                            </span>
-                                        </td>
-                                        <td className="px-4 py-4">
-                                            <span className="text-sm font-semibold text-slate-700">
-                                                {result.technicianName || result.mltName || "-"}
-                                            </span>
-                                        </td>
-                                        <td className="px-4 py-4">
-                                            <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
-                                                {result.priorityLevel || "-"}
-                                            </span>
-                                        </td>
-                                        <td className="px-4 py-4">
-                                            {getFlagBadge(result.flag)}
-                                        </td>
-                                        <td className="px-4 py-4">
-                                            {getClinicalStatusBadge(result.status)}
-                                        </td>
-                                        <td className="px-6 py-4 text-right">
-                                            <button
-                                                onClick={() => handleReview(result)}
-                                                className="px-4 py-2 text-xs font-bold rounded-lg transition-colors text-white bg-primary hover:bg-primary/90 shadow-sm shadow-primary/30"
-                                            >
-                                                Review
-                                            </button>
-                                        </td>
-                                    </tr>
-                                ))
-                            )}
-                        </tbody>
-                    </table>
+            <SectionCard title="Results" count={loading ? undefined : filteredResults.length} flush>
+                {/* Filter toolbar — status, priority and flag are independent dimensions.
+                    Each control's counts are computed against the other two, so a number
+                    previews how many rows that option would leave. */}
+                <div className="flex flex-wrap items-center gap-2 border-b border-edge bg-surface-muted px-3 py-2">
+                    <SegmentedControl<StatusFilter>
+                        ariaLabel="Filter by status"
+                        value={statusFilter}
+                        onChange={setStatusFilter}
+                        options={statusOptions}
+                    />
+                    <SegmentedControl<PriorityFilter>
+                        ariaLabel="Filter by priority"
+                        value={priorityFilter}
+                        onChange={setPriorityFilter}
+                        options={priorityOptions}
+                    />
+                    <SegmentedControl<FlagFilter>
+                        ariaLabel="Filter by flag state"
+                        value={flagFilter}
+                        onChange={setFlagFilter}
+                        options={flagOptions}
+                    />
+                    <InputField
+                        label="Search worklist"
+                        hideLabel
+                        type="search"
+                        value={search}
+                        onChange={(event) => setSearch(event.target.value)}
+                        placeholder="Search result ID, patient, code, test group or MLT"
+                        autoComplete="off"
+                        className="min-w-[200px] flex-1 xl:ml-auto xl:max-w-[360px]"
+                    />
+                    {hasFilters && (
+                        <Button variant="ghost" icon={X} onClick={clearFilters}>
+                            Clear all
+                        </Button>
+                    )}
                 </div>
 
-                {!loading && !error && totalPages > 1 && (
-                    <div className="flex items-center justify-between px-6 py-4 border-t border-slate-100 bg-slate-50/50 text-sm font-medium text-slate-500">
-                        <span>
-                            Page {page + 1} of {totalPages} •{" "}
-                            <span className="text-slate-400">
-                                {filteredResults.length.toLocaleString()} matching
-                            </span>
-                        </span>
-                        <div className="flex gap-1.5">
-                            <button
-                                onClick={() => setPage((previous) => Math.max(0, previous - 1))}
-                                disabled={page === 0}
-                                className="px-3 py-1.5 rounded-lg border border-slate-200 text-sm font-semibold hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-                            >
-                                Previous
-                            </button>
-                            <button
-                                onClick={() => setPage((previous) => Math.min(totalPages - 1, previous + 1))}
-                                disabled={page >= totalPages - 1}
-                                className="px-3 py-1.5 rounded-lg border border-slate-200 text-sm font-semibold hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-                            >
-                                Next
-                            </button>
-                        </div>
+                {/* States live outside the table so they centre on small screens */}
+                {loading ? (
+                    <ul aria-hidden="true" className="divide-y divide-edge">
+                        {Array.from({ length: SKELETON_ROWS }).map((_, index) => (
+                            <li key={index} className="flex items-center gap-3 px-4 py-3">
+                                <span className="h-4 w-28 shrink-0 rounded bg-skeleton" />
+                                <span className="h-3 w-32 rounded bg-skeleton" />
+                                <span className="hidden h-3 w-28 rounded bg-skeleton md:block" />
+                                <span className="hidden h-3 w-24 rounded bg-skeleton lg:block" />
+                                <span className="h-4 w-14 rounded-full bg-skeleton" />
+                                <span className="hidden h-4 w-20 rounded bg-skeleton sm:block" />
+                                <span className="ml-auto h-7 w-16 rounded bg-skeleton" />
+                            </li>
+                        ))}
+                    </ul>
+                ) : error ? (
+                    <EmptyState
+                        icon={AlertTriangle}
+                        title="Worklist unavailable"
+                        description={error}
+                        action={
+                            <Button size="sm" icon={RefreshCw} onClick={retry}>
+                                Retry
+                            </Button>
+                        }
+                    />
+                ) : filteredResults.length === 0 ? (
+                    hasFilters ? (
+                        <EmptyState
+                            icon={Search}
+                            title="No results match"
+                            description="Try a different status, priority, flag or search term."
+                            action={
+                                <Button size="sm" icon={X} onClick={clearFilters}>
+                                    Clear all
+                                </Button>
+                            }
+                        />
+                    ) : (
+                        <EmptyState
+                            icon={Inbox}
+                            title="Worklist is clear"
+                            description="Results technically verified by the MLT team will appear here for review."
+                        />
+                    )
+                ) : (
+                    <div className="overflow-x-auto">
+                        {/* table-fixed budget: fixed cols + >=160px for each of the two auto
+                            cols (Patient, Test group). base 496+320=816, md 640+320=960,
+                            lg 784+320=1104 — min-w keeps them above the floor at every band. */}
+                        <table className="w-full min-w-[820px] table-fixed text-left text-[13px] md:min-w-[970px] lg:min-w-[1110px]">
+                            <caption className="sr-only">Results awaiting clinical review</caption>
+                            <thead>
+                                <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
+                                    <th scope="col" className="w-44 py-2 pl-4 pr-3 font-medium">
+                                        Result
+                                    </th>
+                                    <th scope="col" className="px-3 py-2 font-medium">
+                                        Patient
+                                    </th>
+                                    <th scope="col" className="px-3 py-2 font-medium">
+                                        Test group
+                                    </th>
+                                    <th scope="col" className="hidden w-36 px-3 py-2 font-medium lg:table-cell">
+                                        Verified by
+                                    </th>
+                                    <th scope="col" className="w-24 px-3 py-2 font-medium">
+                                        Priority
+                                    </th>
+                                    <th scope="col" className="w-32 px-3 py-2 font-medium">
+                                        Flag
+                                    </th>
+                                    <th scope="col" className="hidden w-36 px-3 py-2 font-medium md:table-cell">
+                                        Status
+                                    </th>
+                                    <th scope="col" className="w-24 py-2 pl-3 pr-4 text-right font-medium">
+                                        <span className="sr-only">Actions</span>
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-edge whitespace-nowrap">
+                                {paginatedResults.map((result) => {
+                                    const displayId = formatDisplayId(result.resultId, "RES");
+                                    const updatedAt = result.updatedAt ?? result.createdAt;
+                                    // Critical results stay tinted so the row still reads as
+                                    // urgent once the eye leaves the flag column.
+                                    const critical = isCriticalFlag(result.flag);
+                                    return (
+                                        <tr
+                                            key={result.resultId}
+                                            className={cn(
+                                                "transition-colors",
+                                                critical
+                                                    ? "bg-status-danger-bg hover:bg-status-danger-edge/60"
+                                                    : "hover:bg-surface-hover"
+                                            )}
+                                        >
+                                            <td className="py-2 pl-4 pr-3">
+                                                <div className="truncate font-mono text-xs font-medium text-fg" title={displayId}>
+                                                    {displayId}
+                                                </div>
+                                                <div className="mt-0.5 text-xs text-fg-muted">
+                                                    {updatedAt ? (
+                                                        <>
+                                                            Updated{" "}
+                                                            <time dateTime={updatedAt} title={formatTimestamp(updatedAt)}>
+                                                                {formatAuditTime(updatedAt)}
+                                                            </time>
+                                                        </>
+                                                    ) : (
+                                                        <span className="text-fg-faint">—</span>
+                                                    )}
+                                                </div>
+                                            </td>
+                                            {/* Name over patient code — the code is searchable, so it
+                                                stays visible for the operator to match against. */}
+                                            <td className="px-3 py-2">
+                                                <p className="truncate font-medium text-fg" title={result.patientName || undefined}>
+                                                    {result.patientName || "Unknown patient"}
+                                                </p>
+                                                {result.patientCode && (
+                                                    <p className="truncate font-mono text-xs text-fg-muted" title={result.patientCode}>
+                                                        {result.patientCode}
+                                                    </p>
+                                                )}
+                                            </td>
+                                            <td className="truncate px-3 py-2 text-fg-secondary" title={result.testType || undefined}>
+                                                {result.testType || "Unknown test group"}
+                                            </td>
+                                            <td
+                                                className="hidden truncate px-3 py-2 text-fg-secondary lg:table-cell"
+                                                title={result.technicianName || result.mltName || undefined}
+                                            >
+                                                {result.technicianName || result.mltName || <span className="text-fg-faint">—</span>}
+                                            </td>
+                                            <td className="px-3 py-2">
+                                                <PriorityBadge priority={result.priorityLevel ?? ""} />
+                                            </td>
+                                            <td className="px-3 py-2">{getFlagBadge(result.flag)}</td>
+                                            <td className="hidden px-3 py-2 md:table-cell">{getClinicalStatusBadge(result.status)}</td>
+                                            <td className="py-2 pl-3 pr-4 text-right">
+                                                <Button
+                                                    size="sm"
+                                                    onClick={() => handleReview(result)}
+                                                    aria-label={`Review result ${displayId}`}
+                                                >
+                                                    Review
+                                                </Button>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
                     </div>
                 )}
-            </div>
+
+                {!loading && !error && filteredResults.length > 0 && (
+                    <Pagination
+                        currentPage={page + 1}
+                        totalPages={totalPages}
+                        totalItems={filteredResults.length}
+                        pageSize={PAGE_SIZE}
+                        onPageChange={(nextPage) => setPage(nextPage - 1)}
+                        itemLabel="results"
+                    />
+                )}
+            </SectionCard>
         </div>
     );
 }

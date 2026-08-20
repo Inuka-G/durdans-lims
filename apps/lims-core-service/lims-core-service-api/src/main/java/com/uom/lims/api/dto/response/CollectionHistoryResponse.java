@@ -1,6 +1,7 @@
 package com.uom.lims.api.dto.response;
 
 import com.uom.lims.api.enums.Priority;
+import com.uom.lims.api.enums.RejectionReason;
 import com.uom.lims.api.enums.SampleStatus;
 import com.uom.lims.api.enums.TubeType;
 import lombok.AllArgsConstructor;
@@ -28,12 +29,15 @@ public class CollectionHistoryResponse {
     private String pid;
     private List<String> testCodes;
     private TubeType tubeType;
+    /** Swatch recorded on the tube's inventory row; null when no supply row exists for it yet. */
+    private String tubeColor;
     private Priority priority;
     private SampleStatus status;
     private Instant collectedAt;
     private String collectedBy;
     private long waitTime;
+    private RejectionReason rejectionReason;
     private String rejectionNotes;
-    /** Total label prints recorded for this specimen (initial print + reprints). */
+    /** Total label prints recorded for this specimen, across every print of it. */
     private int printCount;
 }

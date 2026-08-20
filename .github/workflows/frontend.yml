@@ -18,8 +18,18 @@ permissions:
   id-token: write
   security-events: write
 
+# One run per ref at a time. Two pushes landing on main seconds apart used to
+# start two identical runs, which then raced each other: both uploaded a SARIF
+# for the same commit (one lost) and both ran `deploy-service.sh frontend`
+# against the same host (one lost). Queue instead — and on a PR, where only the
+# newest commit matters, cancel the superseded run rather than queue it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
-  AWS_REGION: us-east-1
+  AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+  AWS_INSTANCE_ID: ${{ vars.AWS_INSTANCE_ID }}
   ECR_REPO: durdans-lims/frontend
 
 defaults:
@@ -67,38 +77,60 @@ jobs:
             --build-arg NEXT_PUBLIC_KEYCLOAK_CLIENT_ID="${{ vars.NEXT_PUBLIC_KEYCLOAK_CLIENT_ID || 'lims-frontend' }}" \
             -t lims-frontend:${{ github.sha }} .
 
-      - name: Trivy scan (fail on HIGH/CRITICAL)
-        uses: aquasecurity/trivy-action@0.24.0
+      - name: Trivy gate (fail on HIGH/CRITICAL)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: lims-frontend:${{ github.sha }}
-          format: sarif
-          output: trivy-frontend.sarif
+          format: table
           severity: HIGH,CRITICAL
           exit-code: "1"
           ignore-unfixed: true
 
+      # Keep the full vulnerability inventory in GitHub code scanning without
+      # making MEDIUM/LOW findings override the HIGH/CRITICAL release gate.
+      - name: Trivy SARIF report
+        if: always()
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: lims-frontend:${{ github.sha }}
+          format: sarif
+          output: trivy-frontend.sarif
+          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+          exit-code: "0"
+          ignore-unfixed: true
+
       # trivy-action is a `uses:` step, so it ignores defaults.run.working-directory
       # and writes to the workspace root. Both paths below must stay root-relative.
+      #
+      # continue-on-error because this step only files a report: the HIGH/CRITICAL
+      # release gate already ran and passed above. It was blocking, and when the
+      # code-scanning API rejected a concurrent upload the job failed here — taking
+      # the ECR push and the SSM deploy (both `if:`-gated on the job) down with it,
+      # so a green build silently never reached the host. A reporting step must not
+      # be able to do that. `category` keeps this SARIF in its own code-scanning
+      # lane so it never overwrites another workflow's results for the same commit.
       - name: Upload Trivy SARIF
         if: always()
+        continue-on-error: true
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: trivy-frontend.sarif
+          category: trivy-frontend
 
       - name: Configure AWS credentials (OIDC)
-        if: ${{ vars.AWS_DEPLOY_ROLE_ARN != '' }}
+        if: ${{ github.ref == 'refs/heads/main' && vars.AWS_DEPLOY_ROLE_ARN != '' && vars.AWS_INSTANCE_ID != '' }}
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to ECR
-        if: ${{ vars.AWS_DEPLOY_ROLE_ARN != '' }}
+        if: ${{ github.ref == 'refs/heads/main' && vars.AWS_DEPLOY_ROLE_ARN != '' && vars.AWS_INSTANCE_ID != '' }}
         id: ecr
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Tag + push to ECR
-        if: ${{ vars.AWS_DEPLOY_ROLE_ARN != '' }}
+        if: ${{ github.ref == 'refs/heads/main' && vars.AWS_DEPLOY_ROLE_ARN != '' && vars.AWS_INSTANCE_ID != '' }}
         run: |
           REG=${{ steps.ecr.outputs.registry }}
           docker tag lims-frontend:${{ github.sha }} $REG/$ECR_REPO:${{ github.sha }}
@@ -107,11 +139,33 @@ jobs:
           docker push $REG/$ECR_REPO:latest
 
       - name: Deploy to host (SSM)
-        if: ${{ vars.AWS_DEPLOY_ROLE_ARN != '' }}
+        if: ${{ github.ref == 'refs/heads/main' && vars.AWS_DEPLOY_ROLE_ARN != '' && vars.AWS_INSTANCE_ID != '' }}
         run: |
-          aws ssm send-command \
-            --region $AWS_REGION \
+          PARAMS=$(jq -nc --arg command "/opt/lims/deploy-service.sh frontend $GITHUB_SHA" '{commands:[$command]}')
+          COMMAND_ID=$(aws ssm send-command \
+            --region "$AWS_REGION" \
             --document-name "AWS-RunShellScript" \
-            --targets "Key=tag:Name,Values=durdans-lims-demo-host" \
+            --instance-ids "$AWS_INSTANCE_ID" \
             --comment "deploy frontend ${{ github.sha }}" \
-            --parameters 'commands=["cd /opt/lims","docker compose pull frontend","docker compose up -d frontend"]'
+            --parameters "$PARAMS" \
+            --query 'Command.CommandId' \
+            --output text)
+
+          if ! aws ssm wait command-executed \
+            --region "$AWS_REGION" \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$AWS_INSTANCE_ID"; then
+            aws ssm get-command-invocation \
+              --region "$AWS_REGION" \
+              --command-id "$COMMAND_ID" \
+              --instance-id "$AWS_INSTANCE_ID" \
+              --query '{Status:Status,Output:StandardOutputContent,Error:StandardErrorContent}' || true
+            exit 1
+          fi
+
+          aws ssm get-command-invocation \
+            --region "$AWS_REGION" \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$AWS_INSTANCE_ID" \
+            --query 'StandardOutputContent' \
+            --output text

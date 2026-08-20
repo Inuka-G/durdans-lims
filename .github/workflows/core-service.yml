@@ -17,6 +17,12 @@ permissions:
   contents: read
   security-events: write
 
+# CodeQL init fails when another analysis already holds the same commit, which is
+# what happened when duplicate pushes started two identical runs. One at a time.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 defaults:
   run:
     working-directory: apps/lims-core-service

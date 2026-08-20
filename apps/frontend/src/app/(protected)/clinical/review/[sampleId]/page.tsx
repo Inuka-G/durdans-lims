@@ -1,8 +1,20 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import axios from 'axios';
+import {
+    AlertCircle,
+    AlertTriangle,
+    ArrowLeft,
+    ArrowUpRight,
+    BadgeCheck,
+    CheckCircle2,
+    Download,
+    FileText,
+    History,
+    Undo2,
+} from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import {
     authorizeClinical,
@@ -13,6 +25,16 @@ import {
     TestResultDetail,
 } from '@/lib/api';
 import type { PatientDocument } from '@/lib/api';
+import { formatDisplayId } from '@/lib/format-id';
+import { cn } from '@/lib/utils';
+import Button from '@/components/ui/Button';
+import PageHeader from '@/components/ui/PageHeader';
+import SectionCard from '@/components/ui/SectionCard';
+import EmptyState from '@/components/ui/EmptyState';
+import Modal from '@/components/ui/Modal';
+import StatusChip, { type ChipTone } from '@/components/ui/StatusChip';
+import { TextareaField } from '@/components/ui/Field';
+import { formatRegistered } from '@/components/patient-dashboard/dashboard-data';
 
 const getInitials = (value: string) =>
     value
@@ -24,18 +46,21 @@ const getInitials = (value: string) =>
 
 const withDoctorPrefix = (value: string) => (value.startsWith('Dr.') ? value : `Dr. ${value}`);
 
+/** The one actionError that is a validation error on the return-reason field, not a server failure. */
+const RETURN_REASON_REQUIRED = 'Please enter a reason for returning.';
+
+/** "Today 09:12" / "Yesterday 14:02" / "12 Aug 2026"; null when absent or unparseable. */
 const formatDateTime = (value?: string | null) => {
     if (!value) {
         return null;
     }
 
-    return new Date(value).toLocaleString([], {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-    });
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return null;
+    }
+
+    return formatRegistered(date);
 };
 
 const formatGender = (value?: string | null) => {
@@ -66,9 +91,38 @@ const getStatusLabel = (status?: string | null) => {
         return 'Authorized';
     }
     if (status === 'RETURNED_FOR_RECHECK') {
-        return 'Returned to Supervisor';
+        return 'Returned to supervisor';
     }
-    return 'Pending Clinical Review';
+    return 'Pending clinical review';
+};
+
+const getStatusTone = (status?: string | null): ChipTone => {
+    if (status === 'CLINICALLY_AUTHORIZED') {
+        return 'success';
+    }
+    if (status === 'RETURNED_FOR_RECHECK') {
+        return 'danger';
+    }
+    return 'pending';
+};
+
+const getFlagTone = (flag: string): ChipTone =>
+    flag === 'CRITICAL_HIGH' || flag === 'CRITICAL_LOW' ? 'danger' : 'pending';
+
+const getFlagLabel = (flag: string) => {
+    if (flag === 'CRITICAL_HIGH') {
+        return 'Critical high';
+    }
+    if (flag === 'CRITICAL_LOW') {
+        return 'Critical low';
+    }
+    if (flag === 'HIGH') {
+        return 'High';
+    }
+    if (flag === 'LOW') {
+        return 'Low';
+    }
+    return flag.replace(/_/g, ' ').toLowerCase().replace(/^\w/, (char) => char.toUpperCase());
 };
 
 export default function ClinicalReviewPage() {
@@ -77,10 +131,13 @@ export default function ClinicalReviewPage() {
     const params = useParams<{ sampleId: string }>();
     const sampleId = Array.isArray(params.sampleId) ? params.sampleId[0] : params.sampleId;
     const resultId = sampleId;
+    /** Short, human-readable case reference (RES-xxxxxxxx); the raw id stays in the title attribute. */
+    const displayId = formatDisplayId(sampleId, 'RES');
 
     const [data, setData] = useState<TestResultDetail | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [reloadToken, setReloadToken] = useState(0);
     const [interpretation, setInterpretation] = useState('');
     const [showReturnModal, setShowReturnModal] = useState(false);
     const [returnReason, setReturnReason] = useState('');
@@ -106,6 +163,13 @@ export default function ClinicalReviewPage() {
         }
         router.push('/clinical/worklist');
     };
+
+    // Stable close handlers: Modal re-runs its focus effect whenever onClose changes.
+    const closeReturnModal = useCallback(() => {
+        setShowReturnModal(false);
+        setActionError(null);
+    }, []);
+    const closeSignModal = useCallback(() => setShowSignModal(false), []);
 
     useEffect(() => {
         const loadClinicalResultDetails = async () => {
@@ -146,7 +210,7 @@ export default function ClinicalReviewPage() {
         if (resultId) {
             void loadClinicalResultDetails();
         }
-    }, [resultId]);
+    }, [resultId, reloadToken]);
 
     const labResults = (data?.parameters ?? []).map((parameter) => ({
         parameter: parameter.parameterName,
@@ -187,6 +251,7 @@ export default function ClinicalReviewPage() {
         .join('. ');
 
     const hasAbnormalBanner = flaggedResults.length > 0;
+    const hasCriticalBanner = criticalResults.length > 0;
 
     const previousVisits = data?.previousVisits ?? [];
 
@@ -255,7 +320,7 @@ export default function ClinicalReviewPage() {
             return;
         }
         if (!returnReason.trim()) {
-            setActionError('Please enter a reason for returning.');
+            setActionError(RETURN_REASON_REQUIRED);
             return;
         }
         try {
@@ -333,490 +398,646 @@ export default function ClinicalReviewPage() {
         return `Failed to ${fallbackAction}. Please try again.`;
     };
 
+    const crumbs = [
+        { label: 'Clinical worklist', href: '/clinical/worklist' },
+        { label: 'Review' },
+    ];
+
     if (loading) {
-        return <div>Loading clinical result details...</div>;
+        return (
+            <div className="mx-auto max-w-[1400px]">
+                <PageHeader crumbs={crumbs} title="Clinical review" meta={<span>Loading case details</span>} />
+                <p role="status" aria-live="polite" className="sr-only">
+                    Loading clinical result details
+                </p>
+                <div aria-hidden="true" className="space-y-4">
+                    <div className="rounded-lg border border-edge bg-surface px-4 py-3">
+                        <div className="flex items-center gap-3">
+                            <span className="h-12 w-12 shrink-0 rounded-full bg-skeleton" />
+                            <div className="flex-1 space-y-2">
+                                <span className="block h-4 w-48 max-w-full rounded bg-skeleton" />
+                                <span className="block h-3 w-72 max-w-full rounded bg-skeleton" />
+                            </div>
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+                        <div className="space-y-4">
+                            <div className="rounded-lg border border-edge bg-surface p-4">
+                                {Array.from({ length: 5 }).map((_, index) => (
+                                    <span key={index} className="my-3 block h-4 w-full rounded bg-skeleton" />
+                                ))}
+                            </div>
+                            <div className="rounded-lg border border-edge bg-surface p-4">
+                                <span className="block h-24 w-full rounded bg-skeleton" />
+                            </div>
+                        </div>
+                        <div className="space-y-4">
+                            {Array.from({ length: 3 }).map((_, index) => (
+                                <div key={index} className="rounded-lg border border-edge bg-surface p-4">
+                                    <span className="mb-3 block h-4 w-32 rounded bg-skeleton" />
+                                    <span className="block h-12 w-full rounded bg-skeleton" />
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
     }
 
     if (error || !data) {
-        return <div>{error ?? 'Failed to load clinical result details.'}</div>;
+        return (
+            <div className="mx-auto max-w-[1400px]">
+                <PageHeader
+                    crumbs={crumbs}
+                    title="Clinical review"
+                    meta={
+                        <>
+                            <span>Case</span>
+                            <span className="min-w-0 break-words font-mono text-fg-secondary" title={sampleId}>
+                                {displayId}
+                            </span>
+                        </>
+                    }
+                    actions={
+                        <Button icon={ArrowLeft} onClick={handleBack}>
+                            Back
+                        </Button>
+                    }
+                />
+                <div role="alert" className="rounded-lg border border-edge bg-surface">
+                    <EmptyState
+                        icon={AlertTriangle}
+                        title="Couldn't load clinical result"
+                        description={error ?? 'Failed to load clinical result details.'}
+                        action={
+                            <div className="flex flex-wrap items-center justify-center gap-2">
+                                <Button size="sm" onClick={() => setReloadToken((token) => token + 1)}>
+                                    Retry
+                                </Button>
+                                <Button size="sm" icon={ArrowLeft} href="/clinical/worklist">
+                                    Back to worklist
+                                </Button>
+                            </div>
+                        }
+                    />
+                </div>
+            </div>
+        );
     }
 
     const noteTimestamp = formatDateTime(data.updatedAt);
+    const patientName = data.patientName ?? 'Unknown patient';
+    const genderLabel = formatGender(data.patientGender);
+    const hasPriorityChip =
+        data.priority === 'CRITICAL_HIGH' ||
+        data.priority === 'CRITICAL_LOW' ||
+        data.priority === 'HIGH' ||
+        data.priority === 'LOW';
+    const priorityLabel =
+        data.priority === 'CRITICAL_HIGH'
+            ? 'Critical high'
+            : data.priority === 'CRITICAL_LOW'
+                ? 'Critical low'
+                : data.priority === 'HIGH'
+                    ? 'Flagged high'
+                    : 'Flagged low';
+    const priorityTone: ChipTone = data.priority?.includes('CRITICAL') ? 'danger' : 'pending';
 
     return (
-        <div className="flex flex-col h-full space-y-6">
-            {showReturnModal && (
-                <div
-                    className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-                    onClick={() => setShowReturnModal(false)}
-                >
+        <div className="mx-auto max-w-[1400px]">
+            <Modal
+                open={showReturnModal}
+                onClose={closeReturnModal}
+                title="Return to lab supervisor"
+                description="The case goes back to the supervisor for recheck. Explain what needs attention."
+                size="md"
+                dismissible={!isSubmittingReturn}
+                footer={
+                    <>
+                        <Button onClick={closeReturnModal} disabled={isSubmittingReturn}>
+                            Cancel
+                        </Button>
+                        <Button variant="danger" icon={Undo2} onClick={handleReturn} loading={isSubmittingReturn}>
+                            {isSubmittingReturn ? 'Returning' : 'Return to supervisor'}
+                        </Button>
+                    </>
+                }
+            >
+                <TextareaField
+                    label="Reason for return"
+                    required
+                    rows={4}
+                    value={returnReason}
+                    onChange={(event) => setReturnReason(event.target.value)}
+                    placeholder="Describe why this case should be returned to the lab supervisor"
+                    error={actionError === RETURN_REASON_REQUIRED ? actionError : undefined}
+                />
+                {actionError && actionError !== RETURN_REASON_REQUIRED && (
                     <div
-                        className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl"
-                        onClick={(event) => event.stopPropagation()}
+                        role="alert"
+                        className="mt-3 flex items-start gap-2 rounded-lg border border-status-danger-edge bg-status-danger-bg p-3 text-sm text-status-danger-fg"
                     >
-                        <div className="flex items-center justify-between mb-5">
-                            <div>
-                                <h3 className="text-lg font-bold text-slate-800">Return to Lab Supervisor</h3>
-                            </div>
-                            <button
-                                onClick={() => setShowReturnModal(false)}
-                                className="w-8 h-8 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-500 flex items-center justify-center transition-colors"
-                            >
-                                <span className="material-icons text-[18px]">close</span>
-                            </button>
-                        </div>
-
-                        <div className="mb-4">
-                            <label className="text-sm font-semibold text-slate-700 block mb-2">
-                                Reason for Return <span className="text-red-500">*</span>
-                            </label>
-                            <textarea
-                                value={returnReason}
-                                onChange={(event) => setReturnReason(event.target.value)}
-                                placeholder="Describe why this case should be returned to the lab supervisor..."
-                                rows={4}
-                                className="w-full p-3 text-sm border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all resize-none"
-                            />
-                        </div>
-
-                        <div className="flex gap-3 justify-end">
-                            <button
-                                onClick={() => setShowReturnModal(false)}
-                                disabled={isSubmittingReturn}
-                                className="px-5 py-2.5 text-sm font-semibold border border-slate-200 rounded-lg bg-white text-slate-600 hover:bg-slate-50 transition-colors"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={handleReturn}
-                                disabled={isSubmittingReturn}
-                                className="px-5 py-2.5 text-sm font-semibold border-none rounded-lg bg-red-600 hover:bg-red-700 text-white transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                            >
-                                {isSubmittingReturn ? 'Returning...' : 'Confirm Return to Supervisor'}
-                            </button>
-                        </div>
+                        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                        <p className="min-w-0 break-words">{actionError}</p>
                     </div>
-                </div>
-            )}
+                )}
+            </Modal>
 
-            {showSignModal && (
-                <div
-                    className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-                    onClick={() => setShowSignModal(false)}
-                >
-                    <div
-                        className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl"
-                        onClick={(event) => event.stopPropagation()}
-                    >
-                        <div className="text-center mb-6">
-                            <div className="w-14 h-14 rounded-full bg-blue-50 flex items-center justify-center mx-auto mb-4 border border-blue-100">
-                                <span className="material-icons text-[28px] text-primary">verified</span>
-                            </div>
-                            <h3 className="text-lg font-bold text-slate-800">Attach Signature &amp; Authorize</h3>
-                        </div>
-
-                        <div className="p-4 bg-slate-50 rounded-xl mb-6 border border-slate-100">
-                            <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center shrink-0">
-                                    <span className="text-white text-sm font-bold">{getInitials(rawPathologistName)}</span>
-                                </div>
-                                <div>
-                                    <div className="text-sm font-bold text-slate-800">{pathologistDisplayName}</div>
-                                    <div className="text-[11px] text-slate-500 mt-0.5">Pathologist</div>
-                                </div>
-                            </div>
-                            <div className="mt-4 p-3 bg-white rounded-lg border border-slate-200">
-                                <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">Digital Signature</div>
-                                <div className="text-lg text-primary italic font-serif opacity-80">{pathologistDisplayName}</div>
-                            </div>
-                        </div>
-
-                        <div className="flex gap-3">
-                            <button
-                                onClick={() => setShowSignModal(false)}
-                                disabled={isSubmittingAuthorize}
-                                className="flex-1 py-2.5 text-sm font-semibold border border-slate-200 rounded-lg bg-white text-slate-600 hover:bg-slate-50 transition-colors"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={handleConfirmSign}
-                                disabled={isSubmittingAuthorize}
-                                className="flex-[1.5] py-2.5 text-sm font-bold border-none rounded-lg bg-primary hover:bg-primary/90 text-white transition-colors shadow-sm shadow-primary/30 flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
-                            >
-                                <span className="material-icons text-[18px]">check_circle</span>
-                                {isSubmittingAuthorize ? 'Authorizing...' : 'Confirm Signature'}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            <div className="bg-white border border-slate-200 rounded-xl px-6 py-4 flex flex-col xl:flex-row xl:items-center justify-between gap-4 shadow-sm">
-                <div className="flex flex-col lg:flex-row lg:items-center gap-4">
-                    <button
-                        onClick={handleBack}
-                        className="flex items-center gap-2 text-sm font-semibold text-slate-500 hover:text-primary transition-colors"
-                    >
-                        <span className="material-icons text-[18px]">arrow_back</span>
-                        Back
-                    </button>
-                    <div className="hidden lg:block w-px h-6 bg-slate-200" />
-                    <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Reviewing Case</span>
-                        <span className="px-2.5 py-1 bg-slate-100/80 rounded-md text-xs font-bold text-slate-600 font-mono border border-slate-200">
-                            {sampleId}
-                        </span>
-                        <span className="text-base font-bold text-slate-800">{data.patientName ?? 'Unknown patient'}</span>
-                    </div>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-4 text-sm text-slate-500">
-                    {data.patientAge != null && formatGender(data.patientGender) && (
-                        <div className="flex items-center gap-1.5">
-                            <span className="material-icons text-[16px] text-slate-400">person</span>
-                            <span>{data.patientAge}Y / {formatGender(data.patientGender)}</span>
-                        </div>
-                    )}
-                    {data.patientCode && (
-                        <div className="flex items-center gap-1.5">
-                            <span className="material-icons text-[16px] text-slate-400">badge</span>
-                            <span>{data.patientCode}</span>
-                        </div>
-                    )}
-                    {data.testType && (
-                        <div className="flex items-center gap-1.5">
-                            <span className="material-icons text-[16px] text-slate-400">science</span>
-                            <span>{data.testType}</span>
-                        </div>
-                    )}
-                    {(data.priority === 'CRITICAL_HIGH' || data.priority === 'CRITICAL_LOW' || data.priority === 'HIGH' || data.priority === 'LOW') && (
-                        <span
-                            className={`px-3 py-1 text-[11px] font-bold rounded-md border ${
-                                data.priority?.includes('CRITICAL')
-                                    ? 'bg-red-100 text-red-700 border-red-200'
-                                    : 'bg-amber-100 text-amber-700 border-amber-200'
-                            }`}
+            <Modal
+                open={showSignModal}
+                onClose={closeSignModal}
+                title="Attach signature and authorize"
+                description="Your digital signature is attached to this report and the case is released for dispatch."
+                size="sm"
+                dismissible={!isSubmittingAuthorize}
+                footer={
+                    <>
+                        <Button onClick={closeSignModal} disabled={isSubmittingAuthorize}>
+                            Cancel
+                        </Button>
+                        <Button variant="primary" icon={CheckCircle2} onClick={handleConfirmSign} loading={isSubmittingAuthorize}>
+                            {isSubmittingAuthorize ? 'Authorizing' : 'Confirm signature'}
+                        </Button>
+                    </>
+                }
+            >
+                <div className="rounded-lg border border-edge bg-surface-muted p-4">
+                    <div className="flex items-center gap-3">
+                        <div
+                            aria-hidden="true"
+                            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-soft text-sm font-semibold text-primary-strong"
                         >
-                            {data.priority === 'CRITICAL_HIGH'
-                                ? 'Critical High'
-                                : data.priority === 'CRITICAL_LOW'
-                                    ? 'Critical Low'
-                                    : data.priority === 'HIGH'
-                                        ? 'Flagged High'
-                                        : 'Flagged Low'}
-                        </span>
-                    )}
-                    <span className="px-3 py-1 bg-blue-50 text-primary text-[11px] font-bold rounded-md border border-blue-100">
-                        {getStatusLabel(data.status)}
-                    </span>
+                            {getInitials(rawPathologistName)}
+                        </div>
+                        <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-fg" title={pathologistDisplayName}>
+                                {pathologistDisplayName}
+                            </p>
+                            <p className="text-xs text-fg-muted">Pathologist</p>
+                        </div>
+                    </div>
+                    <div className="mt-4 rounded-md border border-edge bg-surface p-3">
+                        <p className="text-xs font-medium text-fg-muted">Digital signature</p>
+                        <p className="mt-1 break-words font-serif text-lg italic text-primary-strong">{pathologistDisplayName}</p>
+                    </div>
                 </div>
-            </div>
+            </Modal>
+
+            <PageHeader
+                crumbs={crumbs}
+                title="Clinical review"
+                meta={
+                    <>
+                        <span>Case</span>
+                        <span className="min-w-0 break-words font-mono text-fg-secondary" title={sampleId}>
+                            {displayId}
+                        </span>
+                        <span aria-hidden="true" className="text-fg-faint">·</span>
+                        <StatusChip tone={getStatusTone(data.status)} dot size="sm">
+                            {getStatusLabel(data.status)}
+                        </StatusChip>
+                    </>
+                }
+                actions={
+                    <Button icon={ArrowLeft} onClick={handleBack}>
+                        Back
+                    </Button>
+                }
+            />
+
+            {/* Case context banner — sticks under the 64px top nav */}
+            <header className="sticky top-16 z-20 mb-4 rounded-lg border border-edge bg-surface px-4 py-3">
+                <div className="flex items-start gap-3 md:items-center md:gap-4">
+                    <div
+                        aria-hidden="true"
+                        className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-skeleton text-sm font-semibold text-fg-secondary"
+                    >
+                        {getInitials(patientName)}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                            <h2 className="min-w-0 truncate text-lg font-semibold tracking-tight text-fg" title={patientName}>
+                                {patientName}
+                            </h2>
+                            {hasPriorityChip && (
+                                <StatusChip tone={priorityTone} dot size="sm">
+                                    {priorityLabel}
+                                </StatusChip>
+                            )}
+                        </div>
+                        <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-fg-secondary">
+                            {data.patientCode && (
+                                <span className="min-w-0 break-words">
+                                    <span className="text-fg-muted">MRN </span>
+                                    <span className="font-mono">{data.patientCode}</span>
+                                </span>
+                            )}
+                            {data.patientAge != null && genderLabel && (
+                                <>
+                                    {data.patientCode && <span aria-hidden="true" className="text-fg-faint">·</span>}
+                                    <span className="tabular-nums">
+                                        <span className="sr-only">Age / sex </span>
+                                        {data.patientAge}Y
+                                        <span className="text-fg-faint"> / </span>
+                                        {genderLabel}
+                                    </span>
+                                </>
+                            )}
+                            {data.testType && (
+                                <>
+                                    <span aria-hidden="true" className="text-fg-faint">·</span>
+                                    <span className="min-w-0 break-words">
+                                        <span className="text-fg-muted">Test </span>
+                                        {data.testType}
+                                    </span>
+                                </>
+                            )}
+                            <span aria-hidden="true" className="hidden text-fg-faint md:inline">·</span>
+                            <span className="hidden min-w-0 break-words md:inline">
+                                <span className="text-fg-muted">Supervisor </span>
+                                {data.supervisorName ?? 'Lab supervisor'}
+                            </span>
+                        </p>
+                    </div>
+                </div>
+            </header>
 
             {hasAbnormalBanner && (
                 <div
-                    className={`rounded-xl border px-5 py-4 shadow-sm flex items-start gap-3 ${
-                        criticalResults.length > 0
-                            ? 'bg-red-50 border-red-200'
-                            : 'bg-amber-50 border-amber-200'
-                    }`}
+                    role="note"
+                    className={cn(
+                        'mb-4 flex items-start gap-3 rounded-lg border p-3 text-sm',
+                        hasCriticalBanner
+                            ? 'border-status-danger-edge bg-status-danger-bg text-status-danger-fg'
+                            : 'border-status-pending-edge bg-status-pending-bg text-status-pending-fg'
+                    )}
                 >
-                    <span
-                        className={`material-icons mt-0.5 ${
-                            criticalResults.length > 0 ? 'text-red-500' : 'text-amber-500'
-                        }`}
-                    >
-                        warning
-                    </span>
-                    <div className="text-sm leading-relaxed">
-                        <span
-                            className={`font-bold ${
-                                criticalResults.length > 0 ? 'text-red-700' : 'text-amber-700'
-                            }`}
-                        >
-                            {criticalResults.length > 0 ? 'Critical Values Detected' : 'Abnormal Values Detected'}
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                    <p className="min-w-0 break-words leading-relaxed">
+                        <span className="font-semibold">
+                            {hasCriticalBanner ? 'Critical values detected' : 'Abnormal values detected'}
                         </span>
-                        <span className={criticalResults.length > 0 ? 'text-red-600' : 'text-amber-700'}>
-                            {' '} - {abnormalSummary}
-                            {flaggedResults.length > bannerResults.length && ` and ${flaggedResults.length - bannerResults.length} more flagged value${flaggedResults.length - bannerResults.length > 1 ? 's' : ''}.`}
+                        <span>
+                            {' '}— {abnormalSummary}
+                            {flaggedResults.length > bannerResults.length &&
+                                ` and ${flaggedResults.length - bannerResults.length} more flagged value${flaggedResults.length - bannerResults.length > 1 ? 's' : ''}.`}
                         </span>
-                    </div>
+                    </p>
                 </div>
             )}
 
-            <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6 pb-12">
-                <div className="flex flex-col gap-6">
-                    <div className="bg-white rounded-xl border border-slate-200/60 shadow-sm overflow-hidden flex flex-col">
-                        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/30">
-                            <span className="text-sm font-bold text-slate-800">{data.testType ?? 'Test Results'}</span>
-                            <span className="text-[11px] text-slate-500 font-medium">{data.supervisorName ?? 'Lab Supervisor'}</span>
-                        </div>
-
-                        <div className="overflow-x-auto flex-1">
-                            <table className="w-full text-sm">
-                                <thead>
-                                    <tr className="bg-slate-50/50 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">
-                                        <th className="px-5 py-3 border-b border-slate-100">Parameter</th>
-                                        <th className="px-4 py-3 border-b border-slate-100">Result</th>
-                                        <th className="px-4 py-3 border-b border-slate-100">Unit</th>
-                                        <th className="px-4 py-3 border-b border-slate-100">Flag</th>
-                                        <th className="px-4 py-3 border-b border-slate-100">Reference Range</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {labResults.map((row) => (
-                                        <tr key={row.parameter} className={`border-b border-slate-50 last:border-0 ${row.isAbnormal ? 'bg-red-50/30' : 'bg-white'}`}>
-                                            <td className="px-5 py-3 text-[13px] text-slate-700 font-semibold">{row.parameter}</td>
-                                            <td className={`px-4 py-3 text-[15px] font-bold ${row.isAbnormal ? 'text-red-600' : 'text-slate-800'}`}>{row.result}</td>
-                                            <td className="px-4 py-3 text-xs text-slate-500">{row.unit}</td>
-                                            <td className="px-4 py-3">
-                                                {row.flag === 'NORMAL' ? (
-                                                    <span className="text-slate-400 text-sm">-</span>
-                                                ) : (
-                                                    <span className={`inline-flex items-center justify-center rounded-md px-2 py-1 text-[11px] font-bold ${row.flag === 'HIGH' || row.flag === 'CRITICAL_HIGH' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-800'}`}>
-                                                        {row.flag}
-                                                    </span>
-                                                )}
-                                            </td>
-                                            <td className="px-4 py-3 text-xs text-slate-500">{row.referenceRange}</td>
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+                <div className="flex min-w-0 flex-col gap-4">
+                    <SectionCard
+                        title={data.testType ?? 'Test results'}
+                        count={labResults.length}
+                        flush
+                        actions={
+                            flaggedResults.length > 0 ? (
+                                <StatusChip tone={hasCriticalBanner ? 'danger' : 'pending'} size="sm">
+                                    {flaggedResults.length} flagged
+                                </StatusChip>
+                            ) : undefined
+                        }
+                    >
+                        {labResults.length === 0 ? (
+                            <EmptyState icon={FileText} title="No parameters recorded" description="This result has no parameter values yet." compact />
+                        ) : (
+                            <div className="overflow-x-auto">
+                                <table className="w-full min-w-[640px] table-fixed text-left text-[13px]">
+                                    <thead>
+                                        <tr className="border-b border-edge text-xs font-medium text-fg-muted">
+                                            <th scope="col" className="w-[30%] px-3 py-2 pl-4 font-medium">Parameter</th>
+                                            <th scope="col" className="w-[18%] px-3 py-2 font-medium">Result</th>
+                                            <th scope="col" className="w-[12%] px-3 py-2 font-medium">Unit</th>
+                                            <th scope="col" className="w-[20%] px-3 py-2 font-medium">Flag</th>
+                                            <th scope="col" className="w-[20%] px-3 py-2 font-medium">Reference range</th>
                                         </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
+                                    </thead>
+                                    <tbody className="divide-y divide-edge whitespace-nowrap">
+                                        {labResults.map((row) => (
+                                            <tr key={row.parameter} className="hover:bg-surface-hover">
+                                                <td className="truncate px-3 py-2 pl-4 font-medium text-fg" title={row.parameter}>
+                                                    {row.parameter}
+                                                </td>
+                                                <td
+                                                    className={cn(
+                                                        'truncate px-3 py-2 tabular-nums',
+                                                        row.isAbnormal ? 'font-semibold text-status-danger-fg' : 'font-medium text-fg'
+                                                    )}
+                                                    title={String(row.result)}
+                                                >
+                                                    {row.result}
+                                                </td>
+                                                <td className="truncate px-3 py-2 text-xs text-fg-muted" title={row.unit}>
+                                                    {row.unit}
+                                                </td>
+                                                <td className="px-3 py-2">
+                                                    {row.flag === 'NORMAL' ? (
+                                                        <span className="text-fg-faint">-</span>
+                                                    ) : (
+                                                        <StatusChip tone={getFlagTone(row.flag)} dot size="sm" title={getFlagLabel(row.flag)}>
+                                                            {getFlagLabel(row.flag)}
+                                                        </StatusChip>
+                                                    )}
+                                                </td>
+                                                <td
+                                                    className="truncate px-3 py-2 text-xs tabular-nums text-fg-muted"
+                                                    title={row.referenceRange}
+                                                >
+                                                    {row.referenceRange}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
+                    </SectionCard>
 
-                    <div className="bg-white rounded-xl border border-slate-200/60 shadow-sm p-6">
-                        <label className="text-sm font-bold text-slate-800 block mb-3">
-                            Clinical Interpretation <span className="text-red-500">*</span>
-                        </label>
-                        <textarea
+                    <SectionCard title="Clinical interpretation">
+                        <TextareaField
+                            label="Clinical interpretation"
+                            hideLabel
+                            required
+                            rows={5}
                             value={interpretation}
                             onChange={(event) => setInterpretation(event.target.value)}
-                            placeholder="Enter your clinical interpretation of these results..."
-                            rows={5}
-                            className="w-full p-4 text-sm border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all resize-none shadow-sm"
+                            placeholder="Enter your clinical interpretation of these results"
+                            hint={canActOnCase ? 'Required before the case can be authorized.' : undefined}
                         />
-                        {actionError && (
-                            <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                                {actionError}
-                            </div>
-                        )}
-                        <div className="flex flex-col sm:flex-row items-center justify-end mt-4 gap-4">
-                            <div className="flex items-center gap-3 w-full sm:w-auto order-1 sm:order-2">
-                                {canActOnCase && (
-                                    <button
-                                        onClick={() => {
-                                            setActionError(null);
-                                            setShowReturnModal(true);
-                                        }}
-                                        className="flex-1 sm:flex-none h-11 px-5 text-sm font-bold border border-slate-200 rounded-lg bg-white text-slate-600 hover:bg-slate-50 transition-colors flex items-center justify-center gap-2"
-                                    >
-                                        <span className="material-icons text-[18px]">keyboard_return</span>
-                                        Return to Supervisor
-                                    </button>
-                                )}
-                                <button
-                                    onClick={handleAuthorize}
-                                    disabled={!canActOnCase}
-                                    className={`flex-[1.5] sm:flex-none h-11 px-6 text-sm font-bold border-none rounded-lg text-white transition-colors shadow-sm flex items-center justify-center gap-2 disabled:cursor-not-allowed disabled:shadow-none ${isAuthorized ? 'bg-emerald-600 hover:bg-emerald-600 shadow-emerald-500/30' : canActOnCase ? 'bg-primary hover:bg-primary/90 shadow-primary/30' : 'bg-slate-400'}`}
-                                >
-                                    <span className="material-icons text-[18px]">{isAuthorized ? 'check_circle' : 'verified'}</span>
-                                    {isAuthorized ? 'Authorized for Dispatch' : 'Attach Signature & Authorize'}
-                                </button>
-                            </div>
+                        <div aria-live="assertive" role="alert">
+                            {actionError && !showReturnModal && (
+                                <div className="mt-3 flex items-start gap-2 rounded-lg border border-status-danger-edge bg-status-danger-bg p-3 text-sm text-status-danger-fg">
+                                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                                    <p className="min-w-0 break-words">{actionError}</p>
+                                </div>
+                            )}
                         </div>
-                    </div>
+                    </SectionCard>
                 </div>
 
-                <div className="flex flex-col gap-6">
-                    <div className="bg-white rounded-xl border border-slate-200/60 shadow-sm p-5">
-                        <div className="flex items-center justify-between gap-3 mb-4 pb-3 border-b border-slate-100">
-                            <span className="text-xs font-bold text-slate-700 uppercase tracking-widest">
-                                Patient Documents
-                            </span>
-                            {data.patientCode && (
-                                <button
-                                    onClick={() => router.push(`/patients/${data.patientCode}/documents`)}
-                                    className="text-[11px] font-bold text-primary hover:text-primary/80 transition-colors"
-                                >
-                                    View All
-                                </button>
-                            )}
-                        </div>
-
+                <div className="flex min-w-0 flex-col gap-4">
+                    <SectionCard
+                        title="Patient documents"
+                        count={data.patientCode && !documentsLoading && !documentsError ? documents.length : undefined}
+                        actions={
+                            data.patientCode ? (
+                                <Button size="sm" variant="ghost" icon={ArrowUpRight} href={`/patients/${data.patientCode}/documents`}>
+                                    View all
+                                </Button>
+                            ) : undefined
+                        }
+                    >
                         {!data.patientCode ? (
-                            <p className="text-sm text-slate-500">Patient document access is unavailable for this case.</p>
+                            <p className="text-sm text-fg-muted">Patient document access is unavailable for this case.</p>
                         ) : documentsLoading ? (
-                            <div className="flex items-center gap-2 text-sm text-slate-500">
-                                <span className="material-icons animate-spin text-primary text-[18px]">sync</span>
-                                Loading documents...
-                            </div>
+                            <>
+                                <p role="status" aria-live="polite" className="sr-only">
+                                    Loading documents
+                                </p>
+                                <div aria-hidden="true" className="space-y-2">
+                                    {Array.from({ length: 2 }).map((_, index) => (
+                                        <span key={index} className="block h-12 w-full rounded-md bg-skeleton" />
+                                    ))}
+                                </div>
+                            </>
                         ) : documentsError ? (
-                            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700">
-                                {documentsError}
+                            <div
+                                role="alert"
+                                className="flex items-start gap-2 rounded-lg border border-status-pending-edge bg-status-pending-bg p-3 text-xs text-status-pending-fg"
+                            >
+                                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                                <p className="min-w-0 break-words">{documentsError}</p>
                             </div>
                         ) : documents.length === 0 ? (
-                            <p className="text-sm text-slate-500">No patient documents uploaded.</p>
+                            <EmptyState icon={FileText} title="No documents yet" description="Nothing has been uploaded for this patient." compact />
                         ) : (
-                            <div className="flex flex-col gap-3">
+                            <ul className="divide-y divide-edge">
                                 {documents.map((patientDocument) => (
-                                    <div
-                                        key={patientDocument.documentId}
-                                        className="rounded-xl border border-slate-200 bg-slate-50/50 p-3"
-                                    >
-                                        <div className="flex items-start justify-between gap-3">
-                                            <div className="min-w-0">
-                                                <div className="flex items-center gap-2">
-                                                    <span className="material-icons text-slate-400 text-[18px]">description</span>
-                                                    <p className="truncate text-sm font-bold text-slate-800">
-                                                        {patientDocument.originalFileName}
-                                                    </p>
-                                                </div>
-                                                <p className="mt-1 text-[11px] font-semibold text-slate-500">
-                                                    {formatDocumentType(patientDocument.documentType)} - {formatFileSize(patientDocument.fileSize)}
+                                    <li key={patientDocument.documentId} className="flex items-start gap-3 py-2.5 first:pt-0 last:pb-0">
+                                        <FileText className="mt-0.5 h-4 w-4 shrink-0 text-fg-faint" aria-hidden="true" />
+                                        <div className="min-w-0 flex-1">
+                                            <p className="truncate text-sm font-medium text-fg" title={patientDocument.originalFileName}>
+                                                {patientDocument.originalFileName}
+                                            </p>
+                                            <p className="mt-0.5 break-words text-xs text-fg-muted">
+                                                {formatDocumentType(patientDocument.documentType)} · {formatFileSize(patientDocument.fileSize)}
+                                            </p>
+                                            {patientDocument.description && (
+                                                <p
+                                                    className="mt-1 line-clamp-2 break-words text-xs leading-relaxed text-fg-muted"
+                                                    title={patientDocument.description}
+                                                >
+                                                    {patientDocument.description}
                                                 </p>
-                                                {patientDocument.description && (
-                                                    <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-slate-500">
-                                                        {patientDocument.description}
-                                                    </p>
-                                                )}
-                                            </div>
-                                            <button
-                                                onClick={() => void handleDownloadDocument(
-                                                    patientDocument.documentId,
-                                                    patientDocument.originalFileName
-                                                )}
-                                                className="h-8 w-8 shrink-0 rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-primary hover:border-primary/30 transition-colors flex items-center justify-center"
-                                                title="Download document"
-                                            >
-                                                <span className="material-icons text-[18px]">download</span>
-                                            </button>
+                                            )}
                                         </div>
-                                    </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => void handleDownloadDocument(
+                                                patientDocument.documentId,
+                                                patientDocument.originalFileName
+                                            )}
+                                            aria-label={`Download ${patientDocument.originalFileName}`}
+                                            title="Download document"
+                                            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-fg-secondary transition-colors hover:bg-surface-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-surface"
+                                        >
+                                            <Download className="h-4 w-4" aria-hidden="true" />
+                                        </button>
+                                    </li>
                                 ))}
-                            </div>
+                            </ul>
                         )}
+                    </SectionCard>
 
-                    </div>
-
-                    <div className="bg-white rounded-xl border border-slate-200/60 shadow-sm p-5">
-                        <span className="text-xs font-bold text-slate-700 uppercase tracking-widest block mb-4 pb-3 border-b border-slate-100">
-                            Digital Authorization
-                        </span>
-                        <div className="flex items-center gap-3 mb-4">
-                            <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${isAuthorized ? 'bg-emerald-600' : 'bg-primary'}`}>
-                                <span className="text-white text-sm font-bold">{isAuthorized ? authorizationInitials : getInitials(rawPathologistName)}</span>
+                    <SectionCard
+                        title="Digital authorization"
+                        actions={
+                            isAuthorized ? (
+                                <StatusChip tone="success" dot size="sm">
+                                    Signed
+                                </StatusChip>
+                            ) : undefined
+                        }
+                    >
+                        <div className="flex items-center gap-3">
+                            <div
+                                aria-hidden="true"
+                                className={cn(
+                                    'flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold',
+                                    isAuthorized
+                                        ? 'bg-status-verified-bg text-status-verified-fg'
+                                        : 'bg-primary-soft text-primary-strong'
+                                )}
+                            >
+                                {isAuthorized ? authorizationInitials : getInitials(rawPathologistName)}
                             </div>
-                            <div>
-                                <div className="text-sm font-bold text-slate-800">{isAuthorized ? authorizationActor : pathologistDisplayName}</div>
-                                <div className="text-[11px] text-slate-500 mt-0.5">
-                                    {isAuthorized ? 'Authorized Pathologist' : 'Signature Pending'}
-                                </div>
+                            <div className="min-w-0">
+                                <p
+                                    className="truncate text-sm font-semibold text-fg"
+                                    title={isAuthorized ? authorizationActor : pathologistDisplayName}
+                                >
+                                    {isAuthorized ? authorizationActor : pathologistDisplayName}
+                                </p>
+                                <p className="text-xs text-fg-muted">
+                                    {isAuthorized ? 'Authorized pathologist' : 'Signature pending'}
+                                </p>
                             </div>
                         </div>
-                        <div className={`p-3 rounded-lg border ${isAuthorized ? 'bg-emerald-50 border-emerald-100' : 'bg-slate-50 border-slate-100'}`}>
-                            <div className="flex items-center justify-between gap-3 mb-2">
-                                <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                                    {isAuthorized ? 'Digitally Authorized' : 'Signature Preview'}
-                                </div>
-                                {isAuthorized && (
-                                    <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-700 text-[10px] font-bold">
-                                        Signed
-                                    </span>
+                        <div
+                            className={cn(
+                                'mt-3 rounded-md border p-3',
+                                isAuthorized
+                                    ? 'border-status-verified-edge bg-status-verified-bg'
+                                    : 'border-edge bg-surface-muted'
+                            )}
+                        >
+                            <p className="text-xs font-medium text-fg-muted">
+                                {isAuthorized ? 'Digitally authorized' : 'Signature preview'}
+                            </p>
+                            <p
+                                className={cn(
+                                    'mt-1 truncate font-serif text-lg italic',
+                                    isAuthorized ? 'text-status-verified-fg' : 'text-primary-strong'
                                 )}
-                            </div>
-                            <div className={`text-lg italic font-serif opacity-80 ${isAuthorized ? 'text-emerald-700' : 'text-primary'}`}>
+                                title={isAuthorized ? authorizationActor : pathologistDisplayName}
+                            >
                                 {isAuthorized ? authorizationActor : pathologistDisplayName}
-                            </div>
+                            </p>
                             {isAuthorized && (
-                                <div className="mt-3 text-[11px] text-slate-500">
-                                    {`Authorized at ${formatDateTime(data.authorizedAt) ?? 'Not recorded'}`}
-                                </div>
+                                <p className="mt-2 text-xs tabular-nums text-fg-muted">
+                                    {`Authorized ${formatDateTime(data.authorizedAt) ?? '(time not recorded)'}`}
+                                </p>
                             )}
                         </div>
-                    </div>
+                    </SectionCard>
 
-                    <div className="bg-white rounded-xl border border-slate-200/60 shadow-sm p-5">
-                        <span className="text-xs font-bold text-slate-700 uppercase tracking-widest block mb-4 pb-3 border-b border-slate-100">
-                            Previous Visits
-                        </span>
+                    <SectionCard title="Previous visits" count={previousVisits.length} flush={previousVisits.length > 0}>
                         {previousVisits.length === 0 ? (
-                            <p className="text-sm text-slate-500">No previous visits for this test group.</p>
+                            <EmptyState icon={History} title="No previous visits" description="No earlier results for this test group." compact />
                         ) : (
-                            <div className="flex flex-col gap-3">
+                            <ul className="divide-y divide-edge">
                                 {previousVisits.map((visit) => (
-                                    <button
-                                        key={visit.resultId}
-                                        onClick={() => router.push(`/clinical/review/${visit.resultId}`)}
-                                        className="w-full text-left p-4 rounded-xl border border-slate-200 hover:border-primary/30 hover:bg-slate-50 transition-colors"
-                                    >
-                                        <div className="flex items-start justify-between gap-3">
-                                            <div>
-                                                <div className="text-sm font-bold text-slate-800">
+                                    <li key={visit.resultId}>
+                                        <button
+                                            type="button"
+                                            onClick={() => router.push(`/clinical/review/${visit.resultId}`)}
+                                            className="flex w-full items-start justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+                                        >
+                                            <span className="min-w-0">
+                                                <span className="block break-words text-sm font-medium text-fg">
                                                     {formatDateTime(visit.visitedAt) ?? 'Previous visit'}
-                                                </div>
-                                                <div className="text-xs text-slate-500 mt-1">
-                                                    {visit.parameterCount ?? 0} parameters • {visit.abnormalCount ?? 0} abnormal • {visit.criticalCount ?? 0} critical
-                                                </div>
-                                            </div>
-                                            <span className="px-2 py-1 rounded-md bg-slate-100 text-slate-700 text-[11px] font-bold">
-                                                {getStatusLabel(visit.status)}
+                                                </span>
+                                                <span className="mt-0.5 block break-words text-xs tabular-nums text-fg-muted">
+                                                    {visit.parameterCount ?? 0} parameters · {visit.abnormalCount ?? 0} abnormal · {visit.criticalCount ?? 0} critical
+                                                </span>
                                             </span>
-                                        </div>
-                                    </button>
+                                            <StatusChip tone={getStatusTone(visit.status)} size="sm">
+                                                {getStatusLabel(visit.status)}
+                                            </StatusChip>
+                                        </button>
+                                    </li>
                                 ))}
-                            </div>
+                            </ul>
                         )}
-                    </div>
+                    </SectionCard>
 
-                    <div className="bg-white rounded-xl border border-slate-200/60 shadow-sm p-5">
-                        <span className="text-xs font-bold text-slate-700 uppercase tracking-widest block mb-4 pb-3 border-b border-slate-100">
-                            MLT Notes
-                        </span>
+                    <SectionCard title="MLT notes">
                         <div className="flex gap-3">
-                            <div className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center shrink-0 border border-blue-100">
-                                <span className="text-blue-600 text-[10px] font-bold">ML</span>
+                            <div
+                                aria-hidden="true"
+                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary-soft text-[10px] font-semibold text-primary-strong"
+                            >
+                                ML
                             </div>
-                            <div className="pt-0.5 flex-1">
-                                <div className="flex items-center justify-between mb-1.5 gap-3">
-                                    <span className="text-xs font-bold text-slate-700">
-                                        {data.mltName ?? 'Unknown technician'} <span className="text-[10px] font-medium text-slate-400 ml-1">MLT</span>
+                            <div className="min-w-0 flex-1">
+                                <div className="mb-1.5 flex items-center justify-between gap-3">
+                                    <span
+                                        className="min-w-0 truncate text-xs font-semibold text-fg"
+                                        title={data.mltName ?? 'Unknown technician'}
+                                    >
+                                        {data.mltName ?? 'Unknown technician'}
+                                        <span className="ml-1 font-normal text-fg-muted">MLT</span>
                                     </span>
                                     {noteTimestamp && (
-                                        <span className="text-[10px] font-medium text-slate-400">{noteTimestamp}</span>
+                                        <span className="shrink-0 text-xs tabular-nums text-fg-muted">{noteTimestamp}</span>
                                     )}
                                 </div>
-                                <p className="text-xs text-slate-600 leading-relaxed italic bg-slate-50 p-3 rounded-lg border border-slate-100">
+                                <p className="whitespace-pre-wrap break-words rounded-md border border-edge bg-surface-muted p-3 text-xs italic leading-relaxed text-fg-secondary">
                                     &quot;{data.mltNotes || 'No MLT notes available.'}&quot;
                                 </p>
                             </div>
                         </div>
-                    </div>
+                    </SectionCard>
 
                     {data.supervisorNote && (
-                        <div className="bg-white rounded-xl border border-slate-200/60 shadow-sm p-5">
-                            <span className="text-xs font-bold text-slate-700 uppercase tracking-widest block mb-4 pb-3 border-b border-slate-100">
-                                Supervisor Note
-                            </span>
+                        <SectionCard title="Supervisor note">
                             <div className="flex gap-3">
-                                <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center shrink-0 border border-amber-200">
-                                    <span className="text-amber-700 text-[10px] font-bold">LS</span>
+                                <div
+                                    aria-hidden="true"
+                                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-status-pending-bg text-[10px] font-semibold text-status-pending-fg"
+                                >
+                                    LS
                                 </div>
-                                <div className="pt-0.5 flex-1">
-                                    <div className="flex items-center justify-between mb-1.5 gap-3">
-                                        <span className="text-xs font-bold text-slate-700">{data.supervisorName ?? 'Lab Supervisor'}</span>
+                                <div className="min-w-0 flex-1">
+                                    <div className="mb-1.5 flex items-center justify-between gap-3">
+                                        <span
+                                            className="min-w-0 truncate text-xs font-semibold text-fg"
+                                            title={data.supervisorName ?? 'Lab supervisor'}
+                                        >
+                                            {data.supervisorName ?? 'Lab supervisor'}
+                                        </span>
                                         {noteTimestamp && (
-                                            <span className="text-[10px] font-medium text-slate-400">{noteTimestamp}</span>
+                                            <span className="shrink-0 text-xs tabular-nums text-fg-muted">{noteTimestamp}</span>
                                         )}
                                     </div>
-                                    <p className="text-xs text-slate-600 leading-relaxed italic bg-slate-50 p-3 rounded-lg border border-slate-100">
+                                    <p className="whitespace-pre-wrap break-words rounded-md border border-edge bg-surface-muted p-3 text-xs italic leading-relaxed text-fg-secondary">
                                         &quot;{data.supervisorNote}&quot;
                                     </p>
                                 </div>
                             </div>
-                        </div>
+                        </SectionCard>
                     )}
+                </div>
+            </div>
+
+            {/* Sticky action bar */}
+            <div className="sticky bottom-0 z-10 mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-edge bg-canvas py-3">
+                <p className="flex min-w-0 items-center gap-2 text-xs text-fg-muted">
+                    {isAuthorized ? (
+                        <>
+                            <CheckCircle2 className="h-4 w-4 shrink-0 text-status-verified-fg" aria-hidden="true" />
+                            <span>Authorized for dispatch</span>
+                        </>
+                    ) : canActOnCase ? (
+                        <span>Add your interpretation, then attach your signature to authorize.</span>
+                    ) : (
+                        <span>{getStatusLabel(data.status)} — no further action available.</span>
+                    )}
+                </p>
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                    {canActOnCase && (
+                        <Button
+                            icon={Undo2}
+                            onClick={() => {
+                                setActionError(null);
+                                setShowReturnModal(true);
+                            }}
+                        >
+                            Return to supervisor
+                        </Button>
+                    )}
+                    <Button
+                        variant="primary"
+                        icon={isAuthorized ? CheckCircle2 : BadgeCheck}
+                        onClick={handleAuthorize}
+                        disabled={!canActOnCase}
+                        loading={isSubmittingAuthorize}
+                    >
+                        {isAuthorized ? 'Authorized for dispatch' : 'Attach signature and authorize'}
+                    </Button>
                 </div>
             </div>
         </div>

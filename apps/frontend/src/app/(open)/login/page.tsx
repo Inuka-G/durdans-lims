@@ -33,10 +33,10 @@ export default function LoginPage() {
   }, []);
 
   return (
-    <div className="flex h-screen items-center justify-center bg-slate-50">
-      <div className="flex flex-col items-center gap-4">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-        <p className="text-sm font-semibold text-slate-500">Redirecting to sign in…</p>
+    <div className="flex h-screen items-center justify-center bg-canvas">
+      <div role="status" aria-live="polite" className="flex flex-col items-center gap-4">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-edge border-t-primary" aria-hidden="true"></div>
+        <p className="text-sm font-medium text-fg-muted">Redirecting to sign in…</p>
       </div>
     </div>
   );

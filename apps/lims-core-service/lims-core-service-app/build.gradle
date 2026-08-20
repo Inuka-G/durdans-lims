@@ -33,6 +33,7 @@ dependencies {
     implementation 'com.github.ben-manes.caffeine:caffeine'
     implementation 'org.springframework.boot:spring-boot-starter-mail'
     implementation 'org.springframework.kafka:spring-kafka'
+    implementation 'com.github.librepdf:openpdf:2.0.3'
 
     // Observability: health/readiness probes + Prometheus metrics
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
@@ -54,7 +55,7 @@ dependencies {
     implementation 'io.opentelemetry:opentelemetry-exporter-otlp'
 
     // Admin: Keycloak user/role management (server-to-server via service account)
-    implementation 'org.keycloak:keycloak-admin-client:24.0.5'
+    implementation 'org.keycloak:keycloak-admin-client:26.0.11'
 
 
     // Test dependencies

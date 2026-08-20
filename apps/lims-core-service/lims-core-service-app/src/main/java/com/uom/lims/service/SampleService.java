@@ -8,6 +8,7 @@ import com.uom.lims.api.dto.response.SampleResponse;
 import com.uom.lims.api.enums.PaymentStatus;
 import com.uom.lims.api.enums.RejectionReason;
 import com.uom.lims.api.enums.SampleStatus;
+import com.uom.lims.api.enums.TubeType;
 import com.uom.lims.api.patient.dto.response.PatientResponse;
 import com.uom.lims.entity.BillEntity;
 import com.uom.lims.entity.SampleEntity;
@@ -17,6 +18,7 @@ import com.uom.lims.exception.InvalidStateTransitionException;
 import com.uom.lims.exception.ResourceNotFoundException;
 import com.uom.lims.repository.BillRepository;
 import com.uom.lims.repository.SampleRepository;
+import com.uom.lims.repository.SupplyRepository;
 import com.uom.lims.repository.TestCatalogRepository;
 import com.uom.lims.util.ReferenceNumberGenerator;
 import com.uom.lims.security.SecurityUtils;
@@ -52,6 +54,8 @@ public class SampleService {
     private final SampleRepository sampleRepository;
     private final BillRepository billRepository;
     private final TestCatalogRepository testCatalogRepository;
+    private final SupplyRepository supplyRepository;
+    private final TubeColorResolver tubeColorResolver;
     private final PatientClientService patientClientService;
     private final ReferenceNumberGenerator referenceNumberGenerator;
 
@@ -73,14 +77,14 @@ public class SampleService {
     }
 
     @Transactional(readOnly = true)
-    public List<SampleResponse> searchSamplesForReprint(String query) {
+    public List<SampleResponse> searchSamplesForPrint(String query) {
         String normalizedQuery = query == null ? "" : query.trim().toLowerCase();
 
         if (normalizedQuery.isBlank()) {
             return List.of();
         }
 
-        final String reprintBranchScope = com.uom.lims.security.SecurityUtils.resolveBranchScope();
+        final String printBranchScope = com.uom.lims.security.SecurityUtils.resolveBranchScope();
         Pageable pageable = PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "createdAt"));
         Specification<SampleEntity> specification = (root, criteriaQuery, criteriaBuilder) -> {
             var orderItemJoin = root.join("orderItem", JoinType.INNER);
@@ -101,9 +105,9 @@ public class SampleService {
 
             criteriaQuery.distinct(true);
 
-            var branchPredicate = reprintBranchScope == null
+            var branchPredicate = printBranchScope == null
                     ? criteriaBuilder.conjunction()
-                    : criteriaBuilder.equal(orderJoin.get("branchCode"), reprintBranchScope);
+                    : criteriaBuilder.equal(orderJoin.get("branchCode"), printBranchScope);
 
             return criteriaBuilder.and(
                     notDeletedPredicate,
@@ -201,12 +205,23 @@ public class SampleService {
      * Samples in RECOLLECTION_REQUIRED status are also allowed through because
      * rejection already generated a new sample record for this purpose.
      *
+     * WHY: A collection consumes a physical tube, so stock is deducted here rather
+     * than by a periodic stocktake. Three properties make the deduction trustworthy:
+     * it happens once per collection, because the status guard above rejects a second
+     * call on an already-COLLECTED sample, so a double-click or a retried request
+     * cannot deduct twice; it cannot drive stock negative, because the currentStock
+     * check lives inside the UPDATE's WHERE clause, making the check and the write one
+     * atomic statement that two concurrent collections cannot both satisfy; and it
+     * never applies to a collection that did not happen, because the decrement shares
+     * this transaction with the status change and rolls back with it.
+     *
      * @param sampleId the UUID of the sample to collect
      * @param request  optional phlebotomist notes from the collection event
      * @return the updated SampleResponse DTO
      * @throws ResourceNotFoundException       if the sample does not exist
      * @throws InvalidStateTransitionException if the sample is not in a collectable state
-     * @throws BusinessValidationException     if the bill is not paid
+     * @throws BusinessValidationException     if the bill is not paid, or no tube of the
+     *                                         sample's type remains in inventory
      */
     public SampleResponse collectSample(UUID sampleId, SampleCollectRequest request) {
         SampleEntity sample = sampleRepository.findById(sampleId)
@@ -239,6 +254,22 @@ public class SampleService {
                     "Cannot collect sample " + sample.getBarcode() +
                             " — associated bill " + bill.getBillNo() +
                             " is not fully paid. Current payment status: " + bill.getPaymentStatus());
+        }
+
+        // The sample carries the tube it was created for, so the deduction never has to
+        // re-derive it from the test catalog and cannot drift from what was barcoded.
+        TubeType tubeType = sample.getTubeType();
+        // A sample without a tube type is missing data, not out of stock — the decrement
+        // would match no rows and blame an inventory shortage that does not exist.
+        if (tubeType == null) {
+            throw new BusinessValidationException(
+                    "Cannot collect sample " + sample.getBarcode() +
+                            " — the sample has no tube type recorded, so it cannot be collected.");
+        }
+        if (supplyRepository.decrementStockByOne(tubeType) == 0) {
+            throw new BusinessValidationException(
+                    "Cannot collect sample " + sample.getBarcode() +
+                            " — no " + tubeType + " tubes remain in inventory.");
         }
 
         sample.setStatus(SampleStatus.COLLECTED);
@@ -363,6 +394,7 @@ public class SampleService {
                 .testCodes(test != null ? List.of(test.getTestCode()) : null)
                 .priority(sample.getPriority())
                 .tubeTypes(List.of(sample.getTubeType()))
+                .tubeColor(tubeColorResolver.resolve(sample.getTubeType()))
                 .waitTimeMinutes(sample.getCreatedAt() != null ?
                         java.time.temporal.ChronoUnit.MINUTES.between(
                                 sample.getCreatedAt(), Instant.now()) : 0)
@@ -413,11 +445,13 @@ public class SampleService {
                 .pid(patientId)
                 .testCodes(test != null ? List.of(test.getTestCode()) : List.of())
                 .tubeType(sample.getTubeType())
+                .tubeColor(tubeColorResolver.resolve(sample.getTubeType()))
                 .priority(sample.getPriority())
                 .status(sample.getStatus())
                 .collectedAt(eventTime)
                 .collectedBy(eventBy)
                 .waitTime(waitTime)
+                .rejectionReason(sample.getRejectionReason())
                 .rejectionNotes(sample.getRejectionNotes())
                 .printCount(sample.getLabelPrintCount())
                 .build();
