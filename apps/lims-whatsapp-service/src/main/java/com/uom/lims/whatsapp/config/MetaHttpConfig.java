@@ -34,4 +34,17 @@ public class MetaHttpConfig {
         factory.setReadTimeout(45_000);
         return builder.requestFactory(factory).build();
     }
+
+    /**
+     * Call-event forwarding to the voice gateway. Tight on purpose: this runs on the
+     * webhook ack thread inside Meta's ~30-second call-accept window, and a gateway
+     * that cannot take the handoff in five seconds is not going to answer the call.
+     */
+    @Bean
+    public RestClient voiceRestClient(RestClient.Builder builder) {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(2_000);
+        factory.setReadTimeout(5_000);
+        return builder.requestFactory(factory).build();
+    }
 }

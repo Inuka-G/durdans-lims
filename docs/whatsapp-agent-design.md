@@ -159,6 +159,38 @@ A caveat on `nip.io`: the hostname contains the IP address, so changing the Elas
 changes the webhook URL. Meta's callback URL is awkward to change — re-verification has
 a window where deliveries fail — so a real domain is worth having before launch.
 
+## Phase 5 — voice, first cut (landed with caveats)
+
+`apps/lims-voice-gateway` — Python, FastAPI, Pipecat. Answers a WhatsApp voice call
+and bridges the audio into a Gemini Live session, native audio both ways: no
+transcription hop, no synthesis hop, exactly as the components diagram always said.
+
+- **Ingress stays singular.** Meta's webhook still lands only on
+  `lims-whatsapp-service`, which verifies the HMAC and forwards deliveries whose
+  field is `calls` to the gateway over the host boundary with a shared internal
+  token. The forward is synchronous and tightly timed out — Meta allows roughly 30
+  seconds from connect to accept, and a gateway that cannot take the handoff in
+  five is not going to answer the call.
+- **Pipecat's `WhatsAppClient` runs the SDP dance** (answer, `pre_accept`,
+  `accept`) and hands over a connected WebRTC session per call; one pipeline per
+  call: SmallWebRTC transport ⇄ Gemini Live, Silero VAD, interruptions allowed.
+- **Tools are the same tool layer.** The gateway's three functions call
+  `/internal/voice/tools/**` on the whatsapp service, which returns pre-rendered
+  spoken sentences (`spoken_si` / `spoken_en`) composed by `VoiceSpokenFormatter`
+  from the core's JSON — the model relays sentences it did not write, which is
+  what price grounding means when there is no draft to inspect. The caller's
+  number is bound into the order-status tool at function registration, from the
+  call event; the model cannot choose whose order is looked up.
+- **Host networking, open UDP.** aiortc binds ephemeral UDP ports for SRTP, so the
+  gateway container runs `network_mode: host` (via a compose override that lives
+  in S3 — user_data is byte-capped) and the security group opens the high UDP
+  range. The 8085 control port is loopback/compose-internal and never proxied.
+- **Caveats this cut ships with:** requirements are ranged, to be pinned after the
+  first green build; the Meta side needs calling enabled on the number and the
+  `calls` webhook field subscribed before anything rings; and voice quality in
+  Sinhala is whatever Gemini Live native audio gives us — the tool sentences keep
+  digits as digits partly for that reason.
+
 ## Phase 2d — landed
 
 What the first hour of live use asked for.

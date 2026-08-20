@@ -35,12 +35,17 @@ public class SecurityConfig {
                 // as disabling the feature. Whoever adds the next endpoint to this
                 // service gets CSRF protection by default instead of inheriting a
                 // service-wide opt-out they would have to notice and undo.
-                .csrf(csrf -> csrf.ignoringRequestMatchers("/webhook/whatsapp"))
+                .csrf(csrf -> csrf.ignoringRequestMatchers("/webhook/whatsapp", "/internal/voice/**"))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         // Meta's callback. Authenticated by X-Hub-Signature-256, not by
                         // anything Spring Security can check.
                         .requestMatchers("/webhook/whatsapp").permitAll()
+
+                        // The voice gateway's tool surface. Authenticated by a shared
+                        // internal token compared in constant time inside the
+                        // controller — with no token configured it rejects everything.
+                        .requestMatchers("/internal/voice/**").permitAll()
 
                         // Actuator is served on the separate internal management port
                         // (11011), which is not published to the host or opened in the

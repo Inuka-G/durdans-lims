@@ -25,6 +25,10 @@ case "${SERVICE}" in
     TAG_VARIABLE="WHATSAPP_TAG"
     HEALTH_TIMEOUT_SECONDS=300
     ;;
+  voice)
+    TAG_VARIABLE="VOICE_TAG"
+    HEALTH_TIMEOUT_SECONDS=180
+    ;;
   *)
     echo "Usage: $0 <app|frontend|whatsapp> <image-tag>" >&2
     exit 64

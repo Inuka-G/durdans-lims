@@ -80,7 +80,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "backups" {
 
 # --- ECR: one repo per image, scanned on push ---
 resource "aws_ecr_repository" "this" {
-  for_each             = toset(["core-service", "frontend", "whatsapp-service"])
+  for_each             = toset(["core-service", "frontend", "whatsapp-service", "voice-gateway"])
   name                 = "${var.project}/${each.key}"
   image_tag_mutability = "MUTABLE"
 
@@ -184,6 +184,15 @@ resource "aws_s3_object" "fetch_agent_secret_script" {
   key    = "bootstrap/fetch-agent-secret.sh"
   source = "${path.module}/../scripts/fetch-agent-secret.sh"
   etag   = filemd5("${path.module}/../scripts/fetch-agent-secret.sh")
+
+  cache_control = "no-cache"
+}
+
+resource "aws_s3_object" "compose_override" {
+  bucket = aws_s3_bucket.patient_docs.id
+  key    = "bootstrap/docker-compose.override.yml"
+  source = "${path.module}/../compose/docker-compose.override.yml"
+  etag   = filemd5("${path.module}/../compose/docker-compose.override.yml")
 
   cache_control = "no-cache"
 }
