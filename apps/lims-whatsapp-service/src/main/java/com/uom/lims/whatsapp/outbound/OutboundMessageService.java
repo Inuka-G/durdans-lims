@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -74,6 +75,45 @@ public class OutboundMessageService {
             return Optional.empty();
         }
         return Optional.of(deliver(conversation, body, now));
+    }
+
+    /**
+     * The welcome menu, claim-gated with a short cooldown so "hi hi hi" produces one
+     * menu. The persisted body records the rows as text: the agent reads history as
+     * plain turns, and "[menu: ...]" is how it knows what the patient was just shown.
+     */
+    @Transactional
+    public Optional<WaMessageEntity> sendMenuIfDue(UUID conversationId, String body, String buttonLabel,
+                                                   List<MetaSendClient.MenuRow> rows, Duration cooldown) {
+        WaConversationEntity conversation = conversationRepository.findById(conversationId)
+                .orElseThrow(() -> new MetaSendException("No conversation " + conversationId));
+        Instant now = Instant.now();
+        if (!conversation.canSendFreeForm(now)) {
+            return Optional.empty();
+        }
+        if (conversationRepository.claimAutoReply(conversationId, now, now.minus(cooldown)) == 0) {
+            return Optional.empty();
+        }
+
+        String waId = conversation.getContact().getWaId();
+        String wamid = sendClient.sendInteractiveList(waId, body, buttonLabel, rows);
+
+        WaMessageEntity message = new WaMessageEntity();
+        message.setConversation(conversation);
+        message.setDirection(MessageDirection.OUTBOUND);
+        message.setWamid(wamid);
+        message.setMessageType("interactive");
+        message.setBody(body + "\n[menu: " + rows.stream().map(MetaSendClient.MenuRow::title)
+                .collect(java.util.stream.Collectors.joining(", ")) + "]");
+        message.setStatus(MessageStatus.SENT);
+        message.setMetaTimestamp(now);
+        messageRepository.save(message);
+
+        conversation.registerOutbound(now);
+        conversationRepository.save(conversation);
+
+        log.info("Sent welcome menu to {}", PiiMasker.maskWaId(waId));
+        return Optional.of(message);
     }
 
     private WaMessageEntity deliver(WaConversationEntity conversation, String body, Instant now) {

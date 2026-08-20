@@ -59,6 +59,19 @@ public class CoreCatalogClient {
     }
 
     /**
+     * Coarse order progress. {@code requesterPhone} is the WhatsApp sender's number,
+     * injected by the orchestrator from the conversation — the model cannot supply it,
+     * which is the whole possession check.
+     */
+    public String getOrderStatus(String orderNo, String requesterPhone) {
+        return get(UriComponentsBuilder.fromUriString(properties.coreBaseUrl())
+                .path("/api/v1/agent/orders/status")
+                .queryParam("orderNo", orderNo == null ? "" : orderNo)
+                .queryParam("phone", requesterPhone == null ? "" : requesterPhone)
+                .toUriString());
+    }
+
+    /**
      * @return the {@code data} node of the core's ApiResponse envelope, as compact JSON.
      * Failures come back as a JSON error object instead of an exception: the model can
      * say "I could not look that up" gracefully, which beats the whole reply dying.

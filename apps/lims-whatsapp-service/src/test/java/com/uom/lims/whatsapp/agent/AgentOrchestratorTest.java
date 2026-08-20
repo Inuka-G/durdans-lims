@@ -69,7 +69,7 @@ class AgentOrchestratorTest {
                         {"role":"model","parts":[{"text":"FBC (Full Blood Count) - Rs. 1,200"}]}"""));
         when(catalog.searchTests("cbc", "si")).thenReturn("[{\"testCode\":\"FBC\",\"price\":1200}]");
 
-        Optional<String> reply = orchestrator().reply(conversationId);
+        Optional<String> reply = orchestrator().reply(conversationId, "94770000001");
 
         assertThat(reply).contains("FBC (Full Blood Count) - Rs. 1,200");
         verify(catalog).searchTests("cbc", "si");
@@ -93,7 +93,7 @@ class AgentOrchestratorTest {
                 {"role":"model","parts":[{"functionCall":{"name":"listPackages","args":{}}}]}"""));
         when(catalog.listPackages(null)).thenReturn("[]");
 
-        assertThat(orchestrator().reply(conversationId)).isEmpty();
+        assertThat(orchestrator().reply(conversationId, "94770000001")).isEmpty();
         // Default cap is 4 rounds; the loop runs cap+1 generate calls before giving up.
         verify(gemini, times(5)).generate(any());
     }
@@ -103,8 +103,27 @@ class AgentOrchestratorTest {
         when(messageRepository.findByConversation_IdOrderByCreatedAtDesc(any(), any()))
                 .thenReturn(List.of(message(MessageDirection.INBOUND, null)));
 
-        assertThat(orchestrator().reply(UUID.randomUUID())).isEmpty();
+        assertThat(orchestrator().reply(UUID.randomUUID(), "94770000001")).isEmpty();
         verifyNoInteractions(gemini);
+    }
+
+    @Test
+    void orderStatusToolGetsTheWhatsAppSenderInjectedServerSide() {
+        UUID conversationId = UUID.randomUUID();
+        when(messageRepository.findByConversation_IdOrderByCreatedAtDesc(any(), any()))
+                .thenReturn(List.of(message(MessageDirection.INBOUND, "ORD-20260820-000123 ready da?")));
+        when(gemini.generate(any()))
+                .thenReturn(json("""
+                        {"role":"model","parts":[{"functionCall":{"name":"getOrderStatus","args":{"orderNo":"ORD-20260820-000123"}}}]}"""))
+                .thenReturn(json("""
+                        {"role":"model","parts":[{"text":"Your report is ready."}]}"""));
+        when(catalog.getOrderStatus("ORD-20260820-000123", "94770000001"))
+                .thenReturn("{\"found\":true,\"reportReady\":true}");
+
+        assertThat(orchestrator().reply(conversationId, "94770000001")).contains("Your report is ready.");
+
+        // The phone came from the conversation, not from the model's arguments.
+        verify(catalog).getOrderStatus("ORD-20260820-000123", "94770000001");
     }
 
     @Test
@@ -118,7 +137,7 @@ class AgentOrchestratorTest {
                         message(MessageDirection.INBOUND, "hi")));
         when(gemini.generate(any())).thenReturn(json("{\"role\":\"model\",\"parts\":[{\"text\":\"answer\"}]}"));
 
-        orchestrator().reply(conversationId);
+        orchestrator().reply(conversationId, "94770000001");
 
         ArgumentCaptor<ObjectNode> captor = ArgumentCaptor.forClass(ObjectNode.class);
         verify(gemini).generate(captor.capture());
