@@ -1,66 +1,78 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
+import {
+    AlertTriangle,
+    CheckCircle2,
+    ClipboardCheck,
+    Layers,
+    ListChecks,
+    RefreshCw,
+    Search,
+    ShieldCheck,
+    X,
+} from "lucide-react";
 import {
     BulkVerificationBatch,
     bulkApproveTechnically,
     getBulkVerificationWorklist,
 } from "@/lib/api";
+import { cn } from "@/lib/utils";
+import Button from "@/components/ui/Button";
+import PageHeader from "@/components/ui/PageHeader";
+import SectionCard from "@/components/ui/SectionCard";
+import EmptyState from "@/components/ui/EmptyState";
+import KpiTile from "@/components/ui/KpiTile";
+import Modal from "@/components/ui/Modal";
+import StatusChip from "@/components/ui/StatusChip";
+import { InputField, SelectField, TextareaField } from "@/components/ui/Field";
+import { formatAuditTime } from "@/components/patient-dashboard/dashboard-data";
 
 type SelectableBatch = BulkVerificationBatch & {
     isSelected: boolean;
 };
 
-const formatTimestamp = (value?: string | null) => {
-    if (!value) {
-        return "-";
-    }
+const ALL_DEPARTMENTS = "All Departments";
+const SKELETON_ROWS = 6;
 
-    const parsed = new Date(value);
-    if (Number.isNaN(parsed.getTime())) {
-        return "-";
-    }
-
-    return parsed.toLocaleString("en-LK", {
-        month: "short",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-    });
-};
+const CHECKBOX_CLASS =
+    "h-4 w-4 shrink-0 rounded border-edge-strong accent-primary " +
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-surface " +
+    "disabled:cursor-not-allowed disabled:opacity-50";
 
 export default function BulkApprovalPage() {
     const router = useRouter();
     const [batches, setBatches] = useState<SelectableBatch[]>([]);
     const [search, setSearch] = useState("");
-    const [department, setDepartment] = useState("All Departments");
+    const [department, setDepartment] = useState(ALL_DEPARTMENTS);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isConfirming, setIsConfirming] = useState(false);
     const [supervisorNote, setSupervisorNote] = useState("");
+    const headerCheckboxRef = useRef<HTMLInputElement | null>(null);
+
+    const loadBulkWorklist = useCallback(async () => {
+        try {
+            setLoading(true);
+            setError(null);
+
+            const response = await getBulkVerificationWorklist();
+            setBatches(response.map((batch) => ({ ...batch, isSelected: false })));
+        } catch (loadError) {
+            console.error("Failed to load bulk verification worklist", loadError);
+            setError("Couldn't load the bulk verification worklist. Retry to try again.");
+            setBatches([]);
+        } finally {
+            setLoading(false);
+        }
+    }, []);
 
     useEffect(() => {
-        const loadBulkWorklist = async () => {
-            try {
-                setLoading(true);
-                setError(null);
-
-                const response = await getBulkVerificationWorklist();
-                setBatches(response.map((batch) => ({ ...batch, isSelected: false })));
-            } catch (loadError) {
-                console.error("Failed to load bulk verification worklist", loadError);
-                setError("Failed to load bulk verification worklist. Please try again.");
-                setBatches([]);
-            } finally {
-                setLoading(false);
-            }
-        };
-
         void loadBulkWorklist();
-    }, []);
+    }, [loadBulkWorklist]);
 
     const filteredBatches = useMemo(() => {
         return batches.filter((batch) => {
@@ -70,12 +82,17 @@ export default function BulkApprovalPage() {
                 batch.batchCode.toLowerCase().includes(search.toLowerCase());
 
             const matchesDept =
-                department === "All Departments" ||
+                department === ALL_DEPARTMENTS ||
                 batch.department.toLowerCase() === department.toLowerCase();
 
             return matchesSearch && matchesDept;
         });
     }, [batches, search, department]);
+
+    const departments = useMemo(
+        () => Array.from(new Set(batches.map((batch) => batch.department))),
+        [batches]
+    );
 
     const selectedBatches = batches.filter((batch) => batch.isSelected);
     const selectedResultIds = selectedBatches.flatMap((batch) => batch.resultIds);
@@ -88,6 +105,33 @@ export default function BulkApprovalPage() {
         0
     );
 
+    // Queue-wide totals for the KPI row
+    const queueSafe = batches.reduce((sum, batch) => sum + batch.safeForApproval, 0);
+    const queueTotal = batches.reduce((sum, batch) => sum + batch.totalResults, 0);
+    const queueHeld = batches.reduce((sum, batch) => sum + batch.exceptions, 0);
+    const queueSafePercent =
+        batches.length === 0 ? 0 : Math.min(100, Math.round((queueSafe / Math.max(1, queueTotal)) * 100));
+
+    // Header checkbox state (visible, selectable groups only)
+    const selectableVisible = filteredBatches.filter((batch) => batch.safeForApproval > 0);
+    const selectedVisibleCount = selectableVisible.filter((batch) => batch.isSelected).length;
+    const allVisibleSelected =
+        selectableVisible.length > 0 && selectedVisibleCount === selectableVisible.length;
+    const someVisibleSelected = selectedVisibleCount > 0 && !allVisibleSelected;
+
+    useEffect(() => {
+        if (headerCheckboxRef.current) {
+            headerCheckboxRef.current.indeterminate = someVisibleSelected;
+        }
+    }, [someVisibleSelected]);
+
+    const hasFilters = search.trim() !== "" || department !== ALL_DEPARTMENTS;
+
+    const clearFilters = () => {
+        setSearch("");
+        setDepartment(ALL_DEPARTMENTS);
+    };
+
     const toggleBatch = (id: string) => {
         setBatches((previous) =>
             previous.map((batch) =>
@@ -98,6 +142,8 @@ export default function BulkApprovalPage() {
         );
     };
 
+    // Deliberately replaces the selection rather than adding to it: a supervisor
+    // must never approve a batch that the current filters have scrolled off screen.
     const selectAll = () => {
         setBatches((previous) =>
             previous.map((batch) => ({
@@ -112,6 +158,10 @@ export default function BulkApprovalPage() {
     const clearSelection = () => {
         setBatches((previous) => previous.map((batch) => ({ ...batch, isSelected: false })));
     };
+
+    const closeConfirm = useCallback(() => {
+        setIsConfirming(false);
+    }, []);
 
     const handleApprove = async () => {
         if (selectedResultIds.length === 0) {
@@ -147,353 +197,449 @@ export default function BulkApprovalPage() {
         router.push(`/verification/review/${reviewResultIds[0]}`);
     };
 
+    const caseWord = selectedResultIds.length === 1 ? "case" : "cases";
+    const groupWord = selectedBatches.length === 1 ? "group" : "groups";
+
     return (
-        <div className="flex flex-col h-full space-y-6">
-            <div className="flex items-start justify-between">
-                <div>
-                    <h1 className="text-2xl font-bold text-slate-800">Bulk Technical Verification</h1>
-                    <p className="text-sm text-slate-500 mt-1">
-                        Approve safe result groups while holding exceptions for case-by-case review.
-                    </p>
-                </div>
+        <div className="mx-auto max-w-[1400px]">
+            <PageHeader
+                crumbs={[{ label: "Verification", href: "/verification/pending" }, { label: "Bulk approval" }]}
+                title="Bulk technical verification"
+                meta={
+                    <>
+                        <span>Approve safe result groups while holding exceptions for case-by-case review.</span>
+                        <span aria-hidden="true">·</span>
+                        <span>Lab supervisor</span>
+                        <span aria-hidden="true">·</span>
+                        <span>Verification queue</span>
+                    </>
+                }
+                actions={
+                    <Button icon={RefreshCw} onClick={() => void loadBulkWorklist()} loading={loading}>
+                        Refresh
+                    </Button>
+                }
+            />
 
-                <div className="text-right">
-                    <div className="text-xs text-slate-500 font-medium">
-                        Role: Lab Supervisor <span className="mx-1">|</span> Queue: Verification
-                    </div>
-                    <div className="mt-2 text-right">
-                        <div className="flex items-center justify-end gap-3 mb-1.5">
-                            <span className="text-[11px] font-bold text-slate-500 tracking-wide uppercase">
-                                Safe Results
-                            </span>
-                            <span className="text-[11px] font-bold text-slate-500 tracking-wide uppercase">
-                                {batches.reduce((sum, batch) => sum + batch.safeForApproval, 0)} Ready
-                            </span>
-                        </div>
-                        <div className="w-56 h-1.5 bg-slate-200 rounded-full overflow-hidden ml-auto">
-                            <div
-                                className="h-full bg-primary rounded-full"
-                                style={{
-                                    width:
-                                        batches.length === 0
-                                            ? "0%"
-                                            : `${Math.min(
-                                                100,
-                                                Math.round(
-                                                    (batches.reduce((sum, batch) => sum + batch.safeForApproval, 0) /
-                                                        Math.max(
-                                                            1,
-                                                            batches.reduce((sum, batch) => sum + batch.totalResults, 0)
-                                                        )) *
-                                                        100
-                                                )
-                                            )}%`,
-                                }}
-                            />
-                        </div>
-                    </div>
-                </div>
+            {/* Screen-reader status for async changes */}
+            <p role="status" aria-live="polite" className="sr-only">
+                {loading
+                    ? "Loading bulk verification worklist"
+                    : error
+                      ? "Bulk verification worklist failed to load"
+                      : `Showing ${filteredBatches.length} of ${batches.length} test groups. ${selectedBatches.length} ${groupWord} selected.`}
+            </p>
+
+            <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <KpiTile
+                    label="Test groups"
+                    value={batches.length}
+                    icon={Layers}
+                    loading={loading}
+                    note={`${filteredBatches.length} shown`}
+                />
+                <KpiTile
+                    label="Safe results ready"
+                    value={queueSafe}
+                    icon={ShieldCheck}
+                    tone="success"
+                    loading={loading}
+                    note={`${queueSafePercent}% of ${queueTotal} results`}
+                />
+                <KpiTile
+                    label="Held for review"
+                    value={queueHeld}
+                    icon={AlertTriangle}
+                    tone={queueHeld > 0 ? "warning" : "neutral"}
+                    loading={loading}
+                    note="Needs case-by-case review"
+                />
+                <KpiTile
+                    label="Selected for approval"
+                    value={totalSafeForApproval}
+                    icon={ClipboardCheck}
+                    loading={loading}
+                    note={`${selectedBatches.length} ${groupWord} selected`}
+                />
             </div>
 
-            <div className="flex flex-col sm:flex-row items-center gap-3">
-                <div className="relative">
-                    <span className="material-icons absolute left-3 top-1/2 -translate-y-1/2 text-lg text-slate-400">
-                        search
-                    </span>
-                    <input
-                        type="text"
-                        placeholder="Search test group..."
-                        value={search}
-                        onChange={(event) => setSearch(event.target.value)}
-                        className="pl-10 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 w-56 bg-white"
-                    />
-                </div>
+            <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+                <SectionCard title="Test groups" count={loading ? undefined : filteredBatches.length} flush>
+                    {/* Filter toolbar */}
+                    <div className="flex flex-wrap items-center gap-2 border-b border-edge bg-surface-muted px-3 py-2">
+                        <InputField
+                            label="Search test groups"
+                            hideLabel
+                            type="search"
+                            value={search}
+                            onChange={(event) => setSearch(event.target.value)}
+                            placeholder="Search test group or code"
+                            autoComplete="off"
+                            className="min-w-[180px] flex-1 sm:max-w-xs"
+                        />
+                        <SelectField
+                            label="Department"
+                            hideLabel
+                            value={department}
+                            onChange={(event) => setDepartment(event.target.value)}
+                            className="w-full sm:w-48"
+                        >
+                            <option value={ALL_DEPARTMENTS}>All departments</option>
+                            {departments.map((item) => (
+                                <option key={item} value={item}>
+                                    {item}
+                                </option>
+                            ))}
+                        </SelectField>
+                        {hasFilters && (
+                            <Button variant="ghost" icon={X} onClick={clearFilters}>
+                                Clear filters
+                            </Button>
+                        )}
+                        <Button
+                            icon={ListChecks}
+                            onClick={selectAll}
+                            disabled={loading || selectableVisible.length === 0}
+                            className="sm:ml-auto"
+                        >
+                            Select safe groups
+                        </Button>
+                    </div>
 
-                <select
-                    value={department}
-                    onChange={(event) => setDepartment(event.target.value)}
-                    className="py-2 px-3 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 bg-white text-slate-600 outline-none"
-                >
-                    <option>All Departments</option>
-                    {Array.from(new Set(batches.map((batch) => batch.department))).map((item) => (
-                        <option key={item}>{item}</option>
-                    ))}
-                </select>
-
-                <div className="flex-1" />
-
-                <button
-                    onClick={selectAll}
-                    disabled={loading || filteredBatches.every((batch) => batch.safeForApproval === 0)}
-                    className="px-4 py-2 border border-slate-200 rounded-lg text-sm font-semibold bg-white text-slate-600 hover:bg-slate-50 transition-colors disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                    Select Safe Groups
-                </button>
-                <span className="text-xs text-slate-500 font-medium">
-                    Showing {filteredBatches.length} review-ready groups
-                </span>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-[1fr_260px] gap-6 items-start pb-20">
-                <div>
+                    {/* States live outside the table so they centre on small screens */}
                     {loading ? (
-                        <div className="bg-white rounded-xl border border-slate-200/60 p-12 text-center text-slate-400 text-sm shadow-sm">
-                            Loading bulk verification worklist...
-                        </div>
+                        <ul aria-hidden="true" className="divide-y divide-edge">
+                            {Array.from({ length: SKELETON_ROWS }).map((_, index) => (
+                                <li key={index} className="flex items-center gap-3 px-4 py-2.5">
+                                    <span className="h-4 w-4 shrink-0 rounded bg-skeleton" />
+                                    <span className="h-3 w-40 rounded bg-skeleton" />
+                                    <span className="hidden h-3 w-24 rounded bg-skeleton md:block" />
+                                    <span className="h-3 w-10 rounded bg-skeleton" />
+                                    <span className="h-3 w-10 rounded bg-skeleton" />
+                                    <span className="hidden h-4 w-20 rounded bg-skeleton sm:block" />
+                                    <span className="ml-auto hidden h-3 w-24 rounded bg-skeleton lg:block" />
+                                </li>
+                            ))}
+                        </ul>
                     ) : error ? (
-                        <div className="bg-white rounded-xl border border-slate-200/60 p-12 text-center shadow-sm">
-                            <p className="text-sm text-slate-500">{error}</p>
-                        </div>
+                        <EmptyState
+                            icon={AlertTriangle}
+                            title="Worklist unavailable"
+                            description={error}
+                            action={
+                                <Button size="sm" icon={RefreshCw} onClick={() => void loadBulkWorklist()}>
+                                    Retry
+                                </Button>
+                            }
+                        />
                     ) : filteredBatches.length === 0 ? (
-                        <div className="bg-white rounded-xl border border-slate-200/60 p-12 text-center text-slate-400 text-sm shadow-sm">
-                            No test groups found matching your filters.
-                        </div>
+                        hasFilters ? (
+                            <EmptyState
+                                icon={Search}
+                                title="No test groups match"
+                                description="Try a different search term or department."
+                                action={
+                                    <Button size="sm" icon={X} onClick={clearFilters}>
+                                        Clear filters
+                                    </Button>
+                                }
+                            />
+                        ) : (
+                            <EmptyState
+                                icon={ShieldCheck}
+                                title="No test groups ready"
+                                description="Result groups waiting for technical verification will appear here."
+                            />
+                        )
                     ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {filteredBatches.map((batch) => {
-                                const selectable = batch.safeForApproval > 0;
-                                const reviewable = (batch.reviewResultIds ?? []).length > 0;
-
-                                return (
-                                    <div
-                                        key={batch.batchId}
-                                        onClick={() => selectable && toggleBatch(batch.batchId)}
-                                        className={`bg-white rounded-xl p-4 relative transition-colors shadow-sm ${batch.isSelected ? "border-2 border-primary" : "border border-slate-200/60 hover:border-slate-300"} ${selectable ? "cursor-pointer" : reviewable ? "cursor-default" : "cursor-not-allowed opacity-70"}`}
-                                    >
-                                        <div className="absolute top-4 left-4">
+                        <div className="overflow-x-auto">
+                            <table className="w-full min-w-[760px] table-fixed text-left text-[13px] md:min-w-[810px] lg:min-w-[940px]">
+                                <caption className="sr-only">Test groups ready for bulk technical verification</caption>
+                                <thead>
+                                    <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
+                                        <th scope="col" className="w-10 py-2 pl-4 pr-2">
                                             <input
+                                                ref={headerCheckboxRef}
                                                 type="checkbox"
-                                                checked={batch.isSelected}
-                                                onChange={() => toggleBatch(batch.batchId)}
-                                                disabled={!selectable}
-                                                className="w-4 h-4 rounded text-primary focus:ring-primary border-slate-300 cursor-pointer"
-                                                onClick={(event) => event.stopPropagation()}
+                                                aria-label="Select all safe groups"
+                                                checked={allVisibleSelected}
+                                                onChange={() => (allVisibleSelected ? clearSelection() : selectAll())}
+                                                disabled={selectableVisible.length === 0}
+                                                className={CHECKBOX_CLASS}
                                             />
-                                        </div>
+                                        </th>
+                                        <th scope="col" className="px-3 py-2 font-medium">
+                                            Test group
+                                        </th>
+                                        <th scope="col" className="hidden w-36 px-3 py-2 font-medium md:table-cell">
+                                            Department
+                                        </th>
+                                        <th scope="col" className="w-16 px-3 py-2 text-right font-medium">
+                                            Total
+                                        </th>
+                                        <th scope="col" className="w-16 px-3 py-2 text-right font-medium">
+                                            Safe
+                                        </th>
+                                        <th scope="col" className="w-16 px-3 py-2 text-right font-medium">
+                                            Held
+                                        </th>
+                                        <th scope="col" className="w-32 px-3 py-2 font-medium">
+                                            Status
+                                        </th>
+                                        <th scope="col" className="hidden w-32 px-3 py-2 font-medium lg:table-cell">
+                                            Updated
+                                        </th>
+                                        <th scope="col" className="w-36 py-2 pl-3 pr-4 text-right">
+                                            <span className="sr-only">Actions</span>
+                                        </th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-edge whitespace-nowrap">
+                                    {filteredBatches.map((batch) => {
+                                        const selectable = batch.safeForApproval > 0;
+                                        const reviewable = (batch.reviewResultIds ?? []).length > 0;
 
-                                        <div className="flex items-start justify-between pl-8 mb-2">
-                                            <div>
-                                                <div className="text-sm font-bold text-slate-800">
-                                                    {batch.batchName}
-                                                </div>
-                                                <div className="text-[11px] text-slate-400 mt-0.5">
-                                                    Code: {batch.batchCode} - {batch.department}
-                                                </div>
-                                            </div>
-                                            <span
-                                                className={`px-2 py-0.5 rounded-md text-[10px] font-bold shrink-0 ${batch.exceptions === 0 ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-800"}`}
+                                        return (
+                                            <tr
+                                                key={batch.batchId}
+                                                onClick={() => selectable && toggleBatch(batch.batchId)}
+                                                className={cn(
+                                                    "transition-colors",
+                                                    selectable ? "cursor-pointer" : "cursor-default",
+                                                    !selectable && !reviewable && "opacity-70",
+                                                    batch.isSelected
+                                                        ? "bg-primary-soft hover:bg-primary-soft"
+                                                        : selectable && "hover:bg-surface-hover"
+                                                )}
                                             >
-                                                {batch.exceptions === 0 ? "SAFE GROUP" : "REVIEW MIXED"}
-                                            </span>
-                                        </div>
-
-                                        <div className="grid grid-cols-2 gap-4 mt-5 pl-8">
-                                            <div>
-                                                <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                                                    Total Results
-                                                </div>
-                                                <div className="text-2xl font-bold text-slate-800 mt-0.5">
-                                                    {batch.totalResults}
-                                                </div>
-                                            </div>
-                                            <div>
-                                                <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                                                    Safe for Approval
-                                                </div>
-                                                <div className="text-2xl font-bold text-primary mt-0.5">
-                                                    {batch.safeForApproval}
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <div className="mt-4 pl-8 pt-4 border-t border-slate-100">
-                                            {batch.exceptions === 0 ? (
-                                                <div className="flex items-center gap-1.5">
-                                                    <span className="material-icons text-emerald-500 text-[16px]">check_circle</span>
-                                                    <span className="text-xs text-emerald-600 font-bold">No Manual Review Needed</span>
-                                                </div>
-                                            ) : (
-                                                <div className="flex items-center justify-between gap-3">
-                                                    <div className="flex items-center gap-1.5">
-                                                        <span className="material-icons text-amber-500 text-[16px]">warning</span>
-                                                        <span className="text-xs text-amber-600 font-bold">
-                                                            {batch.exceptions} Held for Review
-                                                        </span>
+                                                <td className="py-2 pl-4 pr-2">
+                                                    {/*
+                                                      The row itself toggles the batch on click. Stop the checkbox's
+                                                      click from bubbling up to it: onChange already toggles once, and
+                                                      a second toggle from the row would silently cancel it out,
+                                                      leaving an unticked batch still in the approval set.
+                                                    */}
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={batch.isSelected}
+                                                        disabled={!selectable}
+                                                        onChange={() => selectable && toggleBatch(batch.batchId)}
+                                                        onClick={(event) => event.stopPropagation()}
+                                                        aria-label={`Select ${batch.batchName}`}
+                                                        className={CHECKBOX_CLASS}
+                                                    />
+                                                </td>
+                                                <td className="px-3 py-2">
+                                                    <div className="min-w-0">
+                                                        <div className="truncate font-medium text-fg" title={batch.batchName}>
+                                                            {batch.batchName}
+                                                        </div>
+                                                        <div className="truncate text-xs text-fg-muted">
+                                                            <span className="font-mono" title={batch.batchCode}>
+                                                                {batch.batchCode}
+                                                            </span>
+                                                            <span className="md:hidden"> · {batch.department}</span>
+                                                        </div>
                                                     </div>
-                                                    <button
-                                                        type="button"
-                                                        onClick={(event) => {
-                                                            event.stopPropagation();
-                                                            handleReviewCases(batch.reviewResultIds ?? []);
-                                                        }}
-                                                        disabled={!reviewable}
-                                                        className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                                                    >
-                                                        Review Cases
-                                                    </button>
-                                                </div>
-                                            )}
-                                            <div className="mt-2 text-[11px] text-slate-400">
-                                                Last updated: {formatTimestamp(batch.updatedAt)}
-                                            </div>
-                                        </div>
-                                    </div>
-                                );
-                            })}
+                                                </td>
+                                                <td className="hidden px-3 py-2 text-fg-secondary md:table-cell">
+                                                    <span className="block truncate" title={batch.department}>
+                                                        {batch.department}
+                                                    </span>
+                                                </td>
+                                                <td className="px-3 py-2 text-right tabular-nums text-fg-secondary">
+                                                    {batch.totalResults}
+                                                </td>
+                                                <td className="px-3 py-2 text-right font-medium tabular-nums text-fg">
+                                                    {batch.safeForApproval}
+                                                </td>
+                                                <td
+                                                    className={cn(
+                                                        "px-3 py-2 text-right tabular-nums",
+                                                        batch.exceptions > 0 ? "font-medium text-status-pending-fg" : "text-fg-muted"
+                                                    )}
+                                                >
+                                                    {batch.exceptions}
+                                                </td>
+                                                <td className="px-3 py-2">
+                                                    <StatusChip tone={batch.exceptions === 0 ? "success" : "pending"} dot size="sm">
+                                                        {batch.exceptions === 0 ? "Safe group" : "Review mixed"}
+                                                    </StatusChip>
+                                                </td>
+                                                <td className="hidden px-3 py-2 text-fg-muted lg:table-cell">
+                                                    {batch.updatedAt ? (
+                                                        <time dateTime={batch.updatedAt}>{formatAuditTime(batch.updatedAt)}</time>
+                                                    ) : (
+                                                        <span className="text-fg-faint">—</span>
+                                                    )}
+                                                </td>
+                                                <td className="py-2 pl-3 pr-4 text-right">
+                                                    {batch.exceptions === 0 ? (
+                                                        <span className="text-xs text-fg-muted">No review needed</span>
+                                                    ) : (
+                                                        <Button
+                                                            size="sm"
+                                                            variant="ghost"
+                                                            onClick={(event) => {
+                                                                event.stopPropagation();
+                                                                handleReviewCases(batch.reviewResultIds ?? []);
+                                                            }}
+                                                            disabled={!reviewable}
+                                                            aria-label={`Review ${batch.exceptions} held ${batch.exceptions === 1 ? "case" : "cases"} in ${batch.batchName}`}
+                                                        >
+                                                            Review cases
+                                                        </Button>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
                         </div>
                     )}
-                </div>
+                </SectionCard>
 
-                <div className="bg-white/80 backdrop-blur-sm rounded-xl border border-slate-200/60 shadow-sm p-5 sticky top-24">
-                    <div className="flex items-center gap-2 mb-4 pb-3 border-b border-slate-100">
-                        <span className="material-icons text-primary text-[18px]">rule</span>
-                        <span className="text-xs font-bold text-slate-700 uppercase tracking-widest">
-                            Approval Rules
-                        </span>
-                    </div>
-
+                <SectionCard title="Approval rules" className="lg:sticky lg:top-20">
                     <div className="space-y-5">
                         <div>
-                            <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-700">
-                                Eligible for Bulk Approval
+                            <p className="flex items-center gap-1.5 text-xs font-medium text-status-verified-fg">
+                                <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden="true" />
+                                Eligible for bulk approval
                             </p>
-                            <ul className="mt-2 space-y-2 text-sm text-slate-600">
+                            <ul className="mt-2 space-y-2 text-sm text-fg-secondary">
                                 <li className="flex items-start gap-2">
-                                    <span className="mt-1 h-2 w-2 rounded-full bg-emerald-500" />
+                                    <span aria-hidden="true" className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-status-verified" />
                                     <span>
-                                        Result status is <span className="font-semibold text-slate-800">ENTERED</span>
+                                        Result status is <code className="font-mono text-xs font-medium text-fg">ENTERED</code>
                                     </span>
                                 </li>
                                 <li className="flex items-start gap-2">
-                                    <span className="mt-1 h-2 w-2 rounded-full bg-emerald-500" />
+                                    <span aria-hidden="true" className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-status-verified" />
                                     <span>
-                                        Flag is <span className="font-semibold text-slate-800">NORMAL</span> or not set
+                                        Flag is <code className="font-mono text-xs font-medium text-fg">NORMAL</code> or not set
                                     </span>
                                 </li>
                             </ul>
                         </div>
 
                         <div>
-                            <p className="text-[11px] font-bold uppercase tracking-wider text-amber-700">
-                                Held for Manual Review
+                            <p className="flex items-center gap-1.5 text-xs font-medium text-status-pending-fg">
+                                <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
+                                Held for manual review
                             </p>
-                            <ul className="mt-2 space-y-2 text-sm text-slate-600">
+                            <ul className="mt-2 space-y-2 text-sm text-fg-secondary">
                                 <li className="flex items-start gap-2">
-                                    <span className="mt-1 h-2 w-2 rounded-full bg-amber-500" />
-                                    <span>Returned to Supervisor cases</span>
+                                    <span aria-hidden="true" className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-status-pending" />
+                                    <span>Cases returned to the supervisor</span>
                                 </li>
                                 <li className="flex items-start gap-2">
-                                    <span className="mt-1 h-2 w-2 rounded-full bg-amber-500" />
+                                    <span aria-hidden="true" className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-status-pending" />
                                     <span>
-                                        <span className="font-semibold text-slate-800">HIGH</span> or{" "}
-                                        <span className="font-semibold text-slate-800">LOW</span> flagged results
+                                        <code className="font-mono text-xs font-medium text-fg">HIGH</code> or{" "}
+                                        <code className="font-mono text-xs font-medium text-fg">LOW</code> flagged results
                                     </span>
                                 </li>
                                 <li className="flex items-start gap-2">
-                                    <span className="mt-1 h-2 w-2 rounded-full bg-amber-500" />
+                                    <span aria-hidden="true" className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-status-pending" />
                                     <span>
-                                        <span className="font-semibold text-slate-800">CRITICAL_HIGH</span> or{" "}
-                                        <span className="font-semibold text-slate-800">CRITICAL_LOW</span> flagged results
+                                        <code className="font-mono text-xs font-medium text-fg">CRITICAL_HIGH</code> or{" "}
+                                        <code className="font-mono text-xs font-medium text-fg">CRITICAL_LOW</code> flagged results
                                     </span>
                                 </li>
                             </ul>
                         </div>
                     </div>
-                </div>
+                </SectionCard>
             </div>
 
+            {/* Selection summary bar — sticks to the bottom while the table scrolls */}
             {selectedBatches.length > 0 && (
-                <div className="fixed bottom-6 left-[280px] right-8 bg-white border border-slate-200 rounded-xl p-4 flex items-center shadow-[0_10px_30px_-10px_rgba(0,0,0,0.1)] z-40 gap-8">
-                    <div>
-                        <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Selected Groups</div>
-                        <div className="text-base font-bold text-slate-800 mt-0.5">{selectedBatches.length} Groups Selected</div>
-                    </div>
-                    <div>
-                        <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Safe for Approval</div>
-                        <div className="text-base font-bold text-emerald-600 mt-0.5">{totalSafeForApproval} Results</div>
-                    </div>
-                    <div>
-                        <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Held for Review</div>
-                        <div className="text-base font-bold text-red-600 mt-0.5">{totalExceptions} Results</div>
-                    </div>
+                <section
+                    aria-label="Selection summary"
+                    className="sticky bottom-0 z-20 mt-4 rounded-lg border border-edge bg-surface p-3 sm:p-4"
+                >
+                    {/* Wraps instead of overflowing on narrow viewports; sitting in normal
+                        flow (not fixed) means it never has to guess the sidebar's width. */}
+                    <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+                        <dl className="flex flex-wrap gap-x-6 gap-y-2">
+                            <div>
+                                <dt className="text-xs text-fg-muted">Selected groups</dt>
+                                <dd className="text-base font-semibold tabular-nums text-fg">{selectedBatches.length}</dd>
+                            </div>
+                            <div>
+                                <dt className="text-xs text-fg-muted">Safe for approval</dt>
+                                <dd className="text-base font-semibold tabular-nums text-status-verified-fg">
+                                    {totalSafeForApproval}
+                                </dd>
+                            </div>
+                            <div>
+                                <dt className="text-xs text-fg-muted">Held for review</dt>
+                                <dd className="text-base font-semibold tabular-nums text-status-pending-fg">
+                                    {totalExceptions}
+                                </dd>
+                            </div>
+                        </dl>
 
-                    <div className="flex-1" />
-
-                    <button
-                        onClick={clearSelection}
-                        disabled={isSubmitting}
-                        className="px-5 py-2.5 text-sm font-bold border border-slate-200 rounded-lg bg-white text-slate-600 hover:bg-slate-50 transition-colors disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                        Clear Selection
-                    </button>
-                    <button
-                        onClick={() => setIsConfirming(true)}
-                        disabled={isSubmitting || selectedResultIds.length === 0}
-                        className="px-5 py-2.5 text-sm font-bold border-none rounded-lg bg-primary text-white hover:bg-primary/90 transition-colors flex items-center gap-2 shadow-sm shadow-primary/30 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                        <span className="material-icons text-[18px]">check_circle</span>
-                        Approve Safe Results
-                    </button>
-                </div>
-            )}
-
-            {isConfirming && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-                    <div
-                        role="dialog"
-                        aria-modal="true"
-                        aria-labelledby="bulk-approve-title"
-                        className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl"
-                    >
-                        <h2 id="bulk-approve-title" className="text-lg font-bold text-slate-900">
-                            Approve {selectedResultIds.length} safe{" "}
-                            {selectedResultIds.length === 1 ? "case" : "cases"}?
-                        </h2>
-                        <p className="mt-2 text-sm text-slate-500">
-                            Every parameter on these specimens is within its reference range. Each
-                            case will be marked technically verified under your name and released to
-                            the pathologist worklist.
-                        </p>
-
-                        <label
-                            htmlFor="supervisor-note"
-                            className="mt-5 block text-xs font-bold uppercase tracking-wider text-slate-500"
-                        >
-                            Supervisor remark <span className="font-medium normal-case">(optional)</span>
-                        </label>
-                        <textarea
-                            id="supervisor-note"
-                            rows={3}
-                            value={supervisorNote}
-                            onChange={(event) => setSupervisorNote(event.target.value)}
-                            placeholder="Recorded against every case in this batch, e.g. run and controls reviewed."
-                            className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20"
-                        />
-
-                        <div className="mt-6 flex justify-end gap-3">
-                            <button
-                                type="button"
-                                onClick={() => setIsConfirming(false)}
-                                disabled={isSubmitting}
-                                className="rounded-lg border border-slate-200 bg-white px-5 py-2.5 text-sm font-bold text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                        <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
+                            <Button onClick={clearSelection} disabled={isSubmitting}>
+                                Clear selection
+                            </Button>
+                            <Button
+                                variant="primary"
+                                icon={CheckCircle2}
+                                onClick={() => setIsConfirming(true)}
+                                disabled={isSubmitting || selectedResultIds.length === 0}
                             >
-                                Cancel
-                            </button>
-                            <button
-                                type="button"
-                                onClick={handleApprove}
-                                disabled={isSubmitting}
-                                className="flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-bold text-white shadow-sm shadow-primary/30 transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
-                            >
-                                <span className="material-icons text-[18px]">
-                                    {isSubmitting ? "hourglass_top" : "check_circle"}
-                                </span>
-                                {isSubmitting ? "Approving..." : "Confirm Approval"}
-                            </button>
+                                Approve safe results
+                            </Button>
                         </div>
                     </div>
-                </div>
+                </section>
             )}
+
+            <Modal
+                open={isConfirming}
+                onClose={closeConfirm}
+                dismissible={!isSubmitting}
+                title={`Approve ${selectedResultIds.length} safe ${caseWord}?`}
+                description="Every parameter on these specimens is within its reference range. Each case will be marked technically verified under your name and released to the pathologist worklist."
+                footer={
+                    <>
+                        <Button onClick={closeConfirm} disabled={isSubmitting}>
+                            Cancel
+                        </Button>
+                        <Button variant="primary" icon={CheckCircle2} onClick={handleApprove} loading={isSubmitting}>
+                            {isSubmitting ? "Approving…" : "Confirm approval"}
+                        </Button>
+                    </>
+                }
+            >
+                <dl className="mb-4 grid grid-cols-3 gap-3 rounded-md border border-edge bg-surface-muted px-3 py-2 text-xs">
+                    <div>
+                        <dt className="text-fg-muted">Groups</dt>
+                        <dd className="font-semibold tabular-nums text-fg">{selectedBatches.length}</dd>
+                    </div>
+                    <div>
+                        <dt className="text-fg-muted">Safe {caseWord}</dt>
+                        <dd className="font-semibold tabular-nums text-status-verified-fg">{totalSafeForApproval}</dd>
+                    </div>
+                    <div>
+                        <dt className="text-fg-muted">Held for review</dt>
+                        <dd className="font-semibold tabular-nums text-status-pending-fg">{totalExceptions}</dd>
+                    </div>
+                </dl>
+                <TextareaField
+                    id="supervisor-note"
+                    label="Supervisor remark"
+                    hint="Optional. Recorded against every case in this batch, e.g. run and controls reviewed."
+                    rows={3}
+                    value={supervisorNote}
+                    onChange={(event) => setSupervisorNote(event.target.value)}
+                    placeholder="Run and controls reviewed"
+                    disabled={isSubmitting}
+                />
+            </Modal>
         </div>
     );
 }

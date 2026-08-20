@@ -1,27 +1,49 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { AxiosError } from 'axios';
+import { AlertTriangle, ArrowLeft, BadgeCheck, Info } from 'lucide-react';
 import { getReceptionSampleDetail, type SpecimenSampleDetail } from '@/lib/api';
-import { PRIORITY_COLORS, SAMPLE_STATUS_COLORS, formatStatusLabel } from '@/constants/sample-lifecycle';
+import Button from '@/components/ui/Button';
+import PageHeader from '@/components/ui/PageHeader';
+import SectionCard from '@/components/ui/SectionCard';
+import EmptyState from '@/components/ui/EmptyState';
+import StatusChip, { humanizeStatus } from '@/components/ui/StatusChip';
+import StatusBadge from '@/components/shared/StatusBadge';
+import PriorityBadge from '@/components/shared/PriorityBadge';
+import { formatRegistered } from '@/components/patient-dashboard/dashboard-data';
+import { cn } from '@/lib/utils';
 
+const WORKLIST_HREF = '/reception/accessioning';
+const CRUMBS = [
+    { label: 'Lab reception', href: WORKLIST_HREF },
+    { label: 'Reception worklist', href: WORKLIST_HREF },
+    { label: 'Sample details' },
+];
+
+/** "Today 09:12", "Yesterday 14:02", otherwise "16 Aug 2026 09:12". */
 function formatTs(iso?: string | null) {
-    if (!iso) {
-        return '—';
-    }
+    if (!iso) return '—';
     const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) {
-        return '—';
-    }
-    return d.toLocaleString('en-LK', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-    });
+    if (Number.isNaN(d.getTime())) return '—';
+    const label = formatRegistered(d);
+    if (label.startsWith('Today') || label.startsWith('Yesterday')) return label;
+    const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
+    return `${label} ${time}`;
+}
+
+const LINK_CLASS =
+    'rounded font-medium text-primary-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary';
+
+function DetailItem({ label, children, className }: { label: string; children: ReactNode; className?: string }) {
+    return (
+        <div className={cn('min-w-0', className)}>
+            <dt className="text-xs text-fg-muted">{label}</dt>
+            <dd className="mt-0.5 break-words text-sm text-fg">{children}</dd>
+        </div>
+    );
 }
 
 export default function ReceptionSampleDetailPage() {
@@ -72,148 +94,205 @@ export default function ReceptionSampleDetailPage() {
 
     const isCollected = detail?.status === 'COLLECTED';
     const isRejected = detail?.status === 'REJECTED';
+    const verifyHref = `/reception/quality-verification?sampleId=${sampleUuid}`;
+
+    const patientMeta = detail
+        ? [detail.patient?.pid, detail.patient?.gender, detail.patient?.age != null ? `${detail.patient.age} yrs` : null]
+              .filter(Boolean)
+              .join(' · ')
+        : '';
 
     return (
-        <div className="max-w-3xl mx-auto">
-            <div className="mb-6 flex flex-wrap items-center gap-3 justify-between">
-                <Link
-                    href="/reception/accessioning"
-                    className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-primary transition-colors"
-                >
-                    <span className="material-icons text-base">chevron_left</span>
-                    Back to reception worklist
-                </Link>
-                {detail && isCollected && (
-                    <Link
-                        href={`/reception/quality-verification?sampleId=${sampleUuid}`}
-                        className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 text-white text-sm font-bold rounded-xl hover:bg-emerald-700 transition-colors shadow-sm"
-                    >
-                        <span className="material-icons text-base">verified</span>
-                        Verify sample
-                    </Link>
-                )}
-            </div>
+        <div className="mx-auto max-w-5xl">
+            <PageHeader
+                crumbs={CRUMBS}
+                title={
+                    detail ? (
+                        <span className="inline-flex flex-wrap items-center gap-2">
+                            <span className="font-mono tabular-nums">{detail.sampleId}</span>
+                            <StatusBadge status={detail.status} />
+                            <PriorityBadge priority={detail.priority} />
+                        </span>
+                    ) : (
+                        'Sample details'
+                    )
+                }
+                meta={<span>Chain-of-custody summary for specimens handled at lab reception.</span>}
+                actions={
+                    <>
+                        <Button icon={ArrowLeft} href={WORKLIST_HREF}>
+                            Back to worklist
+                        </Button>
+                        {detail && isCollected && (
+                            <Button variant="primary" icon={BadgeCheck} href={verifyHref}>
+                                Verify sample
+                            </Button>
+                        )}
+                    </>
+                }
+            />
 
-            <h1 className="text-2xl font-bold text-slate-800 mb-1">Sample details</h1>
-            <p className="text-sm text-slate-500 mb-6">
-                Chain-of-custody summary for specimens handled at lab reception.
+            {/* Live region for async state changes */}
+            <p role="status" aria-live="polite" className="sr-only">
+                {loading ? 'Loading sample' : detail ? `Sample ${detail.sampleId} loaded.` : ''}
             </p>
 
-            {error && (
-                <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                    {error}
-                </div>
-            )}
-
             {loading ? (
-                <div className="bg-white rounded-2xl border border-slate-200/60 p-12 text-center">
-                    <div className="inline-block h-8 w-8 animate-spin rounded-full border-2 border-slate-200 border-t-primary" />
-                    <p className="mt-3 text-sm text-slate-500">Loading sample…</p>
-                </div>
-            ) : detail ? (
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 overflow-hidden">
-                    <div className="p-6 border-b border-slate-100 flex flex-wrap gap-3 items-start justify-between">
-                        <div>
-                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Barcode</p>
-                            <p className="text-xl font-bold text-primary font-mono">{detail.sampleId}</p>
-                            <p className="text-xs text-slate-400 mt-1">Internal ID: {detail.id}</p>
+                <div className="grid animate-pulse grid-cols-1 gap-4 lg:grid-cols-3" aria-hidden="true">
+                    <div className="space-y-4 lg:col-span-2">
+                        <div className="h-44 overflow-hidden rounded-lg border border-edge bg-surface p-4">
+                            <span className="block h-4 w-24 rounded bg-skeleton" />
+                            <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                                <div className="space-y-2">
+                                    <span className="block h-3 w-24 rounded bg-skeleton" />
+                                    <span className="block h-4 w-40 rounded bg-skeleton" />
+                                </div>
+                                <div className="space-y-2">
+                                    <span className="block h-3 w-24 rounded bg-skeleton" />
+                                    <span className="block h-4 w-40 rounded bg-skeleton" />
+                                </div>
+                                <div className="space-y-2">
+                                    <span className="block h-3 w-24 rounded bg-skeleton" />
+                                    <span className="block h-4 w-40 rounded bg-skeleton" />
+                                </div>
+                                <div className="space-y-2">
+                                    <span className="block h-3 w-24 rounded bg-skeleton" />
+                                    <span className="block h-4 w-40 rounded bg-skeleton" />
+                                </div>
+                            </div>
                         </div>
-                        <div className="flex flex-wrap gap-2">
-                            <span
-                                className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold ${SAMPLE_STATUS_COLORS[detail.status] ?? 'bg-slate-100 text-slate-600'}`}
-                            >
-                                {formatStatusLabel(detail.status)}
-                            </span>
-                            <span
-                                className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold ${PRIORITY_COLORS[detail.priority as keyof typeof PRIORITY_COLORS] ?? 'bg-slate-100 text-slate-600'}`}
-                            >
-                                {formatStatusLabel(detail.priority)}
-                            </span>
+                        <div className="h-24 overflow-hidden rounded-lg border border-edge bg-surface p-4">
+                            <span className="block h-4 w-24 rounded bg-skeleton" />
+                            <span className="mt-4 block h-4 w-40 rounded bg-skeleton" />
                         </div>
                     </div>
-
-                    <div className="p-6 space-y-6">
-                        <section>
-                            <p className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider mb-3">Patient</p>
-                            <p className="font-bold text-slate-800">{detail.patient?.name ?? '—'}</p>
-                            <p className="text-sm text-slate-500 mt-1">
-                                {[detail.patient?.pid, detail.patient?.gender, detail.patient?.age != null ? `${detail.patient.age} yrs` : null]
-                                    .filter(Boolean)
-                                    .join(' · ') || '—'}
-                            </p>
-                        </section>
-
-                        <section className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div>
-                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Order</p>
-                                <p className="text-sm font-medium text-slate-700">{detail.orderId ?? '—'}</p>
-                            </div>
-                            <div>
-                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Test</p>
-                                <p className="text-sm font-medium text-slate-700">{detail.testType ?? '—'}</p>
-                            </div>
-                            <div>
-                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Collected</p>
-                                <p className="text-sm font-medium text-slate-700">{formatTs(detail.collectedAt)}</p>
-                            </div>
-                            <div>
-                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Collected by</p>
-                                <p className="text-sm font-medium text-slate-700">{detail.collectedBy ?? '—'}</p>
-                            </div>
-                            <div>
-                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Label prints recorded</p>
-                                <p className="text-sm font-medium text-slate-700">{detail.printCount}</p>
-                            </div>
-                        </section>
-
-                        {detail.tubeTypes && detail.tubeTypes.length > 0 && (
-                            <section>
-                                <p className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider mb-2">Container</p>
-                                <p className="text-sm text-slate-700">{detail.tubeTypes.join(', ')}</p>
-                            </section>
-                        )}
+                    <div className="h-40 overflow-hidden rounded-lg border border-edge bg-surface p-4">
+                        <span className="block h-4 w-24 rounded bg-skeleton" />
+                        <div className="mt-4 space-y-2">
+                            <span className="block h-3 w-24 rounded bg-skeleton" />
+                            <span className="block h-4 w-40 rounded bg-skeleton" />
+                        </div>
+                    </div>
+                </div>
+            ) : error ? (
+                <SectionCard title="Sample">
+                    <div role="alert">
+                        <EmptyState
+                            icon={AlertTriangle}
+                            title="Couldn't load this sample"
+                            description={error}
+                            action={
+                                <Button icon={ArrowLeft} href={WORKLIST_HREF}>
+                                    Back to worklist
+                                </Button>
+                            }
+                        />
+                    </div>
+                </SectionCard>
+            ) : detail ? (
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+                    <div className="space-y-4 lg:col-span-2">
+                        <SectionCard title="Specimen">
+                            <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                                <DetailItem label="Barcode">
+                                    <span className="break-all font-mono font-semibold text-primary-strong">{detail.sampleId}</span>
+                                </DetailItem>
+                                <DetailItem label="Internal ID">
+                                    <span className="block truncate font-mono text-xs text-fg-secondary" title={detail.id}>
+                                        {detail.id}
+                                    </span>
+                                </DetailItem>
+                                <DetailItem label="Order">
+                                    <span className="font-medium tabular-nums">{detail.orderId ?? '—'}</span>
+                                </DetailItem>
+                                <DetailItem label="Test">
+                                    <span className="font-medium">{detail.testType ?? '—'}</span>
+                                </DetailItem>
+                                <DetailItem label="Collected">
+                                    <span className="tabular-nums">{formatTs(detail.collectedAt)}</span>
+                                </DetailItem>
+                                <DetailItem label="Collected by">
+                                    <span className="block truncate">{detail.collectedBy ?? '—'}</span>
+                                </DetailItem>
+                                <DetailItem label="Label prints recorded">
+                                    <span className="tabular-nums">{detail.printCount}</span>
+                                </DetailItem>
+                                {detail.tubeTypes && detail.tubeTypes.length > 0 && (
+                                    <DetailItem label="Container">
+                                        <span className="flex flex-wrap gap-1.5">
+                                            {detail.tubeTypes.map((tube) => (
+                                                <StatusChip key={tube} tone="neutral">
+                                                    {tube.replace(/_/g, ' ')}
+                                                </StatusChip>
+                                            ))}
+                                        </span>
+                                    </DetailItem>
+                                )}
+                            </dl>
+                        </SectionCard>
 
                         {isCollected && (
-                            <div className="rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm text-slate-600">
-                                This specimen is awaiting pre-analytical verification. Use{' '}
-                                <Link href={`/reception/quality-verification?sampleId=${sampleUuid}`} className="font-semibold text-primary hover:underline">
-                                    Verify sample
-                                </Link>{' '}
-                                to complete checks before accepting or rejecting.
-                                {' '}Damaged labels can be addressed from{' '}
-                                <Link
-                                    href={`/reception/barcode-print?query=${encodeURIComponent(detail.sampleId)}&returnTo=/reception/samples/${sampleUuid}`}
-                                    className="font-semibold text-primary hover:underline"
-                                >
-                                    Barcode print
-                                </Link>
-                                .
+                            <div className="flex items-start gap-2 rounded-lg border border-edge bg-surface-muted px-4 py-3 text-sm text-fg-secondary">
+                                <Info className="mt-0.5 h-4 w-4 shrink-0 text-fg-faint" aria-hidden="true" />
+                                <p>
+                                    This specimen is awaiting pre-analytical verification. Use{' '}
+                                    <Link href={verifyHref} className={LINK_CLASS}>
+                                        Verify sample
+                                    </Link>{' '}
+                                    to complete checks before accepting or rejecting. Damaged labels can be addressed from{' '}
+                                    <Link
+                                        href={`/reception/barcode-print?query=${encodeURIComponent(detail.sampleId)}&returnTo=/reception/samples/${sampleUuid}`}
+                                        className={LINK_CLASS}
+                                    >
+                                        Barcode print
+                                    </Link>
+                                    .
+                                </p>
                             </div>
                         )}
 
                         {isRejected && (
-                            <section className="rounded-xl border border-red-200 bg-red-50/60 px-4 py-4">
-                                <p className="text-[11px] font-extrabold text-red-800 uppercase tracking-wider mb-2">
-                                    Rejection details
-                                </p>
-                                <p className="text-sm font-semibold text-slate-800">
-                                    Reason:{' '}
-                                    <span className="text-red-700">
-                                        {detail.rejectionReason ? formatStatusLabel(detail.rejectionReason) : 'Not recorded'}
-                                    </span>
-                                </p>
-                                {detail.rejectionNotes ? (
-                                    <p className="text-sm text-slate-700 mt-2 whitespace-pre-wrap">{detail.rejectionNotes}</p>
-                                ) : (
-                                    <p className="text-xs text-slate-500 mt-2">No additional notes were captured.</p>
-                                )}
-                            </section>
+                            <SectionCard title="Rejection details">
+                                <div role="alert" className="rounded-md bg-status-danger-bg p-3 ring-1 ring-inset ring-status-danger-edge">
+                                    <p className="text-sm text-status-danger-fg">
+                                        Reason:{' '}
+                                        <span className="font-semibold">
+                                            {detail.rejectionReason ? humanizeStatus(detail.rejectionReason) : 'Not recorded'}
+                                        </span>
+                                    </p>
+                                    {detail.rejectionNotes ? (
+                                        <p className="mt-2 whitespace-pre-wrap break-words text-sm text-fg">{detail.rejectionNotes}</p>
+                                    ) : (
+                                        <p className="mt-2 text-xs text-fg-muted">No additional notes were captured.</p>
+                                    )}
+                                </div>
+                            </SectionCard>
                         )}
                     </div>
+
+                    <div className="space-y-4">
+                        <SectionCard title="Patient">
+                            <dl className="space-y-4">
+                                <DetailItem label="Name">
+                                    <span className="block truncate font-medium">{detail.patient?.name ?? '—'}</span>
+                                </DetailItem>
+                                <DetailItem label="Details">
+                                    <span className="block truncate text-fg-secondary">{patientMeta || '—'}</span>
+                                </DetailItem>
+                                {detail.patient?.wardRoom && (
+                                    <DetailItem label="Ward / room">
+                                        <span className="block truncate">{detail.patient.wardRoom}</span>
+                                    </DetailItem>
+                                )}
+                            </dl>
+                        </SectionCard>
+                    </div>
                 </div>
-            ) : !error ? (
-                <p className="text-sm text-slate-500">No data.</p>
-            ) : null}
+            ) : (
+                <SectionCard title="Sample">
+                    <EmptyState icon={AlertTriangle} title="No data" description="Nothing was returned for this sample." />
+                </SectionCard>
+            )}
         </div>
     );
 }

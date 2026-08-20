@@ -1,20 +1,13 @@
 'use client';
 
-const PRIORITY_STYLES: Record<string, string> = {
-    STAT:   'bg-amber-100 text-amber-800',
-    URGENT: 'bg-red-100 text-red-700',
-    NORMAL: 'bg-slate-100 text-slate-600',
-};
+import StatusChip, { toneForStatus } from '@/components/ui/StatusChip';
 
-interface PriorityBadgeProps {
-    priority: string;
-}
-
-export default function PriorityBadge({ priority }: PriorityBadgeProps) {
-    const style = PRIORITY_STYLES[priority] ?? 'bg-slate-100 text-slate-600';
+/** STAT / URGENT / NORMAL priority chip. Kept uppercase on purpose: lab staff read "STAT" as a token. */
+export default function PriorityBadge({ priority }: { priority: string }) {
+    const key = (priority || '').toUpperCase();
     return (
-        <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold ${style}`}>
-            {priority}
-        </span>
+        <StatusChip tone={toneForStatus(key)} size="sm" className="font-semibold tracking-wide">
+            {key || '—'}
+        </StatusChip>
     );
 }

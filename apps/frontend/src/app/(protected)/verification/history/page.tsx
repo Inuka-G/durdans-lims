@@ -2,19 +2,41 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { AlertTriangle, Download, History, Info, RefreshCw, Search, X } from "lucide-react";
 import {
     getVerificationHistory,
     VerificationHistoryItem,
 } from "@/lib/api";
-import { PRIORITY_COLORS, formatStatusLabel } from "@/constants/sample-lifecycle";
+import { formatStatusLabel } from "@/constants/sample-lifecycle";
+import { downloadCsv } from "@/lib/export-csv";
 import { formatDisplayId } from "@/lib/format-id";
 import {
     HISTORY_DATE_RANGES,
     resolveFromTimestamp,
     type HistoryDateRange,
 } from "@/lib/history-date-range";
+import Button from "@/components/ui/Button";
+import PageHeader from "@/components/ui/PageHeader";
+import { InputField, SelectField } from "@/components/ui/Field";
+import SectionCard from "@/components/ui/SectionCard";
+import EmptyState from "@/components/ui/EmptyState";
+import SegmentedControl from "@/components/ui/SegmentedControl";
+import StatusChip, { type ChipTone } from "@/components/ui/StatusChip";
+import Pagination from "@/components/ui/Pagination";
+import Modal from "@/components/ui/Modal";
+import PriorityBadge from "@/components/shared/PriorityBadge";
+import { formatAuditTime, startOfLocalDay } from "@/components/patient-dashboard/dashboard-data";
 
 const PAGE_SIZE = 10;
+const SKELETON_ROWS = 6;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// The export walks the whole filtered result set in chunks rather than asking for
+// it in one call: a year of history in a single request is a heavy query and a
+// heavy response. EXPORT_MAX_PAGES is the safety valve for a request so wide that
+// even chunked paging would hammer the server.
+const EXPORT_PAGE_SIZE = 1000;
+const EXPORT_MAX_PAGES = 20;
 
 const ACTION_LABELS: Record<string, string> = {
     VERIFICATION_APPROVED: "Approved by Supervisor",
@@ -22,13 +44,23 @@ const ACTION_LABELS: Record<string, string> = {
     VERIFICATION_RETURNED_FROM_CLINICAL: "Returned to Supervisor from Clinical",
 };
 
-const ACTION_BADGES: Record<string, string> = {
-    VERIFICATION_APPROVED:
-        "border border-emerald-200 bg-emerald-50 text-emerald-800 shadow-sm shadow-emerald-100/70",
-    VERIFICATION_RETURNED_TO_MLT:
-        "border border-red-200 bg-red-50 text-red-800 shadow-sm shadow-red-100/70",
-    VERIFICATION_RETURNED_FROM_CLINICAL:
-        "border border-amber-200 bg-amber-50 text-amber-800 shadow-sm shadow-amber-100/70",
+/** Colour = meaning: approved is done, returned to MLT is a rejection, clinical return is pending work. */
+const ACTION_TONES: Record<string, ChipTone> = {
+    VERIFICATION_APPROVED: "success",
+    VERIFICATION_RETURNED_TO_MLT: "danger",
+    VERIFICATION_RETURNED_FROM_CLINICAL: "pending",
+};
+
+/** Period pills come from a shared lib in Title Case; the UI is sentence case. */
+const PERIOD_OPTIONS = HISTORY_DATE_RANGES.map((range) => ({
+    value: range.key,
+    label: range.label.charAt(0).toUpperCase() + range.label.slice(1).toLowerCase(),
+}));
+
+/** Export banners reuse the status tokens: a truncated export is a warning, a failed one is an error. */
+const EXPORT_NOTICE_STYLES: Record<"error" | "warning", string> = {
+    error: "border-status-danger-edge bg-status-danger-bg text-status-danger-fg",
+    warning: "border-status-pending-edge bg-status-pending-bg text-status-pending-fg",
 };
 
 const resolveActionType = (item: VerificationHistoryItem) => {
@@ -51,9 +83,10 @@ const resolveActionType = (item: VerificationHistoryItem) => {
     return "";
 };
 
-const formatTimestamp = (value?: string | null) => {
+/** Full, unambiguous timestamp for tooltips and for the CSV export. */
+const formatFullTimestamp = (value?: string | null) => {
     if (!value) {
-        return "-";
+        return "—";
     }
 
     const parsed = new Date(value);
@@ -61,13 +94,34 @@ const formatTimestamp = (value?: string | null) => {
         return value;
     }
 
-    return parsed.toLocaleString("en-LK", {
-        year: "numeric",
-        month: "short",
+    return parsed.toLocaleString("en-GB", {
         day: "2-digit",
+        month: "short",
+        year: "numeric",
         hour: "2-digit",
         minute: "2-digit",
+        hour12: false,
     });
+};
+
+/**
+ * `formatAuditTime` falls through to a date-only string for anything older than
+ * yesterday, which drops the time an approval or return actually happened — the
+ * one thing this audit column exists to show. Keep the relative wording for
+ * today and yesterday, and spell out the full timestamp for older entries.
+ */
+const formatHistoryTime = (value: string) => {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+        return formatAuditTime(value);
+    }
+
+    const now = new Date();
+    if (startOfLocalDay(parsed).getTime() >= startOfLocalDay(now).getTime() - DAY_MS) {
+        return formatAuditTime(value, now);
+    }
+
+    return formatFullTimestamp(value);
 };
 
 export default function VerificationHistoryPage() {
@@ -81,12 +135,27 @@ export default function VerificationHistoryPage() {
     const [search, setSearch] = useState("");
     const [totalPages, setTotalPages] = useState(1);
     const [totalElements, setTotalElements] = useState(0);
+    const [reloadKey, setReloadKey] = useState(0);
+    /* Full text of the note the user clicked, shown in a dialog. */
+    const [selectedNote, setSelectedNote] = useState<VerificationHistoryItem | null>(null);
+    const [isExporting, setIsExporting] = useState(false);
+    const [exportNotice, setExportNotice] = useState<{
+        tone: "error" | "warning";
+        message: string;
+    } | null>(null);
 
     useEffect(() => {
         setPage(0);
+        setExportNotice(null);
     }, [search, statusFilter, dateRange]);
 
+    // The search, action and period filters are applied by the server, over the
+    // whole audit trail. Loading one window of recent rows and filtering it in the
+    // browser would quietly hide every older match, and this is the record staff
+    // consult during an incident investigation.
     useEffect(() => {
+        let cancelled = false;
+
         const loadHistory = async () => {
             try {
                 setLoading(true);
@@ -98,281 +167,466 @@ export default function VerificationHistoryPage() {
                     fromTimestamp: resolveFromTimestamp(dateRange),
                 });
 
-                setHistoryItems(historyPage.content);
+                if (cancelled) {
+                    return;
+                }
+
+                setHistoryItems(historyPage.content ?? []);
                 setTotalPages(Math.max(1, historyPage.totalPages));
                 setTotalElements(historyPage.totalElements);
             } catch (loadError) {
+                if (cancelled) {
+                    return;
+                }
+
                 console.error("Failed to load verification history", loadError);
-                setError("Failed to load verification history. Please try again.");
+                setError("Couldn't load verification history. Check your connection and retry.");
                 setHistoryItems([]);
                 setTotalPages(1);
                 setTotalElements(0);
             } finally {
-                setLoading(false);
+                if (!cancelled) {
+                    setLoading(false);
+                }
             }
         };
 
         void loadHistory();
-    }, [page, search, statusFilter, dateRange]);
+
+        // A filter change queues a fresh request while the previous one may still be
+        // in flight; without this the older response can land last and paint rows
+        // that no longer match the filters shown on screen.
+        return () => {
+            cancelled = true;
+        };
+    }, [page, search, statusFilter, dateRange, reloadKey]);
 
     const hasActiveFilters =
         search.trim().length > 0 || statusFilter !== "ALL" || dateRange !== "ALL";
 
+    const clearFilters = () => {
+        setSearch("");
+        setStatusFilter("ALL");
+        setDateRange("ALL");
+    };
+
+    const retry = () => setReloadKey((key) => key + 1);
+
+    const openCase = (resultId?: string | null) => {
+        if (resultId) {
+            router.push(`/verification/review/${resultId}`);
+        }
+    };
+
+    // Exports every entry matching the active filters, not just the visible page:
+    // an auditor asking for a period needs the whole period, and the table only
+    // ever holds PAGE_SIZE rows.
+    const handleExportCsv = async () => {
+        setIsExporting(true);
+        setExportNotice(null);
+
+        try {
+            const exportItems: VerificationHistoryItem[] = [];
+            let matchingCount = 0;
+            let exportPage = 0;
+            let hasMore = true;
+
+            while (hasMore && exportPage < EXPORT_MAX_PAGES) {
+                const historyPage = await getVerificationHistory(exportPage, EXPORT_PAGE_SIZE, {
+                    actionType: statusFilter === "ALL" ? undefined : statusFilter,
+                    search: search.trim() || undefined,
+                    fromTimestamp: resolveFromTimestamp(dateRange),
+                });
+
+                exportItems.push(...(historyPage.content ?? []));
+                matchingCount = historyPage.totalElements;
+                exportPage += 1;
+                hasMore = exportPage < historyPage.totalPages;
+            }
+
+            if (exportItems.length === 0) {
+                return;
+            }
+
+            const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+
+            downloadCsv(
+                `verification-history-${timestamp}`,
+                [
+                    "Timestamp",
+                    "Priority",
+                    "Patient",
+                    "Patient Code",
+                    "Result ID",
+                    "Test Group",
+                    "Action",
+                    "Performed By",
+                    "Notes",
+                ],
+                exportItems.map((item) => {
+                    const actionType = resolveActionType(item);
+
+                    return [
+                        formatFullTimestamp(item.actionAt ?? item.updatedAt),
+                        item.specimenPriority ? formatStatusLabel(item.specimenPriority) : "",
+                        item.patientName || "Unknown patient",
+                        item.patientCode || "",
+                        formatDisplayId(item.resultId, "RES"),
+                        item.testName || "Unknown Test Group",
+                        item.actionSummary || ACTION_LABELS[actionType] || "Workflow Updated",
+                        item.performedBy || "",
+                        item.notes || "",
+                    ];
+                })
+            );
+
+            // A CSV that is silently short of the matching set is worse than no CSV
+            // at all when it is filed as the evidence for a period.
+            if (exportItems.length < matchingCount) {
+                setExportNotice({
+                    tone: "warning",
+                    message: `Exported the ${exportItems.length.toLocaleString()} most recent of ${matchingCount.toLocaleString()} matching entries. Narrow the period or filters to export the rest.`,
+                });
+            }
+        } catch (exportError) {
+            console.error("Failed to export verification history", exportError);
+            setExportNotice({
+                tone: "error",
+                message: "Failed to export verification history. Please try again.",
+            });
+        } finally {
+            setIsExporting(false);
+        }
+    };
+
     return (
-        <div className="max-w-[1400px] mx-auto">
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6">
-                <div>
-                    <p className="text-sm font-semibold uppercase tracking-[0.24em] text-sky-700">
-                        Technical Verification
-                    </p>
-                    <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-900">
-                        Verification History
-                    </h1>
-                    <p className="mt-2 text-sm text-slate-500">
-                        Track supervisor approvals, returns to MLT, and cases returned from clinical review.
-                    </p>
+        <div className="mx-auto max-w-[1400px]">
+            <PageHeader
+                title="Verification history"
+                crumbs={[{ label: "Verification", href: "/verification/pending" }, { label: "Verification history" }]}
+                meta={
+                    <>
+                        <History className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                        <span>Supervisor approvals, returns to MLT and cases returned from clinical review</span>
+                        {!loading && !error && (
+                            <>
+                                <span aria-hidden="true">·</span>
+                                <span className="tabular-nums">
+                                    {totalElements.toLocaleString()} {totalElements === 1 ? "entry" : "entries"}
+                                </span>
+                            </>
+                        )}
+                    </>
+                }
+                actions={
+                    <>
+                        {/* Exports the whole filtered set, so it is enabled from any page of the table. */}
+                        <Button
+                            icon={Download}
+                            loading={isExporting}
+                            disabled={totalElements === 0}
+                            onClick={() => void handleExportCsv()}
+                            title="Exports every history entry matching the current search, action and period filters."
+                        >
+                            {isExporting ? "Exporting…" : "Export CSV"}
+                        </Button>
+                        <Button icon={RefreshCw} onClick={retry} loading={loading}>
+                            Refresh
+                        </Button>
+                    </>
+                }
+            />
+
+            {/* Screen-reader status for async changes */}
+            <p role="status" aria-live="polite" className="sr-only">
+                {loading
+                    ? "Loading verification history"
+                    : error
+                      ? "Verification history failed to load"
+                      : `Verification history loaded. Showing ${historyItems.length} of ${totalElements} entries, page ${page + 1} of ${totalPages}.`}
+            </p>
+
+            {exportNotice && (
+                <div
+                    role="status"
+                    className={`mb-4 flex items-start gap-2 rounded-md border px-4 py-2.5 text-[13px] ${EXPORT_NOTICE_STYLES[exportNotice.tone]}`}
+                >
+                    {exportNotice.tone === "error" ? (
+                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                    ) : (
+                        <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                    )}
+                    <span className="min-w-0 flex-1 break-words">{exportNotice.message}</span>
+                    <Button
+                        size="sm"
+                        variant="ghost"
+                        icon={X}
+                        onClick={() => setExportNotice(null)}
+                        aria-label="Dismiss export message"
+                        className="-my-0.5 -mr-1.5 shrink-0"
+                    />
                 </div>
+            )}
 
-                {!loading && !error && (
-                    <div className="bg-primary/10 text-primary px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2">
-                        <span className="material-icons text-lg">history</span>
-                        {totalElements.toLocaleString()} History Entries
-                    </div>
-                )}
-            </div>
-
-            <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm p-4 mb-6">
-                <div className="flex flex-wrap items-center gap-3">
-                    <div className="relative flex-1 min-w-[220px]">
-                        <span className="material-icons absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">
-                            search
-                        </span>
-                        <input
-                            type="text"
-                            placeholder="Search by patient name, patient code, result ID, test group, or user..."
+            <SectionCard title="Entries" count={!loading && !error ? totalElements.toLocaleString() : undefined} flush>
+                {/* Filter toolbar */}
+                <div className="flex flex-col gap-2 border-b border-edge bg-surface-muted px-3 py-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <InputField
+                            label="Search verification history"
+                            hideLabel
+                            type="search"
                             value={search}
                             onChange={(event) => setSearch(event.target.value)}
-                            className="w-full pl-10 pr-4 py-2.5 text-sm font-medium border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                            placeholder="Search patient, patient code, result ID, test group or user"
+                            autoComplete="off"
+                            className="min-w-[200px] flex-1"
                         />
+                        <SelectField
+                            label="Action"
+                            hideLabel
+                            value={statusFilter}
+                            onChange={(event) => setStatusFilter(event.target.value)}
+                            className="w-full sm:w-56"
+                        >
+                            <option value="ALL">All actions</option>
+                            <option value="VERIFICATION_APPROVED">Approved by supervisor</option>
+                            <option value="VERIFICATION_RETURNED_FROM_CLINICAL">Returned to supervisor</option>
+                            <option value="VERIFICATION_RETURNED_TO_MLT">Returned to MLT</option>
+                        </SelectField>
                     </div>
-
-                    <select
-                        value={statusFilter}
-                        onChange={(event) => setStatusFilter(event.target.value)}
-                        className="px-4 py-2.5 text-sm font-semibold border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-slate-700 min-w-[220px]"
-                    >
-                        <option value="ALL">All Actions</option>
-                        <option value="VERIFICATION_APPROVED">Approved by Supervisor</option>
-                        <option value="VERIFICATION_RETURNED_FROM_CLINICAL">Returned to Supervisor</option>
-                        <option value="VERIFICATION_RETURNED_TO_MLT">Returned to MLT</option>
-                    </select>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs font-medium text-fg-muted">Period</span>
+                        <SegmentedControl<HistoryDateRange>
+                            ariaLabel="Period"
+                            size="sm"
+                            value={dateRange}
+                            onChange={setDateRange}
+                            options={PERIOD_OPTIONS}
+                        />
+                        {hasActiveFilters && (
+                            <Button size="sm" variant="ghost" icon={X} onClick={clearFilters} className="ml-auto">
+                                Clear filters
+                            </Button>
+                        )}
+                    </div>
                 </div>
-                <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
-                    <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                        Period
-                    </span>
-                    {HISTORY_DATE_RANGES.map((range) => {
-                        const isActive = dateRange === range.key;
-                        return (
-                            <button
-                                key={range.key}
-                                type="button"
-                                onClick={() => setDateRange(range.key)}
-                                aria-pressed={isActive}
-                                className={`rounded-lg px-3 py-1.5 text-xs font-bold transition-colors ${
-                                    isActive
-                                        ? "bg-primary text-white"
-                                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                                }`}
-                            >
-                                {range.label}
-                            </button>
-                        );
-                    })}
-                </div>
-            </div>
 
-            <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm overflow-hidden">
-                <div className="overflow-x-auto">
-                    <table className="w-full text-left">
-                        <thead className="text-slate-500 text-[11px] font-bold uppercase tracking-wider">
-                            <tr>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Timestamp</th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Priority</th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Patient</th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Result ID</th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Test Group</th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Action</th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Performed By</th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Notes</th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50 text-right">Case</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-50">
-                            {loading ? (
-                                <tr>
-                                    <td colSpan={9} className="px-4 py-16 text-center text-slate-500">
-                                        <div className="flex flex-col items-center gap-3">
-                                            <span className="material-icons animate-spin text-primary text-3xl">
-                                                sync
-                                            </span>
-                                            <span className="text-sm font-medium">
-                                                Loading verification history...
-                                            </span>
-                                        </div>
-                                    </td>
+                {/* States live outside the table so they centre on small screens */}
+                {loading ? (
+                    <ul aria-hidden="true" className="divide-y divide-edge">
+                        {Array.from({ length: SKELETON_ROWS }).map((_, index) => (
+                            <li key={index} className="flex items-center gap-3 px-4 py-2.5">
+                                <span className="h-3 w-20 shrink-0 rounded bg-skeleton" />
+                                <span className="hidden h-4 w-14 shrink-0 rounded bg-skeleton md:block" />
+                                <span className="h-3 w-32 rounded bg-skeleton" />
+                                <span className="h-3 w-24 rounded bg-skeleton" />
+                                <span className="hidden h-4 w-28 rounded bg-skeleton lg:block" />
+                                <span className="ml-auto h-3 w-1/5 rounded bg-skeleton" />
+                                <span className="h-7 w-24 shrink-0 rounded bg-skeleton" />
+                            </li>
+                        ))}
+                    </ul>
+                ) : error ? (
+                    <EmptyState
+                        icon={AlertTriangle}
+                        title="Verification history unavailable"
+                        description={error}
+                        action={
+                            <Button size="sm" icon={RefreshCw} onClick={retry}>
+                                Retry
+                            </Button>
+                        }
+                    />
+                ) : historyItems.length === 0 ? (
+                    hasActiveFilters ? (
+                        <EmptyState
+                            icon={Search}
+                            title="No entries match"
+                            description="Try a different search term, action or period."
+                            action={
+                                <Button size="sm" icon={X} onClick={clearFilters}>
+                                    Clear filters
+                                </Button>
+                            }
+                        />
+                    ) : (
+                        <EmptyState
+                            icon={History}
+                            title="No verification history yet"
+                            description="Supervisor approvals and returns will be recorded here."
+                        />
+                    )
+                ) : (
+                    <div className="overflow-x-auto">
+                        <table className="w-full min-w-[960px] table-fixed text-left text-[13px] md:min-w-[1060px] lg:min-w-[1200px] xl:min-w-[1430px]">
+                            <caption className="sr-only">Verification history entries</caption>
+                            <thead>
+                                <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
+                                    <th scope="col" className="w-44 py-2 pl-4 pr-3 font-medium">
+                                        Time
+                                    </th>
+                                    <th scope="col" className="hidden w-24 px-3 py-2 font-medium md:table-cell">
+                                        Priority
+                                    </th>
+                                    <th scope="col" className="w-44 px-3 py-2 font-medium">
+                                        Patient
+                                    </th>
+                                    <th scope="col" className="w-32 px-3 py-2 font-medium">
+                                        Result ID
+                                    </th>
+                                    <th scope="col" className="w-44 px-3 py-2 font-medium">
+                                        Test group
+                                    </th>
+                                    <th scope="col" className="w-44 px-3 py-2 font-medium">
+                                        Action
+                                    </th>
+                                    <th scope="col" className="hidden w-36 px-3 py-2 font-medium lg:table-cell">
+                                        Performed by
+                                    </th>
+                                    <th scope="col" className="hidden w-56 px-3 py-2 font-medium xl:table-cell">
+                                        Notes
+                                    </th>
+                                    <th scope="col" className="w-32 py-2 pl-3 pr-4 text-right font-medium">
+                                        <span className="sr-only">Open case</span>
+                                    </th>
                                 </tr>
-                            ) : error ? (
-                                <tr>
-                                    <td colSpan={9} className="px-4 py-16 text-center text-slate-500">
-                                        <div className="flex flex-col items-center gap-3">
-                                            <span className="material-icons text-4xl text-red-200">
-                                                error
-                                            </span>
-                                            <span className="text-sm font-medium">{error}</span>
-                                        </div>
-                                    </td>
-                                </tr>
-                            ) : historyItems.length === 0 ? (
-                                <tr>
-                                    <td colSpan={9} className="px-4 py-16 text-center text-slate-500">
-                                        <div className="flex flex-col items-center gap-3">
-                                            <span className="material-icons text-4xl text-slate-200">
-                                                history
-                                            </span>
-                                            <span className="text-sm font-medium">
-                                                {hasActiveFilters
-                                                    ? "No verification history matches the current search or filter."
-                                                    : "No verification history found."}
-                                            </span>
-                                        </div>
-                                    </td>
-                                </tr>
-                            ) : (
-                                historyItems.map((item: VerificationHistoryItem) => {
+                            </thead>
+                            <tbody className="divide-y divide-edge whitespace-nowrap">
+                                {historyItems.map((item: VerificationHistoryItem) => {
                                     const actionType = resolveActionType(item);
+                                    const timestamp = item.actionAt ?? item.updatedAt;
 
                                     return (
                                         <tr
                                             key={`${item.resultId}-${item.actionAt ?? item.updatedAt ?? actionType ?? "event"}`}
-                                            className="hover:bg-slate-50/70 transition-colors"
+                                            className="transition-colors hover:bg-surface-hover"
                                         >
-                                            <td className="px-4 py-3">
-                                                <span className="text-sm font-semibold text-slate-700 whitespace-nowrap">
-                                                    {formatTimestamp(item.actionAt ?? item.updatedAt)}
-                                                </span>
-                                            </td>
-                                            <td className="px-4 py-3">
-                                                {item.specimenPriority ? (
-                                                    <span
-                                                        className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
-                                                            PRIORITY_COLORS[
-                                                                item.specimenPriority.toUpperCase() as keyof typeof PRIORITY_COLORS
-                                                            ] ?? "bg-slate-100 text-slate-600"
-                                                        }`}
-                                                    >
-                                                        {formatStatusLabel(item.specimenPriority)}
-                                                    </span>
+                                            {/* Time */}
+                                            <td className="py-2 pl-4 pr-3 tabular-nums text-fg-secondary">
+                                                {timestamp ? (
+                                                    <time dateTime={timestamp} title={formatFullTimestamp(timestamp)}>
+                                                        {formatHistoryTime(timestamp)}
+                                                    </time>
                                                 ) : (
-                                                    <span className="text-sm text-slate-400">—</span>
+                                                    <span className="text-fg-faint">—</span>
                                                 )}
                                             </td>
-                                            <td className="px-4 py-3">
-                                                <p className="text-sm font-semibold text-slate-800">
+                                            {/* Priority */}
+                                            <td className="hidden px-3 py-2 md:table-cell">
+                                                {item.specimenPriority ? (
+                                                    <PriorityBadge priority={item.specimenPriority} />
+                                                ) : (
+                                                    <span className="text-fg-faint">—</span>
+                                                )}
+                                            </td>
+                                            {/* Patient */}
+                                            <td className="px-3 py-2">
+                                                <p className="truncate font-medium text-fg" title={item.patientName || undefined}>
                                                     {item.patientName || "Unknown patient"}
                                                 </p>
                                                 {item.patientCode && (
-                                                    <p className="mt-0.5 font-mono text-xs text-slate-500">
+                                                    <p className="mt-0.5 truncate font-mono text-xs text-fg-muted">
                                                         {item.patientCode}
                                                     </p>
                                                 )}
                                             </td>
-                                            <td className="px-4 py-3">
-                                                <span
-                                                    className="text-sm font-mono font-semibold text-slate-800 break-all"
-                                                    title={item.resultId}
-                                                >
+                                            {/* Result ID — the raw id stays on the element so a pasted UUID is still findable. */}
+                                            <td className="px-3 py-2 font-mono text-xs text-fg-secondary">
+                                                <span className="inline-block max-w-full truncate align-middle" title={item.resultId}>
                                                     {formatDisplayId(item.resultId, "RES")}
                                                 </span>
                                             </td>
-                                            <td className="px-4 py-3">
+                                            {/* Test group */}
+                                            <td className="px-3 py-2">
                                                 <button
                                                     type="button"
-                                                    onClick={() => {
-                                                        if (item.resultId) {
-                                                            router.push(`/verification/review/${item.resultId}`);
-                                                        }
-                                                    }}
-                                                    className="text-left text-sm font-semibold text-sky-700 hover:text-sky-900 hover:underline"
+                                                    onClick={() => openCase(item.resultId)}
+                                                    title={item.testName || undefined}
+                                                    className="inline-block max-w-full truncate rounded text-left font-medium text-primary-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-surface"
                                                 >
-                                                    {item.testName || "Unknown Test Group"}
+                                                    {item.testName || "Unknown test group"}
                                                 </button>
                                             </td>
-                                            <td className="px-4 py-3">
-                                                <span
-                                                    className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${ACTION_BADGES[actionType] || "border border-slate-200 bg-slate-50 text-slate-700"}`}
-                                                >
-                                                    {item.actionSummary || ACTION_LABELS[actionType] || "Workflow Updated"}
-                                                </span>
+                                            {/* Action */}
+                                            <td className="px-3 py-2">
+                                                <StatusChip tone={ACTION_TONES[actionType] ?? "neutral"} dot>
+                                                    {item.actionSummary || ACTION_LABELS[actionType] || "Workflow updated"}
+                                                </StatusChip>
                                             </td>
-                                            <td className="px-4 py-3">
-                                                <span className="text-sm font-semibold text-slate-700">
-                                                    {item.performedBy || "-"}
-                                                </span>
+                                            {/* Performed by */}
+                                            <td
+                                                className="hidden truncate px-3 py-2 text-fg-secondary lg:table-cell"
+                                                title={item.performedBy || undefined}
+                                            >
+                                                {item.performedBy || <span className="text-fg-faint">—</span>}
                                             </td>
-                                            <td className="px-4 py-3">
-                                                <span className="text-sm text-slate-500">
-                                                    {item.notes || "-"}
-                                                </span>
+                                            {/* Notes — truncated to one line; the full text opens in a dialog. */}
+                                            <td className="hidden px-3 py-2 text-fg-muted xl:table-cell">
+                                                {item.notes ? (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setSelectedNote(item)}
+                                                        title={item.notes}
+                                                        className="block w-full truncate rounded text-left hover:text-fg hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                                                    >
+                                                        {item.notes}
+                                                    </button>
+                                                ) : (
+                                                    <span className="text-fg-faint">—</span>
+                                                )}
                                             </td>
-                                            <td className="px-4 py-3 text-right">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        if (item.resultId) {
-                                                            router.push(`/verification/review/${item.resultId}`);
-                                                        }
-                                                    }}
-                                                    className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-sky-700 transition hover:bg-sky-50"
-                                                >
+                                            {/* Case */}
+                                            <td className="py-2 pl-3 pr-4 text-right">
+                                                <Button size="sm" onClick={() => openCase(item.resultId)}>
                                                     Review case
-                                                </button>
+                                                </Button>
                                             </td>
                                         </tr>
                                     );
-                                })
-                            )}
-                        </tbody>
-                    </table>
-                </div>
-
-                {!loading && !error && totalPages > 1 && (
-                    <div className="px-4 py-3 border-t border-slate-100 flex items-center justify-between text-sm font-medium text-slate-500">
-                        <span>
-                            Page {page + 1} of {totalPages} •{" "}
-                            <span className="text-slate-400">
-                                {totalElements.toLocaleString()} matching
-                            </span>
-                        </span>
-                        <div className="flex gap-1.5">
-                            <button
-                                onClick={() => setPage((previous) => Math.max(0, previous - 1))}
-                                disabled={page === 0}
-                                className="px-3 py-1.5 rounded-lg border border-slate-200 text-sm font-semibold hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-                            >
-                                Previous
-                            </button>
-                            <button
-                                onClick={() => setPage((previous) => Math.min(totalPages - 1, previous + 1))}
-                                disabled={page >= totalPages - 1}
-                                className="px-3 py-1.5 rounded-lg border border-slate-200 text-sm font-semibold hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-                            >
-                                Next
-                            </button>
-                        </div>
+                                })}
+                            </tbody>
+                        </table>
                     </div>
                 )}
-            </div>
+
+                {!loading && !error && historyItems.length > 0 && (
+                    <Pagination
+                        currentPage={page + 1}
+                        totalPages={totalPages}
+                        totalItems={totalElements}
+                        pageSize={PAGE_SIZE}
+                        onPageChange={(nextPage) => setPage(nextPage - 1)}
+                        itemLabel="entries"
+                    />
+                )}
+            </SectionCard>
+
+            <Modal
+                open={selectedNote !== null}
+                onClose={() => setSelectedNote(null)}
+                title="Note"
+                description={
+                    selectedNote ? (
+                        /* Ids and names are unbreakable tokens — wrap rather than widen the panel. */
+                        <span className="block break-words">
+                            {selectedNote.patientName || "Unknown patient"} · {selectedNote.testName || "—"}
+                        </span>
+                    ) : undefined
+                }
+                size="md"
+                footer={
+                    <Button variant="primary" onClick={() => setSelectedNote(null)}>
+                        Close
+                    </Button>
+                }
+            >
+                {/* Free text typed by staff: keep real newlines, still wrap a long unbroken token. */}
+                <p className="whitespace-pre-wrap break-words text-sm text-fg-secondary">
+                    {selectedNote?.notes}
+                </p>
+            </Modal>
+
         </div>
     );
 }

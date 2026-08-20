@@ -39,5 +39,6 @@
     <include file="liquibase/changelog/20260801100000_add_critical_values_nav.xml"/>
     <include file="liquibase/changelog/20260801120000_qc_release_gate.xml"/>
     <include file="liquibase/changelog/20260816120000_scope_critical_values_to_supervision.xml"/>
+    <include file="liquibase/changelog/20260818120000_supplies_by_tube_type.xml"/>
     <include file="liquibase/changelog/20260820110000_create_test_packages_and_i18n.xml"/>
 </databaseChangeLog>

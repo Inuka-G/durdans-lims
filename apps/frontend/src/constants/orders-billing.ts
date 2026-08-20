@@ -30,38 +30,6 @@ export const ORDER_BILLING_ENDPOINTS = {
 // ==========================================
 // STATUS COLORS & BADGES
 // ==========================================
-export const ORDER_STATUS_COLORS: Record<string, string> = {
-    PENDING: 'bg-amber-50 text-amber-700 border border-amber-200',
-    IN_PROGRESS: 'bg-indigo-50 text-indigo-700 border border-indigo-200',
-    COMPLETED: 'bg-emerald-50 text-emerald-700 border border-emerald-200',
-    CANCELLED: 'bg-red-50 text-red-700 border border-red-200',
-    SAMPLE_COLLECTED: 'bg-blue-50 text-blue-700 border border-blue-200',
-    REJECTED: 'bg-red-50 text-red-700 border border-red-200',
-};
-
-export const getOrderStatusColor = (status: string): string =>
-    ORDER_STATUS_COLORS[status] ?? 'bg-slate-50 text-slate-700 border border-slate-200';
-
-export const PAYMENT_STATUS_COLORS: Record<string, string> = {
-    PAID: 'bg-emerald-50 text-emerald-700 border border-emerald-200',
-    PENDING: 'bg-orange-50 text-orange-700 border border-orange-200',
-};
-
-export const PAYMENT_RECORD_STATUS_COLORS: Record<string, string> = {
-    SUCCESS: 'bg-emerald-50 text-emerald-700 border border-emerald-200',
-    PENDING: 'bg-amber-50 text-amber-700 border border-amber-200',
-    FAILED: 'bg-red-50 text-red-700 border border-red-200',
-    REFUNDED: 'bg-slate-50 text-slate-700 border border-slate-200',
-};
-
-export const INVOICE_STATUS_COLORS: Record<string, string> = {
-    ISSUED: 'bg-emerald-50 text-emerald-700 border border-emerald-200',
-    PENDING: 'bg-amber-50 text-amber-700 border border-amber-200',
-    OVERDUE: 'bg-red-50 text-red-700 border border-red-200',
-    CANCELLED: 'bg-slate-50 text-slate-700 border border-slate-200',
-};
-
-// ==========================================
 // CURRENCY & FORMATTING
 // ==========================================
 export const CURRENCY_SYMBOL = 'LKR';

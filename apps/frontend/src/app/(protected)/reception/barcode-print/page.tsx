@@ -1,9 +1,24 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { AxiosError } from 'axios';
+import {
+    BadgeCheck,
+    ChevronLeft,
+    CircleCheck,
+    Clock,
+    Download,
+    FlaskConical,
+    Hash,
+    Printer,
+    ScanBarcode,
+    Search,
+    TestTubes,
+    TriangleAlert,
+    User,
+    type LucideIcon,
+} from 'lucide-react';
 import {
     getPatientById,
     printSampleLabel,
@@ -11,17 +26,72 @@ import {
     type Patient,
     type SamplePrintItem,
 } from '@/lib/api';
-import { PRIORITY_COLORS, SAMPLE_STATUS_COLORS, formatStatusLabel } from '@/constants/sample-lifecycle';
+import { getTubeHexColor } from '@/lib/phlebotomy-label-print';
+import { cn } from '@/lib/utils';
+import Button from '@/components/ui/Button';
+import PageHeader from '@/components/ui/PageHeader';
+import SectionCard from '@/components/ui/SectionCard';
+import EmptyState from '@/components/ui/EmptyState';
+import { InputField } from '@/components/ui/Field';
+import StatusChip, { STATUS_TONE, humanizeStatus, type ChipTone } from '@/components/ui/StatusChip';
+import PriorityBadge from '@/components/shared/PriorityBadge';
+import { formatRegistered } from '@/components/patient-dashboard/dashboard-data';
 
-const TUBE_COLOR_CLASS: Record<string, string> = {
-    EDTA_PURPLE: 'bg-purple-500',
-    PLAIN_RED: 'bg-red-500',
-    SODIUM_CITRATE_BLUE: 'bg-blue-500',
-    SERUM_SEPARATOR_GOLD: 'bg-amber-400',
-    FLUORIDE_OXALATE_GRAY: 'bg-slate-500',
+/* ------------------------------------------------------------------ */
+/*  Constants / helpers                                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Reception-specific sample statuses that are not (yet) in the shared
+ * STATUS_TONE map. Tones only — colours still come from StatusChip.
+ */
+const LOCAL_STATUS_TONE: Record<string, ChipTone> = {
+    PENDING_COLLECTION: 'pending',
+    RECOLLECTION_REQUIRED: 'danger',
+    RECEIVED_AT_LAB: 'neutral',
+    QUALITY_CHECK: 'pending',
+    ACCEPTED: 'success',
+    IN_TESTING: 'pending',
+    RESULT_ENTERED: 'info',
+    SENT_FOR_VERIFICATION: 'info',
 };
 
-export default function BarcodePrintPage() {
+function toneForSampleStatus(status?: string | null): ChipTone {
+    if (!status) return 'neutral';
+    const key = status.toUpperCase();
+    return STATUS_TONE[key] ?? LOCAL_STATUS_TONE[key] ?? 'neutral';
+}
+
+function formatCollected(value: string | null, by: string | null): string {
+    if (!value) return 'Collection details unavailable';
+    const date = new Date(value);
+    let when: string;
+    if (Number.isNaN(date.getTime())) {
+        when = value;
+    } else {
+        // formatRegistered only includes the clock time for Today/Yesterday;
+        // collection time is lab-relevant, so append it for older dates too.
+        const label = formatRegistered(date);
+        const time = date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
+        when = /^(Today|Yesterday)/.test(label) ? label : `${label} ${time}`;
+    }
+    return by ? `${when} by ${by}` : when;
+}
+
+/** "Back to quality verification" / "Back to sample" depending on where the user came from. */
+function backLabel(returnTo: string): string {
+    if (returnTo.startsWith('/reception/quality-verification')) return 'Back to quality verification';
+    if (returnTo.startsWith('/reception/samples/')) return 'Back to sample';
+    return 'Back';
+}
+
+const SKELETON_ROWS = 3;
+
+/* ------------------------------------------------------------------ */
+/*  Page                                                               */
+/* ------------------------------------------------------------------ */
+
+function BarcodePrintPageInner() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const initialQuery = searchParams.get('query') ?? '';
@@ -53,12 +123,20 @@ export default function BarcodePrintPage() {
             return selectedPatient.fullName;
         }
 
-        return selectedResult.patient?.pid ?? 'Unknown Patient';
+        return selectedResult.patient?.pid ?? 'Unknown patient';
     }, [selectedPatient, selectedResult]);
+
+    /**
+     * Specimen tube cap colour, read from the stocked tube in supplies and carried on the
+     * sample payload. It mirrors a physical object, so it stays a literal colour in both
+     * themes; `getTubeHexColor` validates the shape and falls back to the neutral grey that
+     * flags "no stocked container to read a colour from".
+     */
+    const tubeColor = getTubeHexColor(selectedResult?.tubeColor);
 
     const handleSearch = async () => {
         if (!searchQuery.trim()) {
-            setError('Enter a barcode, patient ID, order number, or test name to search.');
+            setError('Enter a barcode, patient ID, order number or test name to search.');
             return;
         }
 
@@ -142,12 +220,12 @@ export default function BarcodePrintPage() {
             const opened = openPrintWindow({
                 sampleId: barcodeText,
                 orderId: selectedResult.orderId ?? 'No order',
-                patientName: patientDisplayName ?? 'Unknown Patient',
+                patientName: patientDisplayName ?? 'Unknown patient',
                 patientCode: selectedResult.patient?.pid ?? 'No PID',
                 testType: selectedResult.testType ?? 'Unknown test',
                 testCodes: selectedResult.testCodes ?? [],
                 tubeTypes: selectedResult.tubeTypes ?? [],
-                tubeColorClass,
+                tubeColor,
             });
 
             if (!opened) {
@@ -171,10 +249,6 @@ export default function BarcodePrintPage() {
             setRecordingPrint(false);
         }
     };
-
-    const tubeColorClass = selectedResult?.tubeTypes?.[0]
-        ? TUBE_COLOR_CLASS[selectedResult.tubeTypes[0]] ?? 'bg-slate-400'
-        : 'bg-slate-400';
 
     useEffect(() => {
         if (!initialQuery) {
@@ -228,254 +302,317 @@ export default function BarcodePrintPage() {
         };
     }, [initialQuery]);
 
-    return (
-        <div>
-            <div className="mb-6">
-                {returnTo && (
-                    <Link
-                        href={returnTo}
-                        className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-primary transition-colors mb-4"
-                    >
-                        <span className="material-icons text-base">chevron_left</span>
-                        Back to Quality Verification
-                    </Link>
-                )}
-                <h1 className="text-2xl font-bold text-slate-800">Barcode Print</h1>
-                <p className="text-sm text-slate-500 mt-1">Search real samples and print accession barcode labels.</p>
-            </div>
+    const detailRows: { label: string; value: string; icon: LucideIcon }[] = selectedResult
+        ? [
+              { label: 'Sample ID', value: selectedResult.sampleId, icon: FlaskConical },
+              {
+                  label: 'Patient',
+                  value: patientLoading
+                      ? 'Loading patient…'
+                      : `${patientDisplayName ?? 'Unknown patient'} (${selectedResult.patient?.pid ?? 'No PID'})`,
+                  icon: User,
+              },
+              { label: 'Test type', value: selectedResult.testType ?? 'Unknown test', icon: TestTubes },
+              { label: 'Order no', value: selectedResult.orderId ?? 'Unavailable', icon: Hash },
+              {
+                  label: 'Collected',
+                  value: formatCollected(selectedResult.collectedAt, selectedResult.collectedBy),
+                  icon: Clock,
+              },
+              { label: 'Status', value: humanizeStatus(selectedResult.status), icon: BadgeCheck },
+          ]
+        : [];
 
-            {error && (
-                <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                    {error}
-                </div>
-            )}
+    return (
+        <div className="mx-auto max-w-[1400px]">
+            <PageHeader
+                title="Barcode print"
+                crumbs={[{ label: 'Lab reception', href: '/reception/accessioning' }, { label: 'Barcode print' }]}
+                meta={
+                    <>
+                        <ScanBarcode className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                        <span>Search samples and print accession barcode labels</span>
+                    </>
+                }
+                actions={
+                    returnTo ? (
+                        <Button href={returnTo} icon={ChevronLeft}>
+                            {backLabel(returnTo)}
+                        </Button>
+                    ) : undefined
+                }
+            />
+
+            {/* Screen-reader status for async changes */}
+            <p role="status" aria-live="polite" className="sr-only">
+                {loading
+                    ? 'Searching samples'
+                    : recordingPrint
+                      ? 'Recording label print'
+                      : selectedResult
+                        ? `${results.length} matching ${results.length === 1 ? 'sample' : 'samples'}. Selected ${selectedResult.sampleId}.`
+                        : ''}
+            </p>
+
+            <div aria-live="assertive" role="alert">
+                {error && (
+                    <div className="mb-4 flex items-start gap-3 rounded-lg border border-status-danger-edge bg-status-danger-bg p-3 text-sm text-status-danger-fg">
+                        <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                        <p className="min-w-0 break-words">{error}</p>
+                    </div>
+                )}
+            </div>
 
             {successMessage && (
-                <div className="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                        <span>{successMessage}</span>
-                        {returnTo && readyToReturn && (
-                            <button
-                                type="button"
-                                onClick={() => router.push(withReturnFlag(returnTo, 'barcodePrinted', 'true'))}
-                                className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white transition-colors hover:bg-emerald-700"
-                            >
-                                <span className="material-icons text-sm">check</span>
-                                Return to Verification
-                            </button>
-                        )}
-                    </div>
+                <div
+                    role="status"
+                    className="mb-4 flex flex-col gap-3 rounded-lg border border-status-verified-edge bg-status-verified-bg p-3 text-sm text-status-verified-fg sm:flex-row sm:items-center sm:justify-between"
+                >
+                    <span className="inline-flex min-w-0 items-start gap-2">
+                        <CircleCheck className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                        <span className="break-words">{successMessage}</span>
+                    </span>
+                    {returnTo && readyToReturn && (
+                        <Button
+                            size="sm"
+                            icon={CircleCheck}
+                            className="shrink-0"
+                            onClick={() => router.push(withReturnFlag(returnTo, 'barcodePrinted', 'true'))}
+                        >
+                            Return to verification
+                        </Button>
+                    )}
                 </div>
             )}
 
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5 mb-6">
-                <div className="flex gap-3">
-                    <div className="relative flex-1">
-                        <span className="material-icons absolute left-3 top-1/2 -translate-y-1/2 text-lg text-slate-400">qr_code_scanner</span>
-                        <input
-                            type="text"
-                            placeholder="Scan or type Sample ID, Patient ID, Order ID, or test..."
-                            className="w-full pl-10 pr-4 py-3 text-sm border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-                            value={searchQuery}
-                            onChange={(event) => setSearchQuery(event.target.value)}
-                            onKeyDown={(event) => event.key === 'Enter' && void handleSearch()}
-                        />
-                    </div>
-                    <button
-                        type="button"
-                        onClick={() => void handleSearch()}
-                        disabled={loading}
-                        className="px-5 py-3 bg-primary text-white text-sm font-bold rounded-xl hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                        <span className="material-icons text-sm mr-1 align-middle">search</span>
-                        {loading ? 'Searching...' : 'Search'}
-                    </button>
+            {/* Search */}
+            <form
+                role="search"
+                className="mb-4 rounded-lg border border-edge bg-surface p-4"
+                onSubmit={(event) => {
+                    event.preventDefault();
+                    void handleSearch();
+                }}
+            >
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
+                    <InputField
+                        label="Search samples"
+                        hideLabel
+                        type="search"
+                        name="barcode-search"
+                        autoComplete="off"
+                        placeholder="Scan or type sample ID, patient ID, order ID or test"
+                        hint="Try DH-20260506-00100006, PAT2026-00001 or ORD-20260506-010002"
+                        value={searchQuery}
+                        onChange={(event) => setSearchQuery(event.target.value)}
+                        className="min-w-0 flex-1"
+                    />
+                    <Button type="submit" icon={Search} loading={loading}>
+                        {loading ? 'Searching…' : 'Search'}
+                    </Button>
                 </div>
-                <p className="text-xs text-slate-400 mt-2">Try: `DH-20260506-00100006`, `PAT2026-00001`, or `ORD-20260506-010002`</p>
-            </div>
+            </form>
 
             {selectedResult ? (
-                <div className="grid grid-cols-1 xl:grid-cols-[320px_minmax(0,1fr)] gap-6">
-                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 overflow-hidden">
-                        <div className="px-5 py-4 border-b border-slate-100">
-                            <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider">Matching Samples</h3>
-                            <p className="text-xs text-slate-400 mt-1">{results.length} result(s) found</p>
-                        </div>
-
-                        <div className="divide-y divide-slate-100">
+                <div className="grid grid-cols-1 gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
+                    {/* Matching samples */}
+                    <SectionCard title="Matching samples" count={results.length} flush className="min-w-0">
+                        <ul className="divide-y divide-edge">
                             {results.map((sample) => {
                                 const isActive = sample.id === selectedResult.id;
 
                                 return (
-                                    <button
-                                        key={sample.id}
-                                        type="button"
-                                        onClick={() => void handleSelectResult(sample)}
-                                        className={`w-full text-left px-5 py-4 transition-colors ${
-                                            isActive ? 'bg-primary/5' : 'hover:bg-slate-50/70'
-                                        }`}
-                                    >
-                                        <div className="flex items-center justify-between gap-3">
-                                            <div>
-                                                <p className="font-bold text-primary">{sample.sampleId}</p>
-                                                <p className="text-sm font-medium text-slate-700 mt-1">{sample.patient?.pid ?? 'Unknown Patient'}</p>
-                                                <p className="text-xs text-slate-400 mt-1">{sample.orderId ?? 'Order unavailable'}</p>
+                                    <li key={sample.id}>
+                                        <button
+                                            type="button"
+                                            aria-pressed={isActive}
+                                            onClick={() => void handleSelectResult(sample)}
+                                            className={cn(
+                                                'block w-full px-4 py-3 text-left transition-colors',
+                                                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary',
+                                                isActive ? 'bg-primary-soft' : 'hover:bg-surface-hover'
+                                            )}
+                                        >
+                                            <div className="flex items-start justify-between gap-3">
+                                                <div className="min-w-0">
+                                                    <p className="truncate font-mono text-sm font-semibold text-primary-strong">
+                                                        {sample.sampleId}
+                                                    </p>
+                                                    <p className="mt-0.5 truncate text-[13px] text-fg-secondary">
+                                                        {sample.patient?.pid ?? 'Unknown patient'}
+                                                    </p>
+                                                    <p className="truncate text-xs text-fg-muted">
+                                                        {sample.orderId ?? 'Order unavailable'}
+                                                    </p>
+                                                </div>
+                                                <PriorityBadge priority={sample.priority} />
                                             </div>
-                                            <span
-                                                className={`inline-flex items-center px-2 py-1 rounded-lg text-[10px] font-bold ${
-                                                    PRIORITY_COLORS[sample.priority as keyof typeof PRIORITY_COLORS] ??
-                                                    'bg-slate-100 text-slate-600'
-                                                }`}
-                                            >
-                                                {formatStatusLabel(sample.priority)}
-                                            </span>
-                                        </div>
-                                        <div className="mt-3 flex items-center gap-2">
-                                            <span
-                                                className={`inline-flex items-center px-2 py-1 rounded-lg text-[10px] font-bold ${
-                                                    SAMPLE_STATUS_COLORS[sample.status] ?? 'bg-slate-100 text-slate-600'
-                                                }`}
-                                            >
-                                                {formatStatusLabel(sample.status)}
-                                            </span>
-                                            <span className="text-xs text-slate-500">{sample.testType ?? 'Unknown test'}</span>
-                                        </div>
-                                    </button>
+                                            <div className="mt-2 flex min-w-0 items-center gap-2">
+                                                <StatusChip tone={toneForSampleStatus(sample.status)} size="sm" dot>
+                                                    {humanizeStatus(sample.status)}
+                                                </StatusChip>
+                                                <span className="min-w-0 truncate text-xs text-fg-muted">
+                                                    {sample.testType ?? 'Unknown test'}
+                                                </span>
+                                            </div>
+                                        </button>
+                                    </li>
                                 );
                             })}
-                        </div>
-                    </div>
+                        </ul>
+                    </SectionCard>
 
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
-                            <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">Sample Details</h3>
-                            <div className="space-y-3.5">
-                                {[
-                                    { label: 'Sample ID', value: selectedResult.sampleId, icon: 'science' },
-                                    {
-                                        label: 'Patient',
-                                        value: patientLoading
-                                            ? 'Loading patient...'
-                                            : `${patientDisplayName ?? 'Unknown Patient'} (${selectedResult.patient?.pid ?? 'No PID'})`,
-                                        icon: 'person',
-                                    },
-                                    { label: 'Test Type', value: selectedResult.testType ?? 'Unknown test', icon: 'biotech' },
-                                    { label: 'Order No', value: selectedResult.orderId ?? 'Unavailable', icon: 'tag' },
-                                    {
-                                        label: 'Collected',
-                                        value: selectedResult.collectedAt
-                                            ? `${new Date(selectedResult.collectedAt).toLocaleString()}${selectedResult.collectedBy ? ` by ${selectedResult.collectedBy}` : ''}`
-                                            : 'Collection details unavailable',
-                                        icon: 'schedule',
-                                    },
-                                    { label: 'Status', value: formatStatusLabel(selectedResult.status), icon: 'verified' },
-                                ].map((row) => (
-                                    <div key={row.label} className="flex items-start gap-3">
-                                        <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
-                                            <span className="material-icons text-sm text-slate-400">{row.icon}</span>
+                    <div className="grid min-w-0 grid-cols-1 gap-4 lg:grid-cols-2">
+                        {/* Sample details */}
+                        <SectionCard title="Sample details" className="min-w-0">
+                            <dl className="space-y-3">
+                                {detailRows.map((row) => {
+                                    const Icon = row.icon;
+                                    return (
+                                        <div key={row.label} className="flex items-start gap-3">
+                                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-surface-muted">
+                                                <Icon className="h-4 w-4 text-fg-muted" aria-hidden="true" />
+                                            </div>
+                                            <div className="min-w-0">
+                                                <dt className="text-xs text-fg-muted">{row.label}</dt>
+                                                <dd
+                                                    className={cn(
+                                                        'break-words text-sm font-medium text-fg',
+                                                        row.label === 'Patient' && patientLoading && 'text-fg-muted'
+                                                    )}
+                                                    aria-busy={row.label === 'Patient' && patientLoading ? true : undefined}
+                                                >
+                                                    {row.value}
+                                                </dd>
+                                            </div>
                                         </div>
-                                        <div>
-                                            <p className="text-xs text-slate-400">{row.label}</p>
-                                            <p className="text-sm font-medium text-slate-700">{row.value}</p>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
+                                    );
+                                })}
+                            </dl>
+                        </SectionCard>
 
-                        <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
-                            <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">Label Preview</h3>
-                            <div className="bg-slate-50 border border-dashed border-slate-300 rounded-xl p-5 mb-5">
-                                <div className="flex items-start gap-4">
-                                    <div className={`w-3 h-16 rounded-full ${tubeColorClass}`} />
-                                    <div className="flex-1">
-                                        <div className="flex items-center justify-between mb-2 gap-2">
-                                            <p className="text-sm font-bold text-slate-800">{selectedResult.sampleId}</p>
-                                            <p className="text-xs text-slate-400">{selectedResult.orderId ?? 'No order'}</p>
+                        {/* Label preview */}
+                        <SectionCard title="Label preview" className="min-w-0">
+                            {/* The preview mimics the physical white label, so it stays black-on-white in both themes. */}
+                            <div className="mb-4 rounded-md border border-dashed border-edge-strong bg-white p-4 text-black">
+                                <span className="sr-only">Label preview: </span>
+                                <div className="flex items-start gap-3">
+                                    {/* Tube cap colour comes from the stocked supply row — a physical colour, not a theme token. */}
+                                    <span
+                                        className="h-16 w-3 shrink-0 rounded-full"
+                                        style={{ backgroundColor: tubeColor }}
+                                        aria-hidden="true"
+                                    />
+                                    <div className="min-w-0 flex-1">
+                                        <div className="mb-1.5 flex items-center justify-between gap-2">
+                                            <p className="truncate font-mono text-sm font-bold">{selectedResult.sampleId}</p>
+                                            <p className="shrink-0 text-xs text-black/60">{selectedResult.orderId ?? 'No order'}</p>
                                         </div>
-                                        <p className="text-xs text-slate-600 mb-1">
-                                            {patientDisplayName ?? 'Unknown Patient'} • {selectedResult.patient?.pid ?? 'No PID'}
+                                        <p className="mb-0.5 truncate text-xs text-black/80">
+                                            {patientDisplayName ?? 'Unknown patient'} · {selectedResult.patient?.pid ?? 'No PID'}
                                         </p>
-                                        <p className="text-xs text-slate-500 mb-2">{selectedResult.testType ?? 'Unknown test'}</p>
-                                        <div className="flex gap-1 flex-wrap">
+                                        <p className="mb-2 truncate text-xs text-black/70">{selectedResult.testType ?? 'Unknown test'}</p>
+                                        <div className="flex flex-wrap gap-1">
                                             {(selectedResult.testCodes ?? []).map((code) => (
                                                 <span
                                                     key={code}
-                                                    className="text-[9px] bg-white text-slate-500 px-1.5 py-0.5 rounded border border-slate-200"
+                                                    className="rounded border border-black/20 bg-white px-1.5 py-0.5 text-[9px] font-medium leading-none text-black"
                                                 >
                                                     {code}
                                                 </span>
                                             ))}
                                             {(selectedResult.tubeTypes ?? []).length > 0 && (
-                                                <span className="text-[9px] bg-white text-slate-500 px-1.5 py-0.5 rounded border border-slate-200">
+                                                <span className="rounded border border-black/20 bg-white px-1.5 py-0.5 text-[9px] font-medium leading-none text-black">
                                                     {(selectedResult.tubeTypes ?? []).join(', ')}
                                                 </span>
                                             )}
                                         </div>
                                     </div>
                                 </div>
-                                <div className="flex justify-center mt-4 gap-[1px]">
+                                <div className="mt-4 flex justify-center gap-px overflow-hidden" aria-hidden="true">
                                     {buildBarcodePattern(selectedResult.sampleId).map((width, index) => (
-                                        <div
+                                        <span
                                             key={`${selectedResult.sampleId}-${index}`}
-                                            className="bg-slate-800 rounded-[0.5px]"
+                                            className="block shrink-0 bg-black"
                                             style={{ width, height: 32 }}
                                         />
                                     ))}
                                 </div>
-                                <p className="text-center text-[10px] text-slate-400 mt-1">{selectedResult.sampleId}</p>
+                                <p className="mt-1 text-center font-mono text-[10px] text-black/70">{selectedResult.sampleId}</p>
                             </div>
 
-                            <div className="flex gap-3">
-                                <button
-                                    type="button"
+                            <div className="flex gap-2">
+                                <Button
+                                    variant="primary"
+                                    icon={Printer}
+                                    loading={recordingPrint}
                                     onClick={() => void handlePrint()}
-                                    disabled={recordingPrint}
-                                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-primary text-white text-sm font-bold rounded-xl hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                    className="flex-1"
                                 >
-                                    <span className="material-icons text-sm">print</span>
-                                    {recordingPrint ? 'Saving…' : 'Print Label'}
-                                </button>
-                                <button
-                                    type="button"
+                                    {recordingPrint ? 'Saving…' : 'Print label'}
+                                </Button>
+                                <Button
+                                    icon={Download}
+                                    disabled={recordingPrint}
                                     onClick={() => void handlePrint()}
-                                    disabled={recordingPrint}
-                                    className="px-4 py-2.5 border border-slate-200 text-slate-600 text-sm font-bold rounded-xl hover:bg-slate-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                    <span className="material-icons text-sm">download</span>
-                                </button>
+                                    aria-label="Save label as PDF (opens the print dialog)"
+                                    title="Save label as PDF"
+                                />
                             </div>
-                        </div>
+                        </SectionCard>
                     </div>
                 </div>
+            ) : loading ? (
+                <SectionCard title="Matching samples" flush>
+                    <ul aria-hidden="true" className="divide-y divide-edge">
+                        {Array.from({ length: SKELETON_ROWS }).map((_, i) => (
+                            <li key={i} className="px-4 py-3">
+                                <span className="block h-3.5 w-44 max-w-full rounded bg-skeleton" />
+                                <span className="mt-2 block h-3 w-28 rounded bg-skeleton" />
+                                <span className="mt-2 block h-3 w-36 rounded bg-skeleton" />
+                            </li>
+                        ))}
+                    </ul>
+                </SectionCard>
             ) : (
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-12 text-center">
-                    <span className="material-icons text-5xl text-slate-200 mb-3">qr_code_scanner</span>
-                    <p className="text-slate-400">Search for a real sample to view and print its barcode label.</p>
+                <div className="rounded-lg border border-edge bg-surface">
+                    <EmptyState
+                        icon={ScanBarcode}
+                        title="No sample selected"
+                        description="Search by sample ID, patient ID, order number or test name to preview and print its barcode label."
+                    />
                 </div>
             )}
 
             {printQueue.length > 0 && (
-                <div className="mt-6 bg-emerald-50 border border-emerald-200 rounded-2xl p-4">
-                    <div className="flex items-center gap-2 mb-2">
-                        <span className="material-icons text-emerald-600">print</span>
-                        <p className="text-sm font-bold text-emerald-700">Print Queue ({printQueue.length})</p>
-                    </div>
-                    <div className="flex gap-2 flex-wrap">
+                <SectionCard title="Print queue" count={printQueue.length} className="mt-4">
+                    <ul className="flex flex-wrap gap-2" aria-label="Labels sent to print this session">
                         {printQueue.map((id) => (
-                            <span
-                                key={id}
-                                className="text-xs bg-white text-emerald-700 px-2 py-1 rounded-lg border border-emerald-200 font-medium"
-                            >
-                                {id}
-                            </span>
+                            <li key={id}>
+                                <StatusChip tone="success" dot className="font-mono">
+                                    {id}
+                                </StatusChip>
+                            </li>
                         ))}
-                    </div>
-                </div>
+                    </ul>
+                </SectionCard>
             )}
         </div>
     );
 }
+
+export default function BarcodePrintPage() {
+    // useSearchParams needs a Suspense boundary for static prerendering.
+    return (
+        <Suspense fallback={null}>
+            <BarcodePrintPageInner />
+        </Suspense>
+    );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Print helpers (the printable document is deliberately black-on-white) */
+/* ------------------------------------------------------------------ */
 
 function buildBarcodePattern(sampleId: string) {
     return Array.from(sampleId).flatMap((char, index) => {
@@ -502,7 +639,8 @@ type PrintWindowPayload = {
     testType: string;
     testCodes: string[];
     tubeTypes: string[];
-    tubeColorClass: string;
+    /** Hex tube cap colour, already shape-checked by `getTubeHexColor`. */
+    tubeColor: string;
 };
 
 function openPrintWindow(payload: PrintWindowPayload) {
@@ -511,7 +649,6 @@ function openPrintWindow(payload: PrintWindowPayload) {
         return false;
     }
 
-    const tubeColor = resolveTubeColor(payload.tubeColorClass);
     const barcodeBars = buildBarcodePattern(payload.sampleId)
         .map((width) => `<div style="width:${width}px;height:42px;background:#0f172a;border-radius:1px;"></div>`)
         .join('');
@@ -550,7 +687,7 @@ function openPrintWindow(payload: PrintWindowPayload) {
       width: 14px;
       height: 78px;
       border-radius: 999px;
-      background: ${tubeColor};
+      background: ${escapeHtml(payload.tubeColor)};
       flex-shrink: 0;
     }
     .top {
@@ -614,7 +751,7 @@ function openPrintWindow(payload: PrintWindowPayload) {
       <div style="flex:1;">
         <div class="top">
           <div class="title">${escapeHtml(payload.sampleId)}</div>
-          <div style="font-size:13px;color:#94a3b8;">${escapeHtml(payload.orderId)}</div>
+          <div style="font-size:13px;color:#64748b;">${escapeHtml(payload.orderId)}</div>
         </div>
         <p class="meta">${escapeHtml(payload.patientName)} • ${escapeHtml(payload.patientCode)}</p>
         <p class="sub">${escapeHtml(payload.testType)}</p>
@@ -636,23 +773,6 @@ function openPrintWindow(payload: PrintWindowPayload) {
     printWindow.document.write(html);
     printWindow.document.close();
     return true;
-}
-
-function resolveTubeColor(colorClass: string) {
-    switch (colorClass) {
-        case 'bg-purple-500':
-            return '#a855f7';
-        case 'bg-red-500':
-            return '#ef4444';
-        case 'bg-blue-500':
-            return '#3b82f6';
-        case 'bg-amber-400':
-            return '#fbbf24';
-        case 'bg-slate-500':
-            return '#64748b';
-        default:
-            return '#94a3b8';
-    }
 }
 
 function escapeHtml(value: string) {

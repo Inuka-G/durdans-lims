@@ -27,7 +27,6 @@ function SidebarForRoute({ pathname }: { pathname: string }) {
     if (pathname.startsWith("/reception")) return <ReceptionSidebar />;
     if (pathname.startsWith("/mlt")) return <MLTSidebar />;
     if (pathname.startsWith("/verification")) return <SeniorMLTSidebar />;
-    if (pathname.startsWith("/critical-values")) return <SeniorMLTSidebar />;
     if (pathname.startsWith("/clinical")) return <DoctorSidebar />;
     if (pathname.startsWith("/dispatch")) return <DispatchSidebar />;
     if (pathname.startsWith("/branch")) return <BranchSidebar />;
@@ -46,13 +45,14 @@ export default function ProtectedLayout({ children }: { children: ReactNode }) {
         <AuthProvider>
             <MetadataProvider>
                 <RoleGuard>
-                <div className="bg-[#f8fafc] font-display text-slate-800 min-h-screen">
+                <div className="min-h-screen bg-canvas font-display text-fg">
                     {isSuperAdminAdmin ? <AdministrationNavbar /> : isSuperBranch ? <SuperAdminNavbar /> : isBranch ? <BranchNavbar /> : <TopNav />}
 
-                    <div className="flex pt-[76px] min-h-screen">
+                    {/* pt matches the fixed top bar's h-16, the same offset the sidebars use (top-16). */}
+                    <div className="flex min-h-screen pt-16">
                         <SidebarForRoute pathname={pathname} />
 
-                        <main className="flex-1 lg:ml-64 p-8 bg-slate-50/50">
+                        <main className="min-w-0 flex-1 bg-canvas p-4 sm:p-6 lg:ml-64 lg:p-8">
                             {children}
                         </main>
                     </div>

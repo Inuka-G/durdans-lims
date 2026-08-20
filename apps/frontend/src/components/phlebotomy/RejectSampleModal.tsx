@@ -1,7 +1,11 @@
 'use client';
 
 import { useState } from 'react';
+import { Ban } from 'lucide-react';
 import { toast } from 'sonner';
+import Modal from '@/components/ui/Modal';
+import Button from '@/components/ui/Button';
+import { SelectField, TextareaField } from '@/components/ui/Field';
 
 interface RejectSampleModalProps {
     sampleId: string;
@@ -24,9 +28,11 @@ const REJECTION_REASONS = [
 export default function RejectSampleModal({ sampleId, patientName, onConfirm, onClose }: RejectSampleModalProps) {
     const [reason, setReason] = useState('');
     const [comment, setComment] = useState('');
+    const [reasonError, setReasonError] = useState<string | null>(null);
 
     const handleConfirm = () => {
         if (!reason) {
+            setReasonError('Select a rejection reason');
             toast.error('Please select a rejection reason');
             return;
         }
@@ -35,78 +41,57 @@ export default function RejectSampleModal({ sampleId, patientName, onConfirm, on
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-            <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md mx-4 overflow-hidden">
-                {/* Header */}
-                <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-                    <div className="flex items-center gap-2">
-                        <span className="material-icons text-red-500">cancel</span>
-                        <h2 className="text-base font-bold text-slate-800">Reject Sample</h2>
-                    </div>
-                    <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 transition-colors">
-                        <span className="material-icons text-lg">close</span>
-                    </button>
-                </div>
-
-                <div className="px-6 py-5 space-y-4">
-                    {/* Sample info */}
-                    <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-3">
-                        <p className="text-xs font-bold text-red-600 uppercase tracking-wider mb-1">Sample to reject</p>
-                        <p className="text-sm font-semibold text-slate-800">{patientName}</p>
-                        <p className="text-xs text-slate-500 font-mono">{sampleId}</p>
-                    </div>
-
-                    {/* Reason */}
-                    <div>
-                        <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
-                            Rejection Reason <span className="text-red-500">*</span>
-                        </label>
-                        <div className="space-y-2">
-                            {REJECTION_REASONS.map((r) => (
-                                <label key={r} className="flex items-center gap-3 cursor-pointer group">
-                                    <input
-                                        type="radio"
-                                        name="reason"
-                                        value={r}
-                                        checked={reason === r}
-                                        onChange={() => setReason(r)}
-                                        className="accent-primary"
-                                    />
-                                    <span className="text-sm text-slate-700 group-hover:text-slate-900 transition-colors">{r}</span>
-                                </label>
-                            ))}
-                        </div>
-                    </div>
-
-                    {/* Comment */}
-                    <div>
-                        <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
-                            Additional Comment (optional)
-                        </label>
-                        <textarea
-                            value={comment}
-                            onChange={(e) => setComment(e.target.value)}
-                            rows={2}
-                            placeholder="Add any notes..."
-                            className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-200 focus:border-red-300 resize-none transition-all"
-                        />
-                    </div>
-                </div>
-
-                {/* Footer */}
-                <div className="px-6 py-4 border-t border-slate-100 flex justify-end gap-3">
-                    <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors">
+        <Modal
+            open
+            onClose={onClose}
+            title="Reject sample"
+            description="Record why this sample cannot be collected or accepted."
+            size="md"
+            footer={
+                <>
+                    <Button variant="secondary" onClick={onClose}>
                         Cancel
-                    </button>
-                    <button
-                        onClick={handleConfirm}
-                        className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-bold rounded-xl transition-colors"
-                    >
-                        <span className="material-icons text-sm mr-1 align-middle">cancel</span>
-                        Confirm Rejection
-                    </button>
+                    </Button>
+                    <Button variant="danger" icon={Ban} onClick={handleConfirm}>
+                        Reject sample
+                    </Button>
+                </>
+            }
+        >
+            <div className="space-y-4">
+                <div className="rounded-md border border-status-danger-edge bg-status-danger-bg px-3 py-2.5">
+                    <p className="text-xs font-medium text-status-danger-fg">Sample to reject</p>
+                    <p className="mt-0.5 text-sm font-semibold text-fg">{patientName}</p>
+                    <p className="font-mono text-xs text-fg-muted">{sampleId}</p>
                 </div>
+
+                <SelectField
+                    label="Rejection reason"
+                    required
+                    value={reason}
+                    error={reasonError}
+                    onChange={(e) => {
+                        setReason(e.target.value);
+                        if (e.target.value) setReasonError(null);
+                    }}
+                >
+                    <option value="">Select a reason</option>
+                    {REJECTION_REASONS.map((r) => (
+                        <option key={r} value={r}>
+                            {r}
+                        </option>
+                    ))}
+                </SelectField>
+
+                <TextareaField
+                    label="Additional comment"
+                    hint="Optional"
+                    value={comment}
+                    onChange={(e) => setComment(e.target.value)}
+                    rows={2}
+                    placeholder="Add any notes"
+                />
             </div>
-        </div>
+        </Modal>
     );
 }
