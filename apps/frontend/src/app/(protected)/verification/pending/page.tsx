@@ -253,6 +253,8 @@ export default function PendingVerificationPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
+    // The queue is paged on the server: never fetch a fixed-size window of it, or the
+    // oldest-waiting specimens fall off the end and stop being reachable or counted.
     const loadPendingResults = useCallback(async () => {
         try {
             setLoading(true);
@@ -293,8 +295,14 @@ export default function PendingVerificationPage() {
 
     const filteredResults = useMemo(() => filterResults(results, criteria), [results, criteria]);
 
-    // Each filter counts against the rows the other two filters and the search already allow,
-    // so an option's number is what picking it would actually show.
+    // Search and the dropdowns narrow the page the server returned, so changing one re-anchors
+    // the queue at its first page instead of filtering whichever page happened to be open.
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [searchQuery, statusFilter, priorityFilter, flagFilter]);
+
+    // Each dropdown counts against the rows on this page that the other two dropdowns and the
+    // search already allow, so an option's number is what picking it would actually show.
     const statusOptions = useMemo(
         () =>
             buildFilterOptions(

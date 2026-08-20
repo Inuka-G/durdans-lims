@@ -413,12 +413,18 @@ export default function BulkApprovalPage() {
                                                 )}
                                             >
                                                 <td className="py-2 pl-4 pr-2">
+                                                    {/*
+                                                      The row itself toggles the batch on click. Stop the checkbox's
+                                                      click from bubbling up to it: onChange already toggles once, and
+                                                      a second toggle from the row would silently cancel it out,
+                                                      leaving an unticked batch still in the approval set.
+                                                    */}
                                                     <input
                                                         type="checkbox"
                                                         checked={batch.isSelected}
-                                                        onChange={() => toggleBatch(batch.batchId)}
-                                                        onClick={(event) => event.stopPropagation()}
                                                         disabled={!selectable}
+                                                        onChange={() => selectable && toggleBatch(batch.batchId)}
+                                                        onClick={(event) => event.stopPropagation()}
                                                         aria-label={`Select ${batch.batchName}`}
                                                         className={CHECKBOX_CLASS}
                                                     />

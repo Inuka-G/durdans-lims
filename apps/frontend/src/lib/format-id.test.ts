@@ -1,19 +1,42 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { formatDisplayId } from './format-id';
 
-// Simplest unit — no mocks — also validates the toolchain end-to-end.
 describe('formatDisplayId', () => {
-  it('returns N/A for empty values', () => {
+  it('returns N/A for an empty value', () => {
     expect(formatDisplayId(undefined)).toBe('N/A');
     expect(formatDisplayId(null)).toBe('N/A');
     expect(formatDisplayId('')).toBe('N/A');
   });
 
-  it('uppercases a non-UUID value verbatim', () => {
-    expect(formatDisplayId('p-abc')).toBe('P-ABC');
+  it('passes through a value that is already a display id', () => {
+    expect(formatDisplayId('PAT2026-00002')).toBe('PAT2026-00002');
   });
 
   it('formats a UUID as <prefix>-<last 8 hex, upper>', () => {
     expect(formatDisplayId('12345678-1234-1234-1234-1234567890ab', 'PT')).toBe('PT-567890AB');
+  });
+
+  it('uses the same lossless form for every prefix', () => {
+    const uuid = '12345678-1234-1234-1234-1234567890ab';
+    expect(formatDisplayId(uuid, 'RES')).toBe('RES-567890AB');
+    expect(formatDisplayId(uuid, 'REP')).toBe('REP-567890AB');
+  });
+
+  // The display id is what the audit CSV exports and what the history search
+  // boxes match on, so distinct records must not share one. A previous version
+  // hashed the UUID into 90,000 buckets, which collided after ~350 rows.
+  it('gives distinct ids to UUIDs that differ only in the low bits', () => {
+    const a = formatDisplayId('12345678-1234-1234-1234-1234567890ab', 'RES');
+    const b = formatDisplayId('12345678-1234-1234-1234-1234567890ac', 'RES');
+    expect(a).not.toBe(b);
+  });
+
+  it('does not collide across a large set of random UUIDs', () => {
+    const seen = new Set<string>();
+    for (let i = 0; i < 5000; i += 1) {
+      const tail = i.toString(16).padStart(12, '0');
+      seen.add(formatDisplayId(`12345678-1234-1234-1234-${tail}`, 'RES'));
+    }
+    expect(seen.size).toBe(5000);
   });
 });

@@ -161,6 +161,7 @@ const matchesSearch = (result: TestResultSummary, query: string) => {
         result.resultId.toLowerCase().includes(query) ||
         displayResultId.includes(query) ||
         (result.patientName ?? "").toLowerCase().includes(query) ||
+        (result.patientCode ?? "").toLowerCase().includes(query) ||
         (result.testType ?? "").toLowerCase().includes(query) ||
         (result.technicianName ?? "").toLowerCase().includes(query) ||
         (result.priorityLevel ?? "").toLowerCase().includes(query)
@@ -431,7 +432,7 @@ export default function ClinicalWorklistPage() {
                         type="search"
                         value={search}
                         onChange={(event) => setSearch(event.target.value)}
-                        placeholder="Search result ID, patient, test group or MLT"
+                        placeholder="Search result ID, patient, code, test group or MLT"
                         autoComplete="off"
                         className="min-w-[200px] flex-1 xl:ml-auto xl:max-w-[360px]"
                     />
@@ -556,8 +557,17 @@ export default function ClinicalWorklistPage() {
                                                     )}
                                                 </div>
                                             </td>
-                                            <td className="truncate px-3 py-2 font-medium text-fg" title={result.patientName || undefined}>
-                                                {result.patientName || "Unknown patient"}
+                                            {/* Name over patient code — the code is searchable, so it
+                                                stays visible for the operator to match against. */}
+                                            <td className="px-3 py-2">
+                                                <p className="truncate font-medium text-fg" title={result.patientName || undefined}>
+                                                    {result.patientName || "Unknown patient"}
+                                                </p>
+                                                {result.patientCode && (
+                                                    <p className="truncate font-mono text-xs text-fg-muted" title={result.patientCode}>
+                                                        {result.patientCode}
+                                                    </p>
+                                                )}
                                             </td>
                                             <td className="truncate px-3 py-2 text-fg-secondary" title={result.testType || undefined}>
                                                 {result.testType || "Unknown test group"}

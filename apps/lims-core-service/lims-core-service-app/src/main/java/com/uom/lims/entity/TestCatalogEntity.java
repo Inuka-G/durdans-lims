@@ -50,4 +50,29 @@ public class TestCatalogEntity extends BaseEntity {
     @Column(name = "turn_around_time_hours")
     private Integer turnAroundTimeHours;
 
+    /**
+     * Patient preparation. Structured rather than prose-only because two things need to
+     * read it as data: the agent, which must answer "do I have to fast?" identically in
+     * three languages, and the slot picker, which must keep a fasting test out of an
+     * afternoon appointment. The human-readable wording lives in
+     * {@link TestCatalogI18nEntity#getPrepInstruction()}.
+     *
+     * <p>The default is deliberately "no fasting" only because most tests need none —
+     * every test that does need it is set explicitly, since the failure mode of getting
+     * this wrong is a rejected sample and a wasted patient visit.
+     */
+    @Column(name = "fasting_required", nullable = false)
+    private boolean fastingRequired = false;
+
+    /** Hours of fasting required. Null when {@link #fastingRequired} is false. */
+    @Column(name = "fasting_hours")
+    private Integer fastingHours;
+
+    @Column(name = "water_allowed", nullable = false)
+    private boolean waterAllowed = true;
+
+    /** Preparation beyond fasting: a 24-hour collection, a medication hold, a container issued in advance. */
+    @Column(name = "special_prep_required", nullable = false)
+    private boolean specialPrepRequired = false;
+
 }

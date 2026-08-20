@@ -106,6 +106,12 @@ variable "frontend_image_tag" {
   default = "latest"
 }
 
+variable "whatsapp_image_tag" {
+  description = "Image tag for lims-whatsapp-service. CI overwrites this on the host per deploy."
+  type        = string
+  default     = "latest"
+}
+
 # --- Optional TLS domain (Caddy auto-HTTPS). Empty = serve over HTTP on the EIP. ---
 variable "domain_name" {
   type    = string

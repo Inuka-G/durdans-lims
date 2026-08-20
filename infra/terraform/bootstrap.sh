@@ -39,6 +39,23 @@ DB_JSON="$(get_json "$DB_SECRET")"
 DB_URL="$(echo "$DB_JSON" | jq_field url)"
 DB_USERNAME="$(echo "$DB_JSON" | jq_field username)"
 DB_PASSWORD="$(echo "$DB_JSON" | jq_field password)"
+DB_HOST="$(echo "$DB_JSON" | jq_field host)"
+DB_PORT="$(echo "$DB_JSON" | jq_field port)"
+DB_NAME="$(echo "$DB_JSON" | jq_field dbname)"
+
+WA_DB_JSON="$(get_json "$WA_DB_SECRET")"
+WA_DB_URL="$(echo "$WA_DB_JSON" | jq_field url)"
+WA_DB_USERNAME="$(echo "$WA_DB_JSON" | jq_field username)"
+WA_DB_PASSWORD="$(echo "$WA_DB_JSON" | jq_field password)"
+WA_DB_NAME="$(echo "$WA_DB_JSON" | jq_field dbname)"
+
+META_JSON="$(get_json "$META_SECRET")"
+META_APP_ID="$(echo "$META_JSON" | jq_field app_id)"
+META_APP_SECRET="$(echo "$META_JSON" | jq_field app_secret)"
+META_VERIFY_TOKEN="$(echo "$META_JSON" | jq_field verify_token)"
+META_PHONE_NUMBER_ID="$(echo "$META_JSON" | jq_field phone_number_id)"
+META_WABA_ID="$(echo "$META_JSON" | jq_field waba_id)"
+META_ACCESS_TOKEN="$(echo "$META_JSON" | jq_field access_token)"
 
 MAIL_JSON="$(get_json "$MAIL_SECRET")"
 MAIL_USERNAME="$(echo "$MAIL_JSON" | jq_field username)"
@@ -69,10 +86,53 @@ S3_BUCKET=${S3_BUCKET}
 BACKUP_BUCKET=${BACKUP_BUCKET}
 ECR_APP=${ECR_APP}
 ECR_FRONTEND=${ECR_FRONTEND}
+ECR_WHATSAPP=${ECR_WHATSAPP}
 APP_TAG=${APP_TAG}
 FRONTEND_TAG=${FRONTEND_TAG}
+WHATSAPP_TAG=${WHATSAPP_TAG}
+WHATSAPP_ORIGIN=${WHATSAPP_ORIGIN}
+WA_DB_URL=${WA_DB_URL}
+WA_DB_USERNAME=${WA_DB_USERNAME}
+WA_DB_PASSWORD=${WA_DB_PASSWORD}
+META_APP_ID=${META_APP_ID}
+META_APP_SECRET=${META_APP_SECRET}
+META_VERIFY_TOKEN=${META_VERIFY_TOKEN}
+META_PHONE_NUMBER_ID=${META_PHONE_NUMBER_ID}
+META_WABA_ID=${META_WABA_ID}
+META_ACCESS_TOKEN=${META_ACCESS_TOKEN}
 ENVEOF
 chmod 600 .env
+
+# --- The agent's own role and database on the same RDS instance --------------
+# Idempotent: this script re-runs on every instance replacement, and RDS survives
+# that, so both objects will usually already exist. Creating them here rather than
+# in Terraform keeps the master password out of Terraform state beyond the secret
+# it already holds, and avoids making Terraform reach into a private subnet.
+#
+# psql is not installed on AL2023, so borrow it from the postgres image that is
+# already being pulled for Keycloak's database anyway.
+psql_admin() {
+  docker run --rm -e PGPASSWORD="${DB_PASSWORD}" postgres:15     psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USERNAME}" -d "${DB_NAME}"       -v ON_ERROR_STOP=1 "$@"
+}
+
+if [[ -n "${WA_DB_USERNAME}" ]]; then
+  if ! psql_admin -tAc "SELECT 1 FROM pg_roles WHERE rolname = '${WA_DB_USERNAME}'" | grep -q 1; then
+    # The password charset excludes a single quote, so this literal is safe.
+    psql_admin -c "CREATE ROLE \"${WA_DB_USERNAME}\" LOGIN PASSWORD '${WA_DB_PASSWORD}'"
+    echo "created postgres role ${WA_DB_USERNAME}"
+  else
+    # Keep the role's password in step with the secret after a rotation.
+    psql_admin -c "ALTER ROLE \"${WA_DB_USERNAME}\" WITH PASSWORD '${WA_DB_PASSWORD}'"
+  fi
+
+  if ! psql_admin -tAc "SELECT 1 FROM pg_database WHERE datname = '${WA_DB_NAME}'" | grep -q 1; then
+    psql_admin -c "CREATE DATABASE \"${WA_DB_NAME}\" OWNER \"${WA_DB_USERNAME}\""
+    echo "created database ${WA_DB_NAME}"
+  fi
+
+  # Nothing is granted on durdans_lims_db. The agent role can only ever see its
+  # own database, which is what makes the isolation real rather than intended.
+fi
 
 # Keycloak realm seed. Uploaded by Terraform (aws_s3_object.keycloak_realm_seed)
 # because user_data is capped at 16 KB and the realm JSON is ~80 KB. Without it
@@ -129,6 +189,13 @@ api.${DOMAIN_NAME} {
 
 auth.${DOMAIN_NAME} {
   reverse_proxy keycloak:8080
+}
+
+# The Meta webhook. Terminating TLS here is not optional dressing: Meta will only
+# call a publicly trusted HTTPS endpoint on 443, and it refuses to register a
+# callback it cannot validate. The service itself is never published to the host.
+wa.${DOMAIN_NAME} {
+  reverse_proxy whatsapp:11010
 }
 CADDY
 else
@@ -240,6 +307,29 @@ services:
     ports: [ "11000:11000" ]
     networks: [lims-net]
     depends_on: { kafka: { condition: service_healthy }, keycloak: { condition: service_started } }
+    restart: always
+
+  whatsapp:
+    image: ${ECR_WHATSAPP}:${WHATSAPP_TAG}
+    mem_limit: 640m
+    environment:
+      WA_DB_URL: ${WA_DB_URL}
+      WA_DB_USERNAME: ${WA_DB_USERNAME}
+      WA_DB_PASSWORD: ${WA_DB_PASSWORD}
+      META_APP_ID: ${META_APP_ID}
+      META_APP_SECRET: ${META_APP_SECRET}
+      META_VERIFY_TOKEN: ${META_VERIFY_TOKEN}
+      META_PHONE_NUMBER_ID: ${META_PHONE_NUMBER_ID}
+      META_WABA_ID: ${META_WABA_ID}
+      META_ACCESS_TOKEN: ${META_ACCESS_TOKEN}
+      # There is no OTLP collector on this host. Turning export off is deliberate:
+      # aiming the exporter at an absent collector produces a warning every few
+      # seconds forever. Set TRACING_ENABLED=true once Tempo is deployed here.
+      TRACING_ENABLED: "false"
+    # No ports: Caddy reaches it over the compose network. The webhook is the only
+    # thing this service exposes and it should reach the internet through TLS, not
+    # through a published container port.
+    networks: [lims-net]
     restart: always
 
   frontend:

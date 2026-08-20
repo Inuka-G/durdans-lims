@@ -80,7 +80,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "backups" {
 
 # --- ECR: one repo per image, scanned on push ---
 resource "aws_ecr_repository" "this" {
-  for_each             = toset(["core-service", "frontend"])
+  for_each             = toset(["core-service", "frontend", "whatsapp-service"])
   name                 = "${var.project}/${each.key}"
   image_tag_mutability = "MUTABLE"
 
