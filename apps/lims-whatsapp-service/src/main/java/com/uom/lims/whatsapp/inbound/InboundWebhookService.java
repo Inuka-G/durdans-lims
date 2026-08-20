@@ -1,5 +1,6 @@
 package com.uom.lims.whatsapp.inbound;
 
+import com.uom.lims.whatsapp.outbound.DeliveryStatusWriter;
 import com.uom.lims.whatsapp.webhook.WebhookPayload;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -27,6 +28,7 @@ public class InboundWebhookService {
     private static final String MESSAGES_FIELD = "messages";
 
     private final InboundMessageWriter writer;
+    private final DeliveryStatusWriter statusWriter;
 
     /**
      * @return how many messages were newly stored; redeliveries are not counted
@@ -42,8 +44,8 @@ public class InboundWebhookService {
             }
             for (WebhookPayload.Change change : entry.changes()) {
                 if (change == null || !MESSAGES_FIELD.equals(change.field()) || change.value() == null) {
-                    // Other fields — delivery statuses on their own, account updates,
-                    // calls — get their own listeners. Ignoring them here is not a gap.
+                    // Account updates, template quality alerts, calls — other fields get
+                    // their own listeners when needed. Ignoring them here is not a gap.
                     continue;
                 }
                 stored += ingestValue(change.value(), rawBody);
@@ -53,6 +55,15 @@ public class InboundWebhookService {
     }
 
     private int ingestValue(WebhookPayload.Value value, String rawBody) {
+        // Delivery receipts for messages we sent arrive under the same "messages" field
+        // as inbound messages, just in a different list. They update existing rows and
+        // are not counted as stored.
+        if (value.statuses() != null) {
+            for (WebhookPayload.Status status : value.statuses()) {
+                statusWriter.apply(status);
+            }
+        }
+
         List<WebhookPayload.Message> messages = value.messages();
         if (messages == null || messages.isEmpty()) {
             return 0;
