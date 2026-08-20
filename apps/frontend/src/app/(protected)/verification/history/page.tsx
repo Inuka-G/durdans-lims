@@ -149,7 +149,13 @@ export default function VerificationHistoryPage() {
         setExportNotice(null);
     }, [search, statusFilter, dateRange]);
 
+    // The search, action and period filters are applied by the server, over the
+    // whole audit trail. Loading one window of recent rows and filtering it in the
+    // browser would quietly hide every older match, and this is the record staff
+    // consult during an incident investigation.
     useEffect(() => {
+        let cancelled = false;
+
         const loadHistory = async () => {
             try {
                 setLoading(true);
@@ -161,21 +167,38 @@ export default function VerificationHistoryPage() {
                     fromTimestamp: resolveFromTimestamp(dateRange),
                 });
 
-                setHistoryItems(historyPage.content);
+                if (cancelled) {
+                    return;
+                }
+
+                setHistoryItems(historyPage.content ?? []);
                 setTotalPages(Math.max(1, historyPage.totalPages));
                 setTotalElements(historyPage.totalElements);
             } catch (loadError) {
+                if (cancelled) {
+                    return;
+                }
+
                 console.error("Failed to load verification history", loadError);
                 setError("Couldn't load verification history. Check your connection and retry.");
                 setHistoryItems([]);
                 setTotalPages(1);
                 setTotalElements(0);
             } finally {
-                setLoading(false);
+                if (!cancelled) {
+                    setLoading(false);
+                }
             }
         };
 
         void loadHistory();
+
+        // A filter change queues a fresh request while the previous one may still be
+        // in flight; without this the older response can land last and paint rows
+        // that no longer match the filters shown on screen.
+        return () => {
+            cancelled = true;
+        };
     }, [page, search, statusFilter, dateRange, reloadKey]);
 
     const hasActiveFilters =
@@ -215,7 +238,7 @@ export default function VerificationHistoryPage() {
                     fromTimestamp: resolveFromTimestamp(dateRange),
                 });
 
-                exportItems.push(...historyPage.content);
+                exportItems.push(...(historyPage.content ?? []));
                 matchingCount = historyPage.totalElements;
                 exportPage += 1;
                 hasMore = exportPage < historyPage.totalPages;
@@ -257,6 +280,8 @@ export default function VerificationHistoryPage() {
                 })
             );
 
+            // A CSV that is silently short of the matching set is worse than no CSV
+            // at all when it is filed as the evidence for a period.
             if (exportItems.length < matchingCount) {
                 setExportNotice({
                     tone: "warning",
@@ -506,7 +531,7 @@ export default function VerificationHistoryPage() {
                                                     </p>
                                                 )}
                                             </td>
-                                            {/* Result ID */}
+                                            {/* Result ID — the raw id stays on the element so a pasted UUID is still findable. */}
                                             <td className="px-3 py-2 font-mono text-xs text-fg-secondary">
                                                 <span className="inline-block max-w-full truncate align-middle" title={item.resultId}>
                                                     {formatDisplayId(item.resultId, "RES")}

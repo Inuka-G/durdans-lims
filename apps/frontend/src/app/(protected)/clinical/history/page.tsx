@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Download, History, RefreshCw, Search, X } from "lucide-react";
+import { AlertTriangle, Download, History, Info, RefreshCw, Search, X } from "lucide-react";
 import {
     HISTORY_DATE_RANGES,
     resolveFromTimestamp,
@@ -10,6 +10,7 @@ import {
 } from "@/lib/history-date-range";
 import { downloadCsv } from "@/lib/export-csv";
 import { formatDisplayId } from "@/lib/format-id";
+import { formatStatusLabel } from "@/constants/sample-lifecycle";
 import {
     getClinicalHistory,
     HistoryQueryParams,
@@ -23,12 +24,19 @@ import SegmentedControl from "@/components/ui/SegmentedControl";
 import StatusChip, { type ChipTone } from "@/components/ui/StatusChip";
 import Pagination from "@/components/ui/Pagination";
 import Modal from "@/components/ui/Modal";
+import PriorityBadge from "@/components/shared/PriorityBadge";
 import { InputField, SelectField } from "@/components/ui/Field";
 import { formatAuditTime } from "@/components/patient-dashboard/dashboard-data";
 
 const PAGE_SIZE = 10;
 const SKELETON_ROWS = 8;
+
+// The export walks the whole filtered result set in chunks rather than asking for it in
+// one call: a year of clinical history in a single request is a heavy query and a heavy
+// response. EXPORT_MAX_PAGES is the safety valve for a request so wide that even chunked
+// paging would hammer the server; when it trips, the user is told the file is partial.
 const EXPORT_PAGE_SIZE = 1000;
+const EXPORT_MAX_PAGES = 20;
 
 const ACTION_LABELS: Record<string, string> = {
     CLINICAL_AUTHORIZED: "Authorized by pathologist",
@@ -38,6 +46,12 @@ const ACTION_LABELS: Record<string, string> = {
 const ACTION_TONES: Record<string, ChipTone> = {
     CLINICAL_AUTHORIZED: "success",
     VERIFICATION_RETURNED_FROM_CLINICAL: "pending",
+};
+
+/** Export banners reuse the status tokens: a truncated export is a warning, a failed one is an error. */
+const EXPORT_NOTICE_STYLES: Record<"error" | "warning", string> = {
+    error: "border-status-danger-edge bg-status-danger-bg text-status-danger-fg",
+    warning: "border-status-pending-edge bg-status-pending-bg text-status-pending-fg",
 };
 
 const DATE_RANGE_OPTIONS = HISTORY_DATE_RANGES.map((range) => ({
@@ -99,11 +113,17 @@ export default function ClinicalHistoryPage() {
     const [selectedNote, setSelectedNote] = useState<VerificationHistoryItem | null>(null);
     const [isExporting, setIsExporting] = useState(false);
     // Kept apart from `error`: that state swaps the table body for an error panel, so a
-    // failed export would blank the history the user is still reading.
-    const [exportError, setExportError] = useState<string | null>(null);
+    // failed export would blank the history the user is still reading. The same state
+    // carries the "export was cut short" warning, which is not an error but must not be
+    // silent either — a partial audit export that looks complete is a safety problem.
+    const [exportNotice, setExportNotice] = useState<{
+        tone: "error" | "warning";
+        message: string;
+    } | null>(null);
 
     useEffect(() => {
         setPage(0);
+        setExportNotice(null);
     }, [search, statusFilter, dateRange]);
 
     useEffect(() => {
@@ -112,13 +132,16 @@ export default function ClinicalHistoryPage() {
                 setLoading(true);
                 setError(null);
 
+                // Filtering stays on the server: the client only ever holds the page it is
+                // showing, so the row count, the paging controls and the export all agree
+                // with the full audit trail instead of a truncated first slice of it.
                 const historyPage = await getClinicalHistory(page, PAGE_SIZE, {
                     actionType: statusFilter === "ALL" ? undefined : statusFilter,
                     search: search.trim() || undefined,
                     fromTimestamp: resolveFromTimestamp(dateRange),
                 });
 
-                setHistoryItems(historyPage.content);
+                setHistoryItems(historyPage.content ?? []);
                 setTotalPages(Math.max(1, historyPage.totalPages));
                 setTotalElements(historyPage.totalElements);
             } catch (loadError) {
@@ -148,9 +171,12 @@ export default function ClinicalHistoryPage() {
 
     const showPagination = !loading && !error && historyItems.length > 0;
 
+    // Exports every entry matching the active filters, not just the visible page: an
+    // auditor asking for a period needs the whole period, and the table only ever holds
+    // PAGE_SIZE rows.
     const handleExportCsv = async () => {
         setIsExporting(true);
-        setExportError(null);
+        setExportNotice(null);
 
         try {
             const exportFilters: HistoryQueryParams = {
@@ -160,17 +186,20 @@ export default function ClinicalHistoryPage() {
             };
 
             const firstPage = await getClinicalHistory(0, EXPORT_PAGE_SIZE, exportFilters);
-            const exportItems = [...firstPage.content];
+            const exportItems = [...(firstPage.content ?? [])];
+            const matchingCount = firstPage.totalElements;
 
             // The export covers the whole filtered set, not the ten rows on screen, so walk
-            // the remaining pages. The first response's page count bounds the loop.
-            for (let nextPage = 1; nextPage < firstPage.totalPages; nextPage += 1) {
+            // the remaining pages. The first response's page count bounds the loop, capped
+            // by EXPORT_MAX_PAGES.
+            const pagesToWalk = Math.min(firstPage.totalPages, EXPORT_MAX_PAGES);
+            for (let nextPage = 1; nextPage < pagesToWalk; nextPage += 1) {
                 const followingPage = await getClinicalHistory(
                     nextPage,
                     EXPORT_PAGE_SIZE,
                     exportFilters
                 );
-                exportItems.push(...followingPage.content);
+                exportItems.push(...(followingPage.content ?? []));
             }
 
             if (exportItems.length === 0) {
@@ -188,6 +217,7 @@ export default function ClinicalHistoryPage() {
                     "Result ID",
                     "Test Group",
                     "Action",
+                    "Priority",
                     "Performed By",
                     "Notes",
                 ],
@@ -202,16 +232,28 @@ export default function ClinicalHistoryPage() {
                         formatDisplayId(item.resultId, "RES"),
                         item.testName || "Unknown test group",
                         ACTION_LABELS[actionType] || item.actionSummary || "Workflow updated",
+                        item.specimenPriority ? formatStatusLabel(item.specimenPriority) : "",
                         item.performedBy || "",
                         item.notes || "",
                     ];
                 })
             );
+
+            // A CSV that is silently short of the matching set is worse than no CSV at all
+            // when it is filed as the evidence for a period.
+            if (exportItems.length < matchingCount) {
+                setExportNotice({
+                    tone: "warning",
+                    message: `Exported the ${exportItems.length.toLocaleString()} most recent of ${matchingCount.toLocaleString()} matching entries. Narrow the period or filters to export the rest.`,
+                });
+            }
         } catch (exportFailure) {
             console.error("Failed to export clinical history", exportFailure);
-            setExportError(
-                "Could not export the clinical history. Check your connection, then try the export again."
-            );
+            setExportNotice({
+                tone: "error",
+                message:
+                    "Could not export the clinical history. Check your connection, then try the export again.",
+            });
         } finally {
             setIsExporting(false);
         }
@@ -245,8 +287,8 @@ export default function ClinicalHistoryPage() {
                             icon={Download}
                             onClick={() => void handleExportCsv()}
                             loading={isExporting}
-                            disabled={historyItems.length === 0}
-                            title="Exports every history entry matching the current search and filters"
+                            disabled={totalElements === 0}
+                            title="Exports every history entry matching the current search, action and period filters, not just this page. Very wide filters are capped, and the export says so when it is cut short."
                         >
                             {isExporting ? "Exporting…" : "Export CSV"}
                         </Button>
@@ -268,14 +310,27 @@ export default function ClinicalHistoryPage() {
                           }.`)}
             </p>
 
-            {/* Export failures keep the table on screen — this banner is the only signal. */}
-            {exportError && (
+            {/* Export failures and truncated exports keep the table on screen — this
+                banner is the only signal either one happened. */}
+            {exportNotice && (
                 <div
-                    role="alert"
-                    className="mb-4 flex flex-wrap items-center gap-3 rounded-md border border-status-danger-edge bg-status-danger-bg px-4 py-2.5 text-sm text-status-danger-fg"
+                    role={exportNotice.tone === "error" ? "alert" : "status"}
+                    className={`mb-4 flex items-start gap-2 rounded-md border px-4 py-2.5 text-[13px] ${EXPORT_NOTICE_STYLES[exportNotice.tone]}`}
                 >
-                    <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
-                    <span className="min-w-0 flex-1 break-words">{exportError}</span>
+                    {exportNotice.tone === "error" ? (
+                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                    ) : (
+                        <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                    )}
+                    <span className="min-w-0 flex-1 break-words">{exportNotice.message}</span>
+                    <Button
+                        size="sm"
+                        variant="ghost"
+                        icon={X}
+                        onClick={() => setExportNotice(null)}
+                        aria-label="Dismiss export message"
+                        className="-my-0.5 -mr-1.5 shrink-0"
+                    />
                 </div>
             )}
 
@@ -332,6 +387,7 @@ export default function ClinicalHistoryPage() {
                                 <span className="h-3 w-24 rounded bg-skeleton" />
                                 <span className="hidden h-3 w-28 rounded bg-skeleton md:block" />
                                 <span className="h-4 w-36 rounded bg-skeleton" />
+                                <span className="hidden h-4 w-16 rounded bg-skeleton md:block" />
                                 <span className="hidden h-3 w-24 rounded bg-skeleton lg:block" />
                                 <span className="ml-auto h-3 w-1/5 rounded bg-skeleton" />
                                 <span className="h-7 w-24 shrink-0 rounded bg-skeleton" />
@@ -370,11 +426,11 @@ export default function ClinicalHistoryPage() {
                     )
                 ) : (
                     <div className="overflow-x-auto">
-                        {/* table-fixed budget: fixed cols sum to 784 (base) / 928 (md) / 1056 (lg),
-                            the Case action column included. min-w must stay >= sum + 160 so the
-                            auto Notes column keeps a readable floor; the card's overflow-x-auto
-                            scrolls below that. */}
-                        <table className="w-full min-w-[960px] table-fixed text-left text-[13px] md:min-w-[1100px] lg:min-w-[1240px]">
+                        {/* table-fixed budget: fixed cols sum to 784 (base) / 1024 (md, adds Test
+                            group + Priority) / 1152 (lg, adds Performed by), the Case action column
+                            included. min-w must stay >= sum + 160 so the auto Notes column keeps a
+                            readable floor; the card's overflow-x-auto scrolls below that. */}
+                        <table className="w-full min-w-[960px] table-fixed text-left text-[13px] md:min-w-[1200px] lg:min-w-[1340px]">
                             <caption className="sr-only">Clinical history entries</caption>
                             <thead>
                                 <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
@@ -392,6 +448,9 @@ export default function ClinicalHistoryPage() {
                                     </th>
                                     <th scope="col" className="w-48 px-3 py-2 font-medium">
                                         Action
+                                    </th>
+                                    <th scope="col" className="hidden w-24 px-3 py-2 font-medium md:table-cell">
+                                        Priority
                                     </th>
                                     <th scope="col" className="hidden w-32 px-3 py-2 font-medium lg:table-cell">
                                         Performed by
@@ -454,6 +513,14 @@ export default function ClinicalHistoryPage() {
                                                 <StatusChip tone={ACTION_TONES[actionType] ?? "neutral"} dot title={actionLabel}>
                                                     {actionLabel}
                                                 </StatusChip>
+                                            </td>
+                                            {/* Priority of the specimen the action was taken on. */}
+                                            <td className="hidden px-3 py-2 md:table-cell">
+                                                {item.specimenPriority ? (
+                                                    <PriorityBadge priority={item.specimenPriority} />
+                                                ) : (
+                                                    <span className="text-fg-faint">—</span>
+                                                )}
                                             </td>
                                             {/* Performed by */}
                                             <td
