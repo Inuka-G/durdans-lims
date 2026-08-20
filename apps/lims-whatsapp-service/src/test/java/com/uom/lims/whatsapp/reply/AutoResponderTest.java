@@ -64,7 +64,7 @@ class AutoResponderTest {
     @Test
     void agentAnswersTextMessagesWhenConfigured() {
         UUID conversationId = UUID.randomUUID();
-        when(agent.reply(conversationId)).thenReturn(Optional.of("FBC is Rs. 1,200"));
+        when(agent.reply(conversationId, "94770000002")).thenReturn(Optional.of("FBC is Rs. 1,200"));
         when(outbound.sendFreeFormText(conversationId, "FBC is Rs. 1,200")).thenReturn(Optional.empty());
 
         responder(greetingEnabled(), SEND_CONFIGURED, AGENT_ON)
@@ -77,7 +77,7 @@ class AutoResponderTest {
     @Test
     void agentSilenceFallsBackToTheCooldownLimitedApology() {
         UUID conversationId = UUID.randomUUID();
-        when(agent.reply(conversationId)).thenReturn(Optional.empty());
+        when(agent.reply(conversationId, "94770000002")).thenReturn(Optional.empty());
 
         responder(greetingEnabled(), SEND_CONFIGURED, AGENT_ON)
                 .onInboundStored(event(conversationId, "cbc price?"));
@@ -89,12 +89,37 @@ class AutoResponderTest {
     @Test
     void agentFailureFallsBackInsteadOfPropagating() {
         UUID conversationId = UUID.randomUUID();
-        when(agent.reply(conversationId)).thenThrow(new IllegalStateException("Gemini returned 429"));
+        when(agent.reply(conversationId, "94770000002")).thenThrow(new IllegalStateException("Gemini returned 429"));
 
         responder(greetingEnabled(), SEND_CONFIGURED, AGENT_ON)
                 .onInboundStored(event(conversationId, "cbc price?"));
 
         verify(outbound).sendAutoReplyIfDue(conversationId, AutoResponder.AGENT_FALLBACK, Duration.ofMinutes(5));
+    }
+
+    @Test
+    void bareGreetingGetsTheMenuWithoutAModelCall() {
+        UUID conversationId = UUID.randomUUID();
+
+        responder(greetingEnabled(), SEND_CONFIGURED, AGENT_ON)
+                .onInboundStored(event(conversationId, "Hi"));
+
+        verifyNoInteractions(agent);
+        verify(outbound).sendMenuIfDue(conversationId, AutoResponder.MENU_BODY, AutoResponder.MENU_BUTTON,
+                AutoResponder.MENU_ROWS, Duration.ofSeconds(60));
+        verify(outbound, never()).sendFreeFormText(any(), any());
+    }
+
+    @Test
+    void aMenuRowTapReadsAsTextAndGoesToTheAgent() {
+        UUID conversationId = UUID.randomUUID();
+        when(agent.reply(conversationId, "94770000002")).thenReturn(Optional.of("Please send the order number."));
+        when(outbound.sendFreeFormText(any(), any())).thenReturn(Optional.empty());
+
+        responder(greetingEnabled(), SEND_CONFIGURED, AGENT_ON)
+                .onInboundStored(event(conversationId, "Report status"));
+
+        verify(agent).reply(conversationId, "94770000002");
     }
 
     @Test
@@ -109,23 +134,40 @@ class AutoResponderTest {
     }
 
     @Test
-    void greetingTierAnswersWhenTheAgentIsNotConfigured() {
+    void greetingTierAnswersRealQuestionsWhenTheAgentIsNotConfigured() {
+        // "cbc price?" is not a bare greeting, so it skips the menu tier; with no
+        // agent configured it lands on the greeting tier.
         UUID conversationId = UUID.randomUUID();
 
         responder(greetingEnabled(), SEND_CONFIGURED, AGENT_OFF)
-                .onInboundStored(event(conversationId, "hello"));
+                .onInboundStored(event(conversationId, "cbc price?"));
 
         verifyNoInteractions(agent);
         verify(outbound).sendAutoReplyIfDue(conversationId, "custom greeting", Duration.ofMinutes(30));
     }
 
     @Test
-    void disabledGreetingTierStaysSilent() {
+    void disabledGreetingTierStaysSilentForRealQuestions() {
         AutoReplyProperties disabled = new AutoReplyProperties(false, Duration.ofHours(1), null);
 
         responder(disabled, SEND_CONFIGURED, AGENT_OFF)
-                .onInboundStored(event(UUID.randomUUID(), "hello"));
+                .onInboundStored(event(UUID.randomUUID(), "cbc price?"));
 
         verifyNoInteractions(outbound, agent);
+    }
+
+    @Test
+    void menuStillAnswersGreetingsWhenEverythingElseIsOff() {
+        // The menu is deliberately outside the greeting tier's kill switch: it is
+        // navigation, not chatter, and it needs nothing but send credentials.
+        AutoReplyProperties disabled = new AutoReplyProperties(false, Duration.ofHours(1), null);
+        UUID conversationId = UUID.randomUUID();
+
+        responder(disabled, SEND_CONFIGURED, AGENT_OFF)
+                .onInboundStored(event(conversationId, "hello"));
+
+        verifyNoInteractions(agent);
+        verify(outbound).sendMenuIfDue(conversationId, AutoResponder.MENU_BODY, AutoResponder.MENU_BUTTON,
+                AutoResponder.MENU_ROWS, Duration.ofSeconds(60));
     }
 }

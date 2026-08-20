@@ -4,6 +4,7 @@ import com.uom.lims.whatsapp.agent.AgentOrchestrator;
 import com.uom.lims.whatsapp.agent.AgentProperties;
 import com.uom.lims.whatsapp.config.AsyncConfig;
 import com.uom.lims.whatsapp.config.MetaProperties;
+import com.uom.lims.whatsapp.outbound.MetaSendClient;
 import com.uom.lims.whatsapp.outbound.OutboundMessageService;
 import com.uom.lims.whatsapp.util.PiiMasker;
 import lombok.RequiredArgsConstructor;
@@ -14,13 +15,17 @@ import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.Optional;
 
 /**
  * Decides what a stored inbound message gets back, off the request thread, after commit.
  *
- * <p>Three tiers, each failing closed into the next:
+ * <p>Four tiers, each failing closed into the next:
  * <ol>
+ *   <li>The welcome menu — for bare greetings, deterministically, without a model call.
+ *       A patient who says "hi" wants to know what this thing does; a menu answers that
+ *       faster and cheaper than Gemini ever could.</li>
  *   <li>The agent — when it is configured and the message has text.</li>
  *   <li>A short bilingual "could not process" line when the agent was supposed to answer
  *       and could not, cooldown-limited so an outage does not spam a patient.</li>
@@ -42,6 +47,25 @@ public class AutoResponder {
 
     private static final Duration FALLBACK_COOLDOWN = Duration.ofMinutes(5);
 
+    /** "hi hi hi" gets one menu, not three; anything longer than this gap gets a fresh one. */
+    private static final Duration MENU_COOLDOWN = Duration.ofSeconds(60);
+
+    static final String MENU_BODY = """
+            ආයුබෝවන්! Durdans Laboratory 🙏
+            මොනවද ඕනෑ කියලා menu එකෙන් තෝරන්න — නැත්නම් ප්‍රශ්නය කෙලින්ම type කරන්න.
+
+            Welcome! Pick from the menu, or just type your question.""";
+
+    static final String MENU_BUTTON = "Menu";
+
+    /** Row titles double as the agent's input when tapped, so they must read as intents. */
+    static final List<MetaSendClient.MenuRow> MENU_ROWS = List.of(
+            new MetaSendClient.MenuRow("menu_prices", "Test prices", "පරීක්ෂණ මිල ගණන්"),
+            new MetaSendClient.MenuRow("menu_packages", "Health packages", "පැකේජ සහ ඉතිරිකිරීම්"),
+            new MetaSendClient.MenuRow("menu_report", "Report status", "රිපෝට් එක ready ද බලන්න"),
+            new MetaSendClient.MenuRow("menu_prep", "Test preparation", "නිරාහාරව ඒම / සූදානම"),
+            new MetaSendClient.MenuRow("menu_contact", "Contact us", "දුරකථන සහ ලිපිනය"));
+
     private final AutoReplyProperties properties;
     private final MetaProperties meta;
     private final AgentProperties agentProperties;
@@ -56,6 +80,10 @@ public class AutoResponder {
             log.debug("Send credentials not configured; skipping reply");
             return;
         }
+        if (Greetings.isBareGreeting(event.body())) {
+            sendMenu(event);
+            return;
+        }
         if (agentProperties.isConfigured() && event.body() != null && !event.body().isBlank()) {
             answerWithAgent(event);
             return;
@@ -63,9 +91,18 @@ public class AutoResponder {
         greet(event);
     }
 
+    private void sendMenu(InboundMessageStoredEvent event) {
+        try {
+            outbound.sendMenuIfDue(event.conversationId(), MENU_BODY, MENU_BUTTON, MENU_ROWS, MENU_COOLDOWN)
+                    .ifPresent(m -> log.info("Sent welcome menu to {}", PiiMasker.maskWaId(event.waId())));
+        } catch (Exception e) {
+            log.error("Welcome menu to {} failed", PiiMasker.maskWaId(event.waId()), e);
+        }
+    }
+
     private void answerWithAgent(InboundMessageStoredEvent event) {
         try {
-            Optional<String> answer = agent.reply(event.conversationId());
+            Optional<String> answer = agent.reply(event.conversationId(), event.waId());
             if (answer.isPresent()) {
                 outbound.sendFreeFormText(event.conversationId(), answer.get())
                         .ifPresent(m -> log.info("Agent answered {}", PiiMasker.maskWaId(event.waId())));

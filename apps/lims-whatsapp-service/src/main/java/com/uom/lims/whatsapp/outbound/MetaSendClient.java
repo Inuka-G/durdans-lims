@@ -2,6 +2,8 @@ package com.uom.lims.whatsapp.outbound;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.uom.lims.whatsapp.config.MetaProperties;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
@@ -27,10 +29,16 @@ public class MetaSendClient {
 
     private final MetaProperties properties;
     private final RestClient restClient;
+    private final ObjectMapper objectMapper;
 
-    public MetaSendClient(MetaProperties properties, RestClient metaRestClient) {
+    public MetaSendClient(MetaProperties properties, RestClient metaRestClient, ObjectMapper objectMapper) {
         this.properties = properties;
         this.restClient = metaRestClient;
+        this.objectMapper = objectMapper;
+    }
+
+    /** One row of an interactive list. Meta caps title at 24 chars, description at 72. */
+    public record MenuRow(String id, String title, String description) {
     }
 
     /**
@@ -40,6 +48,39 @@ public class MetaSendClient {
      * @return the {@code wamid} Meta assigned, which is what delivery statuses key on
      */
     public String sendText(String toWaId, String body) {
+        return dispatch(new TextPayload("whatsapp", "individual", toWaId, "text",
+                new TextPayload.Text(false, body)));
+    }
+
+    /**
+     * Sends an interactive list message — a body line plus a tappable menu. Inside the
+     * 24-hour window these are ordinary free-form messages needing no Meta approval;
+     * the tap comes back on the webhook as a {@code list_reply} carrying the row title.
+     */
+    public String sendInteractiveList(String toWaId, String body, String buttonLabel, List<MenuRow> rows) {
+        ObjectNode root = objectMapper.createObjectNode();
+        root.put("messaging_product", "whatsapp");
+        root.put("recipient_type", "individual");
+        root.put("to", toWaId);
+        root.put("type", "interactive");
+        var interactive = root.putObject("interactive");
+        interactive.put("type", "list");
+        interactive.putObject("body").put("text", body);
+        var action = interactive.putObject("action");
+        action.put("button", buttonLabel);
+        var rowsNode = action.putArray("sections").addObject().putArray("rows");
+        for (MenuRow row : rows) {
+            var rowNode = rowsNode.addObject();
+            rowNode.put("id", row.id());
+            rowNode.put("title", row.title());
+            if (row.description() != null && !row.description().isBlank()) {
+                rowNode.put("description", row.description());
+            }
+        }
+        return dispatch(root);
+    }
+
+    private String dispatch(Object payload) {
         if (!properties.isSendConfigured()) {
             // Same posture as the signature verifier: a half-configured deployment
             // refuses locally instead of sending an unauthenticated call to Meta.
@@ -50,7 +91,7 @@ public class MetaSendClient {
                 .uri(properties.phoneNumberEndpoint() + "/messages")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + properties.accessToken())
                 .contentType(MediaType.APPLICATION_JSON)
-                .body(new TextPayload("whatsapp", "individual", toWaId, "text", new TextPayload.Text(false, body)))
+                .body(payload)
                 .retrieve()
                 .onStatus(HttpStatusCode::isError, (request, res) -> {
                     throw new MetaSendException("Graph API returned " + res.getStatusCode().value()
