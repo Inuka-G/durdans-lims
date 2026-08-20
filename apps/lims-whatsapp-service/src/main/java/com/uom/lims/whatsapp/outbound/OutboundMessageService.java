@@ -94,7 +94,28 @@ public class OutboundMessageService {
         if (conversationRepository.claimAutoReply(conversationId, now, now.minus(cooldown)) == 0) {
             return Optional.empty();
         }
+        return Optional.of(deliverMenu(conversation, body, buttonLabel, rows, now));
+    }
 
+    /**
+     * A sub-menu in direct answer to a tap. No claim on purpose: the previous menu set
+     * {@code lastOutboundAt} seconds ago, so a cooldown here would swallow the very
+     * navigation the patient just asked for. Taps are rate-limited by thumbs.
+     */
+    @Transactional
+    public Optional<WaMessageEntity> sendMenu(UUID conversationId, String body, String buttonLabel,
+                                              List<MetaSendClient.MenuRow> rows) {
+        WaConversationEntity conversation = conversationRepository.findById(conversationId)
+                .orElseThrow(() -> new MetaSendException("No conversation " + conversationId));
+        Instant now = Instant.now();
+        if (!conversation.canSendFreeForm(now)) {
+            return Optional.empty();
+        }
+        return Optional.of(deliverMenu(conversation, body, buttonLabel, rows, now));
+    }
+
+    private WaMessageEntity deliverMenu(WaConversationEntity conversation, String body, String buttonLabel,
+                                        List<MetaSendClient.MenuRow> rows, Instant now) {
         String waId = conversation.getContact().getWaId();
         String wamid = sendClient.sendInteractiveList(waId, body, buttonLabel, rows);
 
@@ -112,8 +133,8 @@ public class OutboundMessageService {
         conversation.registerOutbound(now);
         conversationRepository.save(conversation);
 
-        log.info("Sent welcome menu to {}", PiiMasker.maskWaId(waId));
-        return Optional.of(message);
+        log.info("Sent menu to {}", PiiMasker.maskWaId(waId));
+        return message;
     }
 
     private WaMessageEntity deliver(WaConversationEntity conversation, String body, Instant now) {
