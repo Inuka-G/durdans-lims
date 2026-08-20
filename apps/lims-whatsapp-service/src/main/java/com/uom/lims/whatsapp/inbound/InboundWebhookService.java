@@ -121,6 +121,26 @@ public class InboundWebhookService {
     }
 
     /**
+     * The machine id behind a tap, for deterministic routing. Null for typed text —
+     * which is precisely how the router knows to stand aside and let the agent answer.
+     */
+    static String extractInteractiveId(WebhookPayload.Message message) {
+        WebhookPayload.Interactive interactive = message.interactive();
+        if (interactive != null) {
+            if (interactive.buttonReply() != null) {
+                return interactive.buttonReply().id();
+            }
+            if (interactive.listReply() != null) {
+                return interactive.listReply().id();
+            }
+        }
+        if (message.button() != null) {
+            return message.button().payload();
+        }
+        return null;
+    }
+
+    /**
      * Meta sends Unix seconds as a quoted string. A malformed value must not drop the
      * message: our clock is a worse record than Meta's, but it is a far better outcome
      * than losing what the patient said.

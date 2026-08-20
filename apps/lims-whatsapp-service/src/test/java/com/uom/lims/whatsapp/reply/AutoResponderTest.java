@@ -38,15 +38,23 @@ class AutoResponderTest {
     private AgentOrchestrator agent;
 
     @Mock
+    private MenuRouter menuRouter;
+
+    @Mock
     private OutboundMessageService outbound;
 
     private static InboundMessageStoredEvent event(UUID conversationId, String body) {
         return new InboundMessageStoredEvent(
-                UUID.randomUUID(), conversationId, "94770000002", body, "text");
+                UUID.randomUUID(), conversationId, "94770000002", body, "text", null);
+    }
+
+    private static InboundMessageStoredEvent tap(UUID conversationId, String interactiveId, String title) {
+        return new InboundMessageStoredEvent(
+                UUID.randomUUID(), conversationId, "94770000002", title, "interactive", interactiveId);
     }
 
     private AutoResponder responder(AutoReplyProperties greeting, MetaProperties meta, AgentProperties agentProps) {
-        return new AutoResponder(greeting, meta, agentProps, agent, outbound);
+        return new AutoResponder(greeting, meta, agentProps, agent, menuRouter, outbound);
     }
 
     private static AutoReplyProperties greetingEnabled() {
@@ -111,13 +119,26 @@ class AutoResponderTest {
     }
 
     @Test
-    void aMenuRowTapReadsAsTextAndGoesToTheAgent() {
+    void aRoutedTapEndsThereWithoutTheAgent() {
         UUID conversationId = UUID.randomUUID();
-        when(agent.reply(conversationId, "94770000002")).thenReturn(Optional.of("Please send the order number."));
+        InboundMessageStoredEvent tapped = tap(conversationId, "menu_report", "Report status");
+        when(menuRouter.route(tapped)).thenReturn(true);
+
+        responder(greetingEnabled(), SEND_CONFIGURED, AGENT_ON).onInboundStored(tapped);
+
+        verifyNoInteractions(agent);
+        verify(outbound, never()).sendFreeFormText(any(), any());
+    }
+
+    @Test
+    void anUnroutedTapFallsThroughToTheAgent() {
+        UUID conversationId = UUID.randomUUID();
+        InboundMessageStoredEvent tapped = tap(conversationId, "test_UNKNOWN", "Mystery test");
+        when(menuRouter.route(tapped)).thenReturn(false);
+        when(agent.reply(conversationId, "94770000002")).thenReturn(Optional.of("Could not find that one."));
         when(outbound.sendFreeFormText(any(), any())).thenReturn(Optional.empty());
 
-        responder(greetingEnabled(), SEND_CONFIGURED, AGENT_ON)
-                .onInboundStored(event(conversationId, "Report status"));
+        responder(greetingEnabled(), SEND_CONFIGURED, AGENT_ON).onInboundStored(tapped);
 
         verify(agent).reply(conversationId, "94770000002");
     }

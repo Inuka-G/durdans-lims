@@ -42,6 +42,15 @@ public record AgentProperties(
         return enabled && !blank(geminiApiKey) && !blank(clientSecret);
     }
 
+    /**
+     * Whether the catalogue can be reached at all. Deliberately independent of the
+     * Gemini key: the deterministic menus only need the core, so a missing model key
+     * degrades the bot to menus rather than to silence.
+     */
+    public boolean isCoreConfigured() {
+        return enabled && !blank(clientSecret);
+    }
+
     private static boolean blank(String value) {
         return value == null || value.isBlank();
     }
