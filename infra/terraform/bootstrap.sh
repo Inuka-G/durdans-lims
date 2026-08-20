@@ -39,15 +39,11 @@ DB_JSON="$(get_json "$DB_SECRET")"
 DB_URL="$(echo "$DB_JSON" | jq_field url)"
 DB_USERNAME="$(echo "$DB_JSON" | jq_field username)"
 DB_PASSWORD="$(echo "$DB_JSON" | jq_field password)"
-DB_HOST="$(echo "$DB_JSON" | jq_field host)"
-DB_PORT="$(echo "$DB_JSON" | jq_field port)"
-DB_NAME="$(echo "$DB_JSON" | jq_field dbname)"
 
 WA_DB_JSON="$(get_json "$WA_DB_SECRET")"
 WA_DB_URL="$(echo "$WA_DB_JSON" | jq_field url)"
 WA_DB_USERNAME="$(echo "$WA_DB_JSON" | jq_field username)"
 WA_DB_PASSWORD="$(echo "$WA_DB_JSON" | jq_field password)"
-WA_DB_NAME="$(echo "$WA_DB_JSON" | jq_field dbname)"
 
 META_JSON="$(get_json "$META_SECRET")"
 META_APP_ID="$(echo "$META_JSON" | jq_field app_id)"
@@ -104,37 +100,6 @@ META_SECRET=${META_SECRET}
 ENVEOF
 chmod 600 .env
 
-# --- The agent's own role and database on the same RDS instance --------------
-# Idempotent: this script re-runs on every instance replacement, and RDS survives
-# that, so both objects will usually already exist. Creating them here rather than
-# in Terraform keeps the master password out of Terraform state beyond the secret
-# it already holds, and avoids making Terraform reach into a private subnet.
-#
-# psql is not installed on AL2023, so borrow it from the postgres image that is
-# already being pulled for Keycloak's database anyway.
-psql_admin() {
-  docker run --rm -e PGPASSWORD="${DB_PASSWORD}" postgres:15     psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USERNAME}" -d "${DB_NAME}"       -v ON_ERROR_STOP=1 "$@"
-}
-
-if [[ -n "${WA_DB_USERNAME}" ]]; then
-  if ! psql_admin -tAc "SELECT 1 FROM pg_roles WHERE rolname = '${WA_DB_USERNAME}'" | grep -q 1; then
-    # The password charset excludes a single quote, so this literal is safe.
-    psql_admin -c "CREATE ROLE \"${WA_DB_USERNAME}\" LOGIN PASSWORD '${WA_DB_PASSWORD}'"
-    echo "created postgres role ${WA_DB_USERNAME}"
-  else
-    # Keep the role's password in step with the secret after a rotation.
-    psql_admin -c "ALTER ROLE \"${WA_DB_USERNAME}\" WITH PASSWORD '${WA_DB_PASSWORD}'"
-  fi
-
-  if ! psql_admin -tAc "SELECT 1 FROM pg_database WHERE datname = '${WA_DB_NAME}'" | grep -q 1; then
-    psql_admin -c "CREATE DATABASE \"${WA_DB_NAME}\" OWNER \"${WA_DB_USERNAME}\""
-    echo "created database ${WA_DB_NAME}"
-  fi
-
-  # Nothing is granted on durdans_lims_db. The agent role can only ever see its
-  # own database, which is what makes the isolation real rather than intended.
-fi
-
 # Keycloak realm seed. Uploaded by Terraform (aws_s3_object.keycloak_realm_seed)
 # because user_data is capped at 16 KB and the realm JSON is ~80 KB. Without it
 # Keycloak starts with --import-realm and nothing to import, so lims-realm never
@@ -177,6 +142,20 @@ PY
 aws s3 cp "s3://${S3_BUCKET}/bootstrap/deploy-service.sh" \
   /opt/lims/deploy-service.sh --region "${AWS_REGION}"
 chmod 700 /opt/lims/deploy-service.sh
+
+# Same reason as deploy-service.sh: EC2 caps user_data at 16 KB, so anything that is
+# not strictly boot glue lives in S3. provision-wa-db.sh creates the agent's own
+# Postgres role and database on RDS; refresh-meta.sh re-reads the Meta secret after
+# an operator fills or rotates it, without replacing the instance.
+aws s3 cp "s3://${S3_BUCKET}/bootstrap/provision-wa-db.sh" \
+  /opt/lims/provision-wa-db.sh --region "${AWS_REGION}"
+aws s3 cp "s3://${S3_BUCKET}/bootstrap/refresh-meta.sh" \
+  /opt/lims/refresh-meta.sh --region "${AWS_REGION}"
+chmod 700 /opt/lims/provision-wa-db.sh /opt/lims/refresh-meta.sh
+
+# Never fatal: the lab must not fail to boot because the agent's database could not
+# be provisioned. The service fails its own health check instead, in isolation.
+/opt/lims/provision-wa-db.sh || true
 
 if [[ -n "${DOMAIN_NAME}" ]]; then
   cat > Caddyfile <<CADDY
@@ -364,62 +343,6 @@ docker compose up -d kc-db keycloak kafka caddy
 # the hostname simply 502s until the first deploy lands.
 /opt/lims/deploy-service.sh whatsapp "${WHATSAPP_TAG}" || true
 
-# Re-read the Meta credentials from Secrets Manager into .env and restart the agent.
-#
-# WHY: Terraform creates that secret empty on purpose and an operator fills it in
-# afterwards, but .env is only written here, at boot. Without this, filling the secret
-# appears to do nothing, and the only way to pick it up would be to replace the
-# instance - which costs the Keycloak database. One command is a better answer than
-# that. It is also how a rotated app secret gets applied.
-cat >/opt/lims/refresh-meta.sh <<'REFRESH'
-#!/usr/bin/env bash
-set -Eeuo pipefail
-cd /opt/lims
-
-region="$(sed -n 's/^AWS_REGION=//p' .env | tail -n 1)"
-secret="$(sed -n 's/^META_SECRET=//p' .env | tail -n 1)"
-if [[ -z "${secret}" ]]; then
-  echo "META_SECRET is not recorded in .env; nothing to refresh from" >&2
-  exit 1
-fi
-
-json="$(aws secretsmanager get-secret-value --region "${region}" \
-          --secret-id "${secret}" --query SecretString --output text)"
-
-# Passed through the environment rather than a pipe: `python3 <<` already uses
-# stdin for the program itself.
-META_JSON="${json}" python3 <<'PY'
-import io, json, os, re
-
-data = json.loads(os.environ["META_JSON"])
-fields = {
-    "META_APP_ID": "app_id",
-    "META_APP_SECRET": "app_secret",
-    "META_VERIFY_TOKEN": "verify_token",
-    "META_PHONE_NUMBER_ID": "phone_number_id",
-    "META_WABA_ID": "waba_id",
-    "META_ACCESS_TOKEN": "access_token",
-}
-
-env = io.open(".env", encoding="utf-8").read()
-for key, field in fields.items():
-    line = key + "=" + str(data.get(field, ""))
-    pattern = "^" + re.escape(key) + "=.*$"
-    if re.search(pattern, env, re.M):
-        # A lambda, not a replacement string: a backslash in a secret would
-        # otherwise be read as an escape and silently corrupt the value.
-        env = re.sub(pattern, lambda _m: line, env, count=1, flags=re.M)
-    else:
-        env = env.rstrip("\n") + "\n" + line + "\n"
-
-io.open(".env", "w", encoding="utf-8").write(env)
-print("refreshed 6 META_ values in .env")
-PY
-
-docker compose up -d --no-deps whatsapp
-echo "whatsapp restarted against the refreshed credentials"
-REFRESH
-chmod 700 /opt/lims/refresh-meta.sh
 
 # Keycloak uses its own Postgres volume on this cost-optimized host. Back it up
 # off-host every night so an EC2/EBS loss does not also remove the identity DB.

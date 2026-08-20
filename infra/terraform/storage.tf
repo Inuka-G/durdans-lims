@@ -158,6 +158,27 @@ resource "aws_s3_object" "deploy_service_script" {
   cache_control = "no-cache"
 }
 
+# The WhatsApp agent's host-side setup, kept out of user_data for the same reason as
+# deploy-service.sh above — and, in this case, because inlining it is what pushed the
+# bootstrap past EC2's 16 KB user_data cap.
+resource "aws_s3_object" "provision_wa_db_script" {
+  bucket = aws_s3_bucket.patient_docs.id
+  key    = "bootstrap/provision-wa-db.sh"
+  source = "${path.module}/../scripts/provision-wa-db.sh"
+  etag   = filemd5("${path.module}/../scripts/provision-wa-db.sh")
+
+  cache_control = "no-cache"
+}
+
+resource "aws_s3_object" "refresh_meta_script" {
+  bucket = aws_s3_bucket.patient_docs.id
+  key    = "bootstrap/refresh-meta.sh"
+  source = "${path.module}/../scripts/refresh-meta.sh"
+  etag   = filemd5("${path.module}/../scripts/refresh-meta.sh")
+
+  cache_control = "no-cache"
+}
+
 resource "aws_s3_object" "keycloak_theme_login_ftl" {
   bucket = aws_s3_bucket.patient_docs.id
   key    = "bootstrap/keycloak-themes/lims-theme/login/login.ftl"
