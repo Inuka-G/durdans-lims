@@ -1,0 +1,147 @@
+name: WhatsApp Service Release
+
+# Build the image, scan it, push to ECR, and roll it out to the host via SSM.
+# Mirrors core-service-release.yml deliberately: two release pipelines that drift
+# apart are two pipelines nobody trusts. All AWS steps are gated on the
+# AWS_DEPLOY_ROLE_ARN repo variable, so before the cloud is wired this workflow
+# still builds + scans the image as a CI signal.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/lims-whatsapp-service/**"
+      - ".github/workflows/whatsapp-service-release.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # OIDC -> AWS
+  security-events: write # Trivy SARIF upload
+
+# Never two rollouts of the same service to the same host at once. Deploys queue
+# rather than cancel: this service runs Liquibase against RDS on start, and a
+# cancelled rollout mid-migration is worse than a slow one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+  AWS_INSTANCE_ID: ${{ vars.AWS_INSTANCE_ID }}
+  ECR_REPO: durdans-lims/whatsapp-service
+
+defaults:
+  run:
+    working-directory: apps/lims-whatsapp-service
+
+jobs:
+  build-scan-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      # Includes the Testcontainers integration tests, which is the point: the
+      # idempotency guarantee rests on a unique index actually rejecting a second
+      # insert, and only a real Postgres proves that.
+      - name: Test + build jar
+        run: ./gradlew clean build --no-daemon
+
+      - name: Build image
+        run: docker build -t lims-whatsapp-service:${{ github.sha }} .
+
+      - name: Trivy gate (fail on HIGH/CRITICAL)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: lims-whatsapp-service:${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+
+      # Keep the full vulnerability inventory in GitHub code scanning without
+      # making MEDIUM/LOW findings override the HIGH/CRITICAL release gate.
+      - name: Trivy SARIF report
+        if: always()
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: lims-whatsapp-service:${{ github.sha }}
+          format: sarif
+          output: trivy-whatsapp.sarif
+          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+          exit-code: "0"
+          ignore-unfixed: true
+
+      # trivy-action is a `uses:` step, so it ignores defaults.run.working-directory
+      # and writes to the workspace root. Both paths below stay root-relative.
+      #
+      # continue-on-error for the same reason as the core service: this step only
+      # files a report, the release gate already ran above, and a code-scanning API
+      # hiccup must not skip the push and rollout of a build that passed.
+      - name: Upload Trivy SARIF
+        if: always()
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-whatsapp.sarif
+          category: trivy-whatsapp
+
+      - name: Configure AWS credentials (OIDC)
+        if: ${{ github.ref == 'refs/heads/main' && vars.AWS_DEPLOY_ROLE_ARN != '' && vars.AWS_INSTANCE_ID != '' }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        if: ${{ github.ref == 'refs/heads/main' && vars.AWS_DEPLOY_ROLE_ARN != '' && vars.AWS_INSTANCE_ID != '' }}
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Tag + push to ECR
+        if: ${{ github.ref == 'refs/heads/main' && vars.AWS_DEPLOY_ROLE_ARN != '' && vars.AWS_INSTANCE_ID != '' }}
+        run: |
+          REG=${{ steps.ecr.outputs.registry }}
+          docker tag lims-whatsapp-service:${{ github.sha }} $REG/$ECR_REPO:${{ github.sha }}
+          docker tag lims-whatsapp-service:${{ github.sha }} $REG/$ECR_REPO:latest
+          docker push $REG/$ECR_REPO:${{ github.sha }}
+          docker push $REG/$ECR_REPO:latest
+
+      - name: Deploy to host (SSM — pull + restart)
+        if: ${{ github.ref == 'refs/heads/main' && vars.AWS_DEPLOY_ROLE_ARN != '' && vars.AWS_INSTANCE_ID != '' }}
+        run: |
+          PARAMS=$(jq -nc --arg command "/opt/lims/deploy-service.sh whatsapp $GITHUB_SHA" '{commands:[$command]}')
+          COMMAND_ID=$(aws ssm send-command \
+            --region "$AWS_REGION" \
+            --document-name "AWS-RunShellScript" \
+            --instance-ids "$AWS_INSTANCE_ID" \
+            --comment "deploy whatsapp ${{ github.sha }}" \
+            --parameters "$PARAMS" \
+            --query 'Command.CommandId' \
+            --output text)
+
+          if ! aws ssm wait command-executed \
+            --region "$AWS_REGION" \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$AWS_INSTANCE_ID"; then
+            aws ssm get-command-invocation \
+              --region "$AWS_REGION" \
+              --command-id "$COMMAND_ID" \
+              --instance-id "$AWS_INSTANCE_ID" \
+              --query '{Status:Status,Output:StandardOutputContent,Error:StandardErrorContent}' || true
+            exit 1
+          fi
+
+          aws ssm get-command-invocation \
+            --region "$AWS_REGION" \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$AWS_INSTANCE_ID" \
+            --query 'StandardOutputContent' \
+            --output text

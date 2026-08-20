@@ -20,9 +20,17 @@ management:
     health:
       probes:
         enabled: true
+  # Tracing mirrors lims-core-service so both services land in the same Tempo view.
+  # Export is switchable because there is no collector on the production host: an
+  # exporter pointed at a collector that is not there retries and warns forever, which
+  # turns a nice-to-have into log noise on the one deployment people actually read.
   tracing:
+    enabled: ${TRACING_ENABLED:true}
     sampling:
-      probability: 1.0
+      probability: ${TRACING_SAMPLE_RATE:1.0}
+  otlp:
+    tracing:
+      endpoint: ${OTLP_ENDPOINT:http://localhost:4318/v1/traces}
 
 spring:
   application:

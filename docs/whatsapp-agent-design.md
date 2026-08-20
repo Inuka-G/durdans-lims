@@ -84,6 +84,43 @@ The first three are content problems as much as code problems — several hundre
 names and fasting rules need clinical and linguistic sign-off. That work is the schedule
 critical path, not the code.
 
+## Deploying to the EC2 host
+
+Caddy terminates TLS for a fourth hostname, `wa.<domain>`, and proxies it to the
+service on the compose network. The service publishes no host port: the webhook is the
+only thing it exposes and it should reach the internet through TLS, not through a
+published container port.
+
+**Order matters, and getting it wrong bricks the boot.** `bootstrap.sh` runs
+`docker compose up` for the whole stack, so if the WhatsApp image is not in ECR yet the
+pull fails and takes the rest of the stack with it. Push an image first:
+
+1. Merge to `main` so `whatsapp-service-release.yml` builds and pushes `:latest`, or
+   push one by hand from a machine with AWS credentials.
+2. Fill in the `durdans-lims/meta` secret — it is created empty on purpose and the
+   service rejects every webhook while the app secret is blank.
+3. `terraform apply`.
+4. Point Meta's callback URL at `https://wa.<domain>/webhook/whatsapp`.
+
+**`terraform apply` replaces the EC2 instance** whenever `bootstrap.sh` changes, because
+`user_data_replace_on_change = true`. What that costs:
+
+| | |
+|---|---|
+| LIMS / patient data | Safe — RDS is a separate resource |
+| WhatsApp conversation data | Safe — also RDS, in `durdans_wa_db` |
+| Elastic IP, so the URL | Safe |
+| Keycloak's database | **Lost** — it is a container volume, and the realm re-imports to its seed state |
+
+The agent gets its own Postgres role and database on the same RDS instance, created
+idempotently by `bootstrap.sh`. Nothing is granted to that role on `durdans_lims_db`,
+which is what makes the isolation something Postgres enforces rather than something the
+design intends.
+
+A caveat on `nip.io`: the hostname contains the IP address, so changing the Elastic IP
+changes the webhook URL. Meta's callback URL is awkward to change — re-verification has
+a window where deliveries fail — so a real domain is worth having before launch.
+
 ## Phase 1 — landed
 
 - `test_package`, `test_package_item`, `test_catalog_i18n`, `test_package_i18n`; fasting

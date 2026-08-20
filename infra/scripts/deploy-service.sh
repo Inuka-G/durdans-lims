@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Deploy one immutable application image on the EC2 compose host.
-# Usage: deploy-service.sh <app|frontend> <image-tag>
+# Usage: deploy-service.sh <app|frontend|whatsapp> <image-tag>
 
 set -Eeuo pipefail
 
@@ -18,8 +18,15 @@ case "${SERVICE}" in
     TAG_VARIABLE="FRONTEND_TAG"
     HEALTH_TIMEOUT_SECONDS=180
     ;;
+  whatsapp)
+    # Liquibase runs against RDS on start, so allow the same headroom as the app
+    # rather than the frontend's: a slow migration must not be read as a failed
+    # deploy and rolled back mid-migration.
+    TAG_VARIABLE="WHATSAPP_TAG"
+    HEALTH_TIMEOUT_SECONDS=300
+    ;;
   *)
-    echo "Usage: $0 <app|frontend> <image-tag>" >&2
+    echo "Usage: $0 <app|frontend|whatsapp> <image-tag>" >&2
     exit 64
     ;;
 esac
