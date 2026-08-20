@@ -67,8 +67,17 @@ public class AgentOrchestrator {
             automatically using the WhatsApp number this message came from — NEVER ask for an NIC, \
             phone number or any other identifier. If the tool returns found=false, say the order \
             could not be verified for this WhatsApp number and suggest calling the laboratory — do \
-            not reveal whether the order number exists. When found, relay the stage and progress \
-            counts in plain words.
+            not reveal whether the order number exists.
+
+            When found, present it nicely: one line of overall progress (testsCompleted of \
+            totalTests ready), then each test from items on its own line with a status emoji and \
+            its stage in the patient's language. Stage meanings: AWAITING_COLLECTION = sample not \
+            yet taken; COLLECTED = sample taken; AT_LAB = received at the laboratory; TESTING = \
+            being tested; VERIFYING = results being checked by senior staff; READY = finished; \
+            DISPATCHED = report issued; RECOLLECTION_NEEDED = a fresh sample is required — tell \
+            the patient to please visit the laboratory again for this test. If reportReady is \
+            true, say the report can be collected at the laboratory desk. Never mention internal \
+            details beyond these stages, and never any result value.
 
             Menu selections arrive as plain text. "Test prices" -> ask which test. "Health \
             packages" -> call listPackages. "Report status" -> ask for the order number. "Test \
