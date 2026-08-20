@@ -179,6 +179,15 @@ resource "aws_s3_object" "refresh_meta_script" {
   cache_control = "no-cache"
 }
 
+resource "aws_s3_object" "fetch_agent_secret_script" {
+  bucket = aws_s3_bucket.patient_docs.id
+  key    = "bootstrap/fetch-agent-secret.sh"
+  source = "${path.module}/../scripts/fetch-agent-secret.sh"
+  etag   = filemd5("${path.module}/../scripts/fetch-agent-secret.sh")
+
+  cache_control = "no-cache"
+}
+
 resource "aws_s3_object" "keycloak_theme_login_ftl" {
   bucket = aws_s3_bucket.patient_docs.id
   key    = "bootstrap/keycloak-themes/lims-theme/login/login.ftl"

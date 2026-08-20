@@ -37,6 +37,9 @@ fields = {
     "META_PHONE_NUMBER_ID": "phone_number_id",
     "META_WABA_ID": "waba_id",
     "META_ACCESS_TOKEN": "access_token",
+    # Rides in the same secret rather than its own: it is filled by the same operator
+    # at the same moment, and one refresh script beats two that must both be remembered.
+    "GEMINI_API_KEY": "gemini_api_key",
 }
 
 env = io.open(".env", encoding="utf-8").read()
@@ -52,7 +55,7 @@ for key, field in fields.items():
         env = env.rstrip("\n") + "\n" + line + "\n"
 
 io.open(".env", "w", encoding="utf-8").write(env)
-print("refreshed 6 META_ values in .env")
+print(f"refreshed {len(fields)} values in .env")
 PY
 
 docker compose up -d --no-deps whatsapp
