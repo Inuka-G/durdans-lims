@@ -1,0 +1,285 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+
+    <!-- WHY (WhatsApp agent, phase 1): the catalogue can price a single test but has no
+         concept of a bundle, and carries no Sinhala or Tamil name for anything. Both are
+         needed before an agent can answer the two questions patients actually ask -
+         "what does the diabetic package cost" and the same question in Sinhala.
+
+         Prep rules land here too: the reason a patient's sample gets rejected is almost
+         always that nobody told them to fast. -->
+
+    <changeSet id="20260820110000-1-create-test-package" author="lims">
+        <createTable tableName="test_package">
+            <column name="id" type="uuid">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="package_code" type="varchar(64)">
+                <constraints nullable="false" unique="true" uniqueConstraintName="uk_test_package_code"/>
+            </column>
+            <column name="package_name" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="category" type="varchar(128)"/>
+            <column name="description" type="text"/>
+            <!-- The bundle price. Deliberately NOT derived from the sum of its items:
+                 a package is priced by the business, and the saving is what makes it a
+                 package. The saving is computed for display, never stored. -->
+            <column name="price" type="numeric(12,2)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="is_active" type="boolean" defaultValueBoolean="true">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="timestamp with time zone">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_by" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="timestamp with time zone"/>
+            <column name="updated_by" type="varchar(255)"/>
+            <column name="is_deleted" type="boolean" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+            <column name="version" type="bigint" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="20260820110000-2-create-test-package-item" author="lims">
+        <createTable tableName="test_package_item">
+            <column name="id" type="uuid">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="package_id" type="uuid">
+                <constraints nullable="false"/>
+            </column>
+            <column name="test_id" type="uuid">
+                <constraints nullable="false"/>
+            </column>
+            <column name="display_order" type="int" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="timestamp with time zone">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_by" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="timestamp with time zone"/>
+            <column name="updated_by" type="varchar(255)"/>
+            <column name="is_deleted" type="boolean" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+            <column name="version" type="bigint" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <addForeignKeyConstraint
+                baseTableName="test_package_item" baseColumnNames="package_id"
+                referencedTableName="test_package" referencedColumnNames="id"
+                constraintName="fk_test_package_item_package"/>
+        <addForeignKeyConstraint
+                baseTableName="test_package_item" baseColumnNames="test_id"
+                referencedTableName="test_catalog" referencedColumnNames="id"
+                constraintName="fk_test_package_item_test"/>
+        <!-- The same test cannot appear twice in one package: it would be billed twice
+             in the itemised view and would inflate the advertised saving. -->
+        <addUniqueConstraint
+                tableName="test_package_item" columnNames="package_id, test_id"
+                constraintName="uk_test_package_item_package_test"/>
+    </changeSet>
+
+    <changeSet id="20260820110000-3-add-catalog-prep-columns" author="lims">
+        <addColumn tableName="test_catalog">
+            <column name="fasting_required" type="boolean" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+            <!-- Hours of fasting. Null when fasting_required is false. Structured rather
+                 than only prose because the slot picker in phase 3 has to filter on it,
+                 and because "12 hours" must read identically in all three languages. -->
+            <column name="fasting_hours" type="int"/>
+            <column name="water_allowed" type="boolean" defaultValueBoolean="true">
+                <constraints nullable="false"/>
+            </column>
+            <!-- Flags tests whose preparation is more than fasting - a 24-hour urine
+                 collection, a medication hold. The detail is in the localized text. -->
+            <column name="special_prep_required" type="boolean" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+    </changeSet>
+
+    <changeSet id="20260820110000-4-create-test-catalog-i18n" author="lims">
+        <createTable tableName="test_catalog_i18n">
+            <column name="id" type="uuid">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="test_id" type="uuid">
+                <constraints nullable="false"/>
+            </column>
+            <!-- BCP-47 primary subtag: si | ta | en -->
+            <column name="locale" type="varchar(8)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="test_name" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+            <!-- What patients actually call it, which is rarely the formal translation.
+                 Feeds both the agent's understanding and the voice vocabulary. -->
+            <column name="colloquial_name" type="varchar(255)"/>
+            <column name="prep_instruction" type="text"/>
+            <!-- Nothing is quoted to a patient until a human has signed it off. An
+                 unreviewed row is invisible to the agent, which falls back to English
+                 rather than showing a machine translation of a medical term. -->
+            <column name="reviewed_by" type="varchar(255)"/>
+            <column name="reviewed_at" type="timestamp with time zone"/>
+            <column name="created_at" type="timestamp with time zone">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_by" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="timestamp with time zone"/>
+            <column name="updated_by" type="varchar(255)"/>
+            <column name="is_deleted" type="boolean" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+            <column name="version" type="bigint" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <addForeignKeyConstraint
+                baseTableName="test_catalog_i18n" baseColumnNames="test_id"
+                referencedTableName="test_catalog" referencedColumnNames="id"
+                constraintName="fk_test_catalog_i18n_test"/>
+        <addUniqueConstraint
+                tableName="test_catalog_i18n" columnNames="test_id, locale"
+                constraintName="uk_test_catalog_i18n_test_locale"/>
+    </changeSet>
+
+    <changeSet id="20260820110000-5-create-test-package-i18n" author="lims">
+        <createTable tableName="test_package_i18n">
+            <column name="id" type="uuid">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="package_id" type="uuid">
+                <constraints nullable="false"/>
+            </column>
+            <column name="locale" type="varchar(8)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="package_name" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="description" type="text"/>
+            <column name="reviewed_by" type="varchar(255)"/>
+            <column name="reviewed_at" type="timestamp with time zone"/>
+            <column name="created_at" type="timestamp with time zone">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_by" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="timestamp with time zone"/>
+            <column name="updated_by" type="varchar(255)"/>
+            <column name="is_deleted" type="boolean" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+            <column name="version" type="bigint" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <addForeignKeyConstraint
+                baseTableName="test_package_i18n" baseColumnNames="package_id"
+                referencedTableName="test_package" referencedColumnNames="id"
+                constraintName="fk_test_package_i18n_package"/>
+        <addUniqueConstraint
+                tableName="test_package_i18n" columnNames="package_id, locale"
+                constraintName="uk_test_package_i18n_package_locale"/>
+    </changeSet>
+
+    <changeSet id="20260820110000-6-seed-fasting-rules" author="lims">
+        <comment>
+            Fasting rules for the seeded catalogue. These are the standard requirements
+            for these assays; a pathologist still signs them off before launch, but the
+            defaults must not be "no preparation needed", which is the answer that gets
+            a sample rejected.
+        </comment>
+        <sql dbms="postgresql"><![CDATA[
+UPDATE test_catalog SET fasting_required = true, fasting_hours = 12, water_allowed = true
+    WHERE test_code IN ('LIPID');
+UPDATE test_catalog SET fasting_required = true, fasting_hours = 8, water_allowed = true
+    WHERE test_code IN ('GLU');
+UPDATE test_catalog SET special_prep_required = true
+    WHERE test_code IN ('UFR', 'UMA', 'UCREA', 'UHCG');
+]]></sql>
+    </changeSet>
+
+    <changeSet id="20260820110000-7-seed-sample-packages" author="lims">
+        <comment>
+            Sample packages, seeded INACTIVE on purpose. The bundles below are shaped
+            like the ones Sri Lankan labs actually sell, but the prices are placeholders
+            and no patient may be quoted them. Replace the prices with the real card and
+            flip is_active to true - deliberately a separate, deliberate act.
+        </comment>
+        <sql dbms="postgresql"><![CDATA[
+INSERT INTO test_package
+    (id, package_code, package_name, category, description, price, is_active,
+     created_at, created_by, updated_at, updated_by, is_deleted, version)
+VALUES
+    ('31111111-1111-4111-8111-111111111001', 'PKG-DIAB', 'Diabetic Screening Package', 'Screening',
+     'Fasting glucose, HbA1c, renal markers and lipids for diabetes screening and follow-up.',
+     0.00, false, CURRENT_TIMESTAMP, 'system', CURRENT_TIMESTAMP, 'system', false, 0),
+    ('31111111-1111-4111-8111-111111111002', 'PKG-CARDIAC', 'Cardiac Risk Package', 'Screening',
+     'Lipid profile with inflammatory and metabolic markers for cardiovascular risk.',
+     0.00, false, CURRENT_TIMESTAMP, 'system', CURRENT_TIMESTAMP, 'system', false, 0),
+    ('31111111-1111-4111-8111-111111111003', 'PKG-RENAL', 'Renal Profile Package', 'Organ profile',
+     'Urea, creatinine, electrolytes and urine markers for kidney function.',
+     0.00, false, CURRENT_TIMESTAMP, 'system', CURRENT_TIMESTAMP, 'system', false, 0),
+    ('31111111-1111-4111-8111-111111111004', 'PKG-WELLNESS', 'General Wellness Package', 'Screening',
+     'Broad annual check covering blood counts, metabolic, liver, renal and urine screening.',
+     0.00, false, CURRENT_TIMESTAMP, 'system', CURRENT_TIMESTAMP, 'system', false, 0)
+ON CONFLICT (package_code) DO NOTHING;
+
+INSERT INTO test_package_item
+    (id, package_id, test_id, display_order, created_at, created_by, updated_at, updated_by, is_deleted, version)
+SELECT gen_random_uuid(), p.id, t.id, x.ord,
+       CURRENT_TIMESTAMP, 'system', CURRENT_TIMESTAMP, 'system', false, 0
+FROM (VALUES
+    ('PKG-DIAB',     'GLU',   1),
+    ('PKG-DIAB',     'HBA1C', 2),
+    ('PKG-DIAB',     'CREA',  3),
+    ('PKG-DIAB',     'LIPID', 4),
+    ('PKG-DIAB',     'UMA',   5),
+    ('PKG-CARDIAC',  'LIPID', 1),
+    ('PKG-CARDIAC',  'CRP',   2),
+    ('PKG-CARDIAC',  'GLU',   3),
+    ('PKG-CARDIAC',  'UA',    4),
+    ('PKG-RENAL',    'UREA',  1),
+    ('PKG-RENAL',    'CREA',  2),
+    ('PKG-RENAL',    'ELECT', 3),
+    ('PKG-RENAL',    'UFR',   4),
+    ('PKG-RENAL',    'UMA',   5),
+    ('PKG-WELLNESS', 'FBC',   1),
+    ('PKG-WELLNESS', 'ESR',   2),
+    ('PKG-WELLNESS', 'GLU',   3),
+    ('PKG-WELLNESS', 'LIPID', 4),
+    ('PKG-WELLNESS', 'LFT',   5),
+    ('PKG-WELLNESS', 'UREA',  6),
+    ('PKG-WELLNESS', 'CREA',  7),
+    ('PKG-WELLNESS', 'UFR',   8)
+) AS x(package_code, test_code, ord)
+JOIN test_package p ON p.package_code = x.package_code
+JOIN test_catalog t ON t.test_code = x.test_code
+ON CONFLICT (package_id, test_id) DO NOTHING;
+]]></sql>
+    </changeSet>
+
+</databaseChangeLog>

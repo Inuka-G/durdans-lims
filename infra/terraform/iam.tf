@@ -50,6 +50,8 @@ data "aws_iam_policy_document" "ec2_inline" {
       aws_secretsmanager_secret.db.arn,
       aws_secretsmanager_secret.mail.arn,
       aws_secretsmanager_secret.keycloak_admin.arn,
+      aws_secretsmanager_secret.wa_db.arn,
+      aws_secretsmanager_secret.meta.arn,
     ]
   }
 }

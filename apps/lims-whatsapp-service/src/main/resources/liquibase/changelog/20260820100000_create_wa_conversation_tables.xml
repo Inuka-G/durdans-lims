@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+
+    <!-- WHY: the conversational state the WhatsApp agent needs, held in its own
+         database. No clinical column appears here by design - patient data is read
+         from lims-core-service over HTTP under a read-only service account, never
+         joined to locally. patient_code is a reference, not a foreign key. -->
+
+    <changeSet id="20260820100000-1-create-wa-contact" author="lims">
+        <createTable tableName="wa_contact">
+            <column name="id" type="uuid">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <!-- The WhatsApp id Meta gives us: a phone number in E.164 without the
+                 plus. It is the only stable identifier the platform provides. -->
+            <column name="wa_id" type="varchar(32)">
+                <constraints nullable="false" unique="true" uniqueConstraintName="uk_wa_contact_wa_id"/>
+            </column>
+            <column name="display_name" type="varchar(255)"/>
+            <!-- si | ta | en. Detected once, then overridable by the patient. -->
+            <column name="locale" type="varchar(8)" defaultValue="en">
+                <constraints nullable="false"/>
+            </column>
+            <!-- Set only after an OTP binding succeeds. A WhatsApp number is not proof
+                 of identity: phones are shared, resold and inherited. -->
+            <column name="patient_code" type="varchar(64)"/>
+            <column name="verified_at" type="timestamp with time zone"/>
+            <column name="blocked" type="boolean" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="timestamp with time zone">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="timestamp with time zone"/>
+            <column name="version" type="bigint" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <createIndex tableName="wa_contact" indexName="idx_wa_contact_patient_code">
+            <column name="patient_code"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="20260820100000-2-create-wa-conversation" author="lims">
+        <createTable tableName="wa_conversation">
+            <column name="id" type="uuid">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="contact_id" type="uuid">
+                <constraints nullable="false"/>
+            </column>
+            <!-- OPEN | HANDED_OFF | CLOSED -->
+            <column name="state" type="varchar(24)" defaultValue="OPEN">
+                <constraints nullable="false"/>
+            </column>
+            <!-- The 24-hour customer service window. Free-form sends are refused once
+                 this has passed and the sender falls back to an approved template.
+                 Nullable because an outbound template can open a conversation before
+                 any inbound message exists. -->
+            <column name="window_expires_at" type="timestamp with time zone"/>
+            <column name="last_inbound_at" type="timestamp with time zone"/>
+            <column name="last_outbound_at" type="timestamp with time zone"/>
+            <column name="handoff_requested_at" type="timestamp with time zone"/>
+            <column name="assigned_staff" type="varchar(128)"/>
+            <column name="created_at" type="timestamp with time zone">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="timestamp with time zone"/>
+            <column name="version" type="bigint" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <addForeignKeyConstraint
+                baseTableName="wa_conversation" baseColumnNames="contact_id"
+                referencedTableName="wa_contact" referencedColumnNames="id"
+                constraintName="fk_wa_conversation_contact"/>
+        <createIndex tableName="wa_conversation" indexName="idx_wa_conversation_contact_state">
+            <column name="contact_id"/>
+            <column name="state"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="20260820100000-3-create-wa-message" author="lims">
+        <createTable tableName="wa_message">
+            <column name="id" type="uuid">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="conversation_id" type="uuid">
+                <constraints nullable="false"/>
+            </column>
+            <!-- INBOUND | OUTBOUND -->
+            <column name="direction" type="varchar(16)">
+                <constraints nullable="false"/>
+            </column>
+            <!-- Meta's message id. UNIQUE is the idempotency mechanism: Meta retries a
+                 webhook until it gets a 200, so the same message does arrive twice and
+                 the insert has to be what rejects the duplicate. -->
+            <column name="wamid" type="varchar(128)">
+                <constraints nullable="false" unique="true" uniqueConstraintName="uk_wa_message_wamid"/>
+            </column>
+            <column name="message_type" type="varchar(32)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="body" type="text"/>
+            <column name="template_name" type="varchar(128)"/>
+            <!-- RECEIVED | QUEUED | SENT | DELIVERED | READ | FAILED -->
+            <column name="status" type="varchar(24)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="failure_reason" type="varchar(1024)"/>
+            <column name="meta_timestamp" type="timestamp with time zone"/>
+            <!-- The raw change payload, kept for replay and for answering "what exactly
+                 did Meta send us" during an incident. -->
+            <column name="raw_payload" type="text"/>
+            <column name="created_at" type="timestamp with time zone">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="timestamp with time zone"/>
+            <column name="version" type="bigint" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <addForeignKeyConstraint
+                baseTableName="wa_message" baseColumnNames="conversation_id"
+                referencedTableName="wa_conversation" referencedColumnNames="id"
+                constraintName="fk_wa_message_conversation"/>
+        <createIndex tableName="wa_message" indexName="idx_wa_message_conversation_created">
+            <column name="conversation_id"/>
+            <column name="created_at"/>
+        </createIndex>
+    </changeSet>
+
+</databaseChangeLog>

@@ -51,6 +51,13 @@ public class SecurityConfig {
                         .requestMatchers("/email-verification-success.html", "/email-verification-error.html")
                         .permitAll()
 
+                        // The WhatsApp agent's service account. Its own role, granting
+                        // exactly this path and nothing else, so widening a staff role
+                        // later cannot widen what the agent can reach. The controller
+                        // repeats the check with @PreAuthorize — deliberately, because
+                        // this path is reachable by a machine credential.
+                        .requestMatchers("/api/v1/agent/**").hasRole("AGENT_READONLY")
+
                         // Role-restricted endpoints
                         .requestMatchers("/api/v1/mlt/**").hasAnyRole("MLT", "LAB_SUPERVISOR", "BRANCH_ADMIN", "SUPER_ADMIN")
                         .requestMatchers("/api/v1/reception/**").hasAnyRole("LAB_RECEPTIONIST", "LAB_RECEPTION", "BRANCH_ADMIN", "SUPER_ADMIN")

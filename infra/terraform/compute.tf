@@ -26,6 +26,12 @@ locals {
   api_origin      = var.domain_name != "" ? "https://api.${var.domain_name}" : "http://${aws_eip.lims.public_ip}:11000"
   keycloak_origin = var.domain_name != "" ? "https://auth.${var.domain_name}" : "http://${aws_eip.lims.public_ip}:8081"
 
+  # Meta will only call a webhook over HTTPS on 443 with a publicly trusted
+  # certificate, so unlike the other services this one has no usable IP-only
+  # fallback. Without a domain the agent still runs, but the webhook cannot be
+  # registered — which is the honest outcome, not a silent half-configuration.
+  whatsapp_origin = var.domain_name != "" ? "https://wa.${var.domain_name}" : ""
+
   # user_data = a small interpolated header that exports the Terraform-known values,
   # followed by a STATIC bootstrap script (file() is not interpolated, so no $$ escaping).
   bootstrap_header = <<-EOT
@@ -33,11 +39,15 @@ locals {
     export AWS_REGION="${var.aws_region}"
     export ECR_APP="${aws_ecr_repository.this["core-service"].repository_url}"
     export ECR_FRONTEND="${aws_ecr_repository.this["frontend"].repository_url}"
+    export ECR_WHATSAPP="${aws_ecr_repository.this["whatsapp-service"].repository_url}"
     export APP_TAG="${var.app_image_tag}"
     export FRONTEND_TAG="${var.frontend_image_tag}"
+    export WHATSAPP_TAG="${var.whatsapp_image_tag}"
     export DB_SECRET="${aws_secretsmanager_secret.db.name}"
     export MAIL_SECRET="${aws_secretsmanager_secret.mail.name}"
     export KC_SECRET="${aws_secretsmanager_secret.keycloak_admin.name}"
+    export WA_DB_SECRET="${aws_secretsmanager_secret.wa_db.name}"
+    export META_SECRET="${aws_secretsmanager_secret.meta.name}"
     export S3_BUCKET="${aws_s3_bucket.patient_docs.bucket}"
     export BACKUP_BUCKET="${aws_s3_bucket.backups.bucket}"
     export PUBLIC_ADDR="${local.public_addr}"
@@ -45,6 +55,7 @@ locals {
     export FRONTEND_ORIGIN="${local.frontend_origin}"
     export API_ORIGIN="${local.api_origin}"
     export KEYCLOAK_ORIGIN="${local.keycloak_origin}"
+    export WHATSAPP_ORIGIN="${local.whatsapp_origin}"
     export KEYCLOAK_REALM="lims-realm"
   EOT
 
