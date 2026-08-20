@@ -1,11 +1,17 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { useSearchParams } from 'next/navigation';
+import { AlertTriangle, Barcode, Printer, RefreshCw, SearchX } from 'lucide-react';
 import { getCollectionHistory, printSampleLabel } from '@/lib/api';
 import { getBarcodeBars, getTubeHexColor, openPhlebotomySpecimenLabelPrint } from '@/lib/phlebotomy-label-print';
 import type { LabelItem } from '@/types/sample-lifecycle';
+import Button from '@/components/ui/Button';
+import PageHeader from '@/components/ui/PageHeader';
+import SectionCard from '@/components/ui/SectionCard';
+import EmptyState from '@/components/ui/EmptyState';
+import { InputField } from '@/components/ui/Field';
 
 type LabelRow = LabelItem & {
     sampleUuid: string;
@@ -20,53 +26,75 @@ type CollectionHistoryApiItem = {
     testCodes?: string[];
     tubeType?: string;
     tubeTypes?: string[];
+    /** Hex colour of the stocked tube in supplies inventory; null when nothing is stocked. */
     tubeColor?: string | null;
     status?: string;
     collectedAt?: string;
     printCount?: number;
 };
 
-export default function LabelPrintPage() {
+const SKELETON_CARDS = 4;
+const GRID_CLASS = 'grid grid-cols-1 gap-4 p-4 md:grid-cols-2 xl:grid-cols-3';
+
+function formatCollectedAt(value?: string): string {
+    if (!value) return '—';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '—';
+    // Always show date + time: collection time matters for audit, and the
+    // Today/Yesterday relative forms are reserved for activity feeds.
+    const time = date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
+    return `${date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} ${time}`;
+}
+
+function LabelPrintPageInner() {
     const searchParams = useSearchParams();
     const [searchQuery, setSearchQuery] = useState(() => searchParams.get('sampleId') ?? '');
     const [labels, setLabels] = useState<LabelRow[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [loadError, setLoadError] = useState<string | null>(null);
     const [loadingSampleId, setLoadingSampleId] = useState<string | null>(null);
 
-    useEffect(() => {
-        const loadLabels = async () => {
-            try {
-                const data = await getCollectionHistory(0, 100);
-                const historyItems = (data?.content ?? data ?? []) as CollectionHistoryApiItem[];
-                const rows: LabelRow[] = historyItems
-                    .filter((item) => item?.status === 'COLLECTED')
-                    .map((item) => {
-                        const tubeTypeCode = item?.tubeType ?? item?.tubeTypes?.[0] ?? 'OTHER';
-                        return {
-                            id: String(item?.id ?? item?.sampleId ?? ''),
-                            sampleUuid: String(item?.id ?? ''),
-                            sampleId: item?.sampleId ?? '-',
-                            patientName: item?.patientName ?? '-',
-                            pid: item?.pid ?? '-',
-                            testCodes: Array.isArray(item?.testCodes) ? item.testCodes : [],
-                            tubeType: String(tubeTypeCode).replace(/_/g, ' '),
-                            tubeColor: getTubeHexColor(item?.tubeColor),
-                            collectedAt: item?.collectedAt
-                                ? new Date(item.collectedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                                : '-',
-                            printCount: Number(item?.printCount ?? 0),
-                            tubeTypeCode: String(tubeTypeCode),
-                        };
-                    });
-                setLabels(rows);
-            } catch (error) {
-                console.error('Failed to load label list:', error);
-                toast.error('Failed to load labels. Please try again.');
-                setLabels([]);
-            }
-        };
-
-        loadLabels();
+    const loadLabels = useCallback(async () => {
+        setLoading(true);
+        setLoadError(null);
+        try {
+            const data = await getCollectionHistory(0, 100);
+            const historyItems = (data?.content ?? data ?? []) as CollectionHistoryApiItem[];
+            const rows: LabelRow[] = historyItems
+                .filter((item) => item?.status === 'COLLECTED')
+                .map((item) => {
+                    const tubeTypeCode = item?.tubeType ?? item?.tubeTypes?.[0] ?? 'OTHER';
+                    return {
+                        id: String(item?.id ?? item?.sampleId ?? ''),
+                        sampleUuid: String(item?.id ?? ''),
+                        sampleId: item?.sampleId ?? '-',
+                        patientName: item?.patientName ?? '-',
+                        pid: item?.pid ?? '-',
+                        testCodes: Array.isArray(item?.testCodes) ? item.testCodes : [],
+                        tubeType: String(tubeTypeCode).replace(/_/g, ' '),
+                        // Tube cap colour comes from the stocked tube in supplies inventory, not
+                        // from a static code map. getTubeHexColor validates the operator-supplied
+                        // value and falls back to neutral grey when no container is stocked.
+                        tubeColor: getTubeHexColor(item?.tubeColor),
+                        collectedAt: formatCollectedAt(item?.collectedAt),
+                        printCount: Number(item?.printCount ?? 0),
+                        tubeTypeCode: String(tubeTypeCode),
+                    };
+                });
+            setLabels(rows);
+        } catch (error) {
+            console.error('Failed to load label list:', error);
+            toast.error('Failed to load labels. Please try again.');
+            setLabels([]);
+            setLoadError("Couldn't load labels");
+        } finally {
+            setLoading(false);
+        }
     }, []);
+
+    useEffect(() => {
+        void loadLabels();
+    }, [loadLabels]);
 
     const filtered = useMemo(() =>
         labels.filter((l) => {
@@ -108,69 +136,183 @@ export default function LabelPrintPage() {
         }
     };
 
+    const searched = searchQuery.trim().length > 0;
+
     return (
-        <div>
-            <div className="mb-6">
-                <h1 className="text-2xl font-bold text-slate-800">Label Print</h1>
-                <p className="text-sm text-slate-500 mt-1">Search and print sample barcode labels. Each print is recorded for audit.</p>
-            </div>
+        <div className="mx-auto max-w-[1400px]">
+            <PageHeader
+                crumbs={[{ label: 'Phlebotomy', href: '/phlebotomy/worklist' }, { label: 'Label print' }]}
+                title="Label print"
+                meta={<span>Search and print sample barcode labels. Each print is recorded for audit.</span>}
+                actions={
+                    <Button icon={RefreshCw} onClick={() => void loadLabels()} loading={loading}>
+                        Refresh
+                    </Button>
+                }
+            />
+
+            {/* Screen-reader status for async changes */}
+            <p role="status" aria-live="polite" className="sr-only">
+                {loading
+                    ? 'Loading labels'
+                    : loadError
+                      ? 'Labels failed to load'
+                      : `${filtered.length} of ${labels.length} collected ${labels.length === 1 ? 'sample' : 'samples'} shown`}
+            </p>
 
             {/* Search */}
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-4 mb-6">
-                <div className="relative">
-                    <span className="material-icons absolute left-3 top-1/2 -translate-y-1/2 text-lg text-slate-400">search</span>
-                    <input type="text" placeholder="Search by Sample ID, Patient ID, or Patient Name" className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+            <div className="mb-4 rounded-lg border border-edge bg-surface p-4" role="search">
+                <InputField
+                    label="Search labels"
+                    hideLabel
+                    type="search"
+                    name="label-search"
+                    autoComplete="off"
+                    placeholder="Sample ID, patient ID or patient name"
+                    hint="Filters the collected samples below as you type."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                />
+            </div>
+
+            {/* Labels */}
+            <SectionCard title="Collected samples" count={loading ? undefined : filtered.length} flush>
+                <div aria-busy={loading}>
+                    {loading ? (
+                        <ul aria-hidden="true" className={GRID_CLASS}>
+                            {Array.from({ length: SKELETON_CARDS }).map((_, i) => (
+                                <li key={i} className="rounded-md border border-edge p-4">
+                                    <span className="block h-3.5 w-32 rounded bg-skeleton" />
+                                    <span className="mt-2 block h-3 w-48 max-w-full rounded bg-skeleton" />
+                                    <span className="mt-3 block h-16 rounded bg-skeleton" />
+                                    <span className="ml-auto mt-3 block h-7 w-24 rounded bg-skeleton" />
+                                </li>
+                            ))}
+                        </ul>
+                    ) : loadError ? (
+                        <EmptyState
+                            icon={AlertTriangle}
+                            title={loadError}
+                            description="Check your connection and try again."
+                            action={
+                                <Button size="sm" onClick={() => void loadLabels()}>
+                                    Retry
+                                </Button>
+                            }
+                        />
+                    ) : filtered.length === 0 ? (
+                        searched ? (
+                            <EmptyState
+                                icon={SearchX}
+                                title={`No labels match "${searchQuery.trim()}"`}
+                                description="Check the sample ID, patient ID or patient name."
+                                action={
+                                    <Button size="sm" onClick={() => setSearchQuery('')}>
+                                        Clear search
+                                    </Button>
+                                }
+                            />
+                        ) : (
+                            <EmptyState
+                                icon={Barcode}
+                                title="No labels to print"
+                                description="Samples appear here once they are collected in the worklist."
+                            />
+                        )
+                    ) : (
+                        <ul className={GRID_CLASS}>
+                            {filtered.map((label) => {
+                                const printing = loadingSampleId === label.sampleUuid;
+                                return (
+                                    <li key={label.id} className="flex flex-col rounded-md border border-edge bg-surface p-4">
+                                        <div className="flex items-start justify-between gap-3">
+                                            <div className="min-w-0">
+                                                <p className="truncate font-mono text-sm font-semibold text-fg">{label.sampleId}</p>
+                                                <p className="truncate text-xs text-fg-muted">
+                                                    {label.patientName}
+                                                    <span className="text-fg-faint"> · </span>
+                                                    {label.pid}
+                                                </p>
+                                            </div>
+                                            {/* Tube cap colour is a physical object, so it stays a literal hex; the
+                                                ring uses the surface token so the dot reads on light and dark. */}
+                                            <div className="flex min-w-0 items-center gap-1.5 text-xs text-fg-muted">
+                                                <span
+                                                    className="h-3 w-3 shrink-0 rounded-full ring-2 ring-surface"
+                                                    style={{ backgroundColor: label.tubeColor }}
+                                                    aria-hidden="true"
+                                                />
+                                                <span className="truncate" title={label.tubeType}>
+                                                    {label.tubeType}
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        {/* Label preview mimics the physical white label, so it stays black-on-white in both themes. */}
+                                        <div className="mt-3 rounded-md border border-dashed border-edge-strong bg-white p-3 text-black">
+                                            <span className="sr-only">Label preview: </span>
+                                            <div className="flex items-center gap-3">
+                                                <span
+                                                    className="h-10 w-2.5 shrink-0 rounded-full"
+                                                    style={{ backgroundColor: label.tubeColor }}
+                                                    aria-hidden="true"
+                                                />
+                                                <div className="min-w-0 flex-1">
+                                                    <p className="truncate font-mono text-xs font-bold">{label.sampleId}</p>
+                                                    <p className="truncate text-[10px] text-black/70">{label.patientName}</p>
+                                                    {label.testCodes.length > 0 && (
+                                                        <div className="mt-1 flex flex-wrap gap-1">
+                                                            {label.testCodes.map((c) => (
+                                                                <span
+                                                                    key={c}
+                                                                    className="rounded border border-black/20 bg-white px-1 py-0.5 text-[9px] font-medium leading-none text-black"
+                                                                >
+                                                                    {c}
+                                                                </span>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                <div className="flex shrink-0 gap-px" aria-hidden="true">
+                                                    {getBarcodeBars(label.sampleId, 20).map((width, i) => (
+                                                        <span key={i} className="block bg-black" style={{ width, height: 28 }} />
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="mt-3 flex items-center justify-between gap-3">
+                                            <p className="min-w-0 truncate text-xs tabular-nums text-fg-muted">
+                                                Collected {label.collectedAt}
+                                                <span className="text-fg-faint"> · </span>
+                                                Printed {label.printCount}×
+                                            </p>
+                                            <Button
+                                                size="sm"
+                                                icon={Printer}
+                                                loading={printing}
+                                                aria-label={`Print label ${label.sampleId}`}
+                                                onClick={() => void handlePrint(label)}
+                                            >
+                                                {printing ? 'Printing…' : 'Print label'}
+                                            </Button>
+                                        </div>
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                    )}
                 </div>
-            </div>
-
-            {/* Label Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                {filtered.length === 0 ? (
-                    <div className="col-span-2 bg-white rounded-2xl shadow-sm border border-slate-200/60 p-12 text-center text-slate-400">No labels found matching your search.</div>
-                ) : filtered.map((label) => (
-                    <div key={label.id} className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
-                        <div className="flex items-start justify-between mb-4">
-                            <div>
-                                <p className="font-bold text-slate-800">{label.sampleId}</p>
-                                <p className="text-sm text-slate-500">{label.patientName} • {label.pid}</p>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <div className="w-4 h-4 rounded-full border border-white shadow-sm" style={{ backgroundColor: label.tubeColor }} />
-                                <span className="text-xs text-slate-400">{label.tubeType}</span>
-                            </div>
-                        </div>
-
-                        {/* Label Preview */}
-                        <div className="bg-slate-50 border border-dashed border-slate-300 rounded-xl p-4 mb-4">
-                            <div className="flex items-center gap-3">
-                                <div className="w-3 h-10 rounded-full" style={{ backgroundColor: label.tubeColor }} />
-                                <div className="flex-1">
-                                    <p className="text-xs font-bold text-slate-700">{label.sampleId}</p>
-                                    <p className="text-[10px] text-slate-500">{label.patientName}</p>
-                                    <div className="flex gap-1 mt-1">{label.testCodes.map(c => <span key={c} className="text-[9px] bg-white text-slate-500 px-1 py-0.5 rounded border border-slate-200">{c}</span>)}</div>
-                                </div>
-                                {/* Barcode visual */}
-                                <div className="flex gap-[1px]">
-                                    {getBarcodeBars(label.sampleId, 20).map((width, i) => (
-                                        <div key={i} className={`bg-slate-800 rounded-[0.5px]`} style={{ width, height: 28 }} />
-                                    ))}
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="flex items-center justify-between">
-                            <div className="text-xs text-slate-400">
-                                <span>Collected: {label.collectedAt}</span>
-                                <span className="ml-3">Printed: {label.printCount}×</span>
-                            </div>
-                            <button disabled={loadingSampleId === label.sampleUuid} onClick={() => void handlePrint(label)} className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-xs font-bold rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
-                                <span className="material-icons text-sm">{loadingSampleId === label.sampleUuid ? 'hourglass_top' : 'print'}</span>
-                                {loadingSampleId === label.sampleUuid ? 'Printing...' : 'Print Label'}
-                            </button>
-                        </div>
-                    </div>
-                ))}
-            </div>
+            </SectionCard>
         </div>
+    );
+}
+
+export default function LabelPrintPage() {
+    // useSearchParams needs a Suspense boundary for static prerendering.
+    return (
+        <Suspense fallback={null}>
+            <LabelPrintPageInner />
+        </Suspense>
     );
 }

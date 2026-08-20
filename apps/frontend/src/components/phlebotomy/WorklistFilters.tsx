@@ -1,40 +1,53 @@
 'use client';
 
+import { useId } from 'react';
+import { Search } from 'lucide-react';
+import SegmentedControl from '@/components/ui/SegmentedControl';
+import { CONTROL_CLASS } from '@/components/ui/Field';
+import { cn } from '@/lib/utils';
+
 interface WorklistFiltersProps {
     onSearch: (q: string) => void;
     onPriorityChange: (p: string) => void;
     selectedPriority: string;
 }
 
-const PRIORITIES = ['ALL', 'STAT', 'URGENT', 'NORMAL'];
+const PRIORITY_OPTIONS: { value: string; label: string }[] = [
+    { value: 'ALL', label: 'All priorities' },
+    { value: 'STAT', label: 'STAT' },
+    { value: 'URGENT', label: 'Urgent' },
+    { value: 'NORMAL', label: 'Normal' },
+];
 
 export default function WorklistFilters({ onSearch, onPriorityChange, selectedPriority }: WorklistFiltersProps) {
+    const searchId = useId();
+
     return (
-        <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
-            <div className="relative flex-1">
-                <span className="material-icons absolute left-3 top-1/2 -translate-y-1/2 text-lg text-slate-400">search</span>
+        <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center">
+            <div className="relative w-full min-w-0 sm:w-auto sm:flex-1">
+                <label htmlFor={searchId} className="sr-only">
+                    Search worklist
+                </label>
+                <Search
+                    className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-faint"
+                    aria-hidden="true"
+                />
                 <input
-                    type="text"
-                    placeholder="Search patient name, ID, order..."
+                    id={searchId}
+                    type="search"
+                    placeholder="Search patient name, ID or order"
                     onChange={(e) => onSearch(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                    className={cn(CONTROL_CLASS, 'h-9 pl-9')}
                 />
             </div>
-            <div className="flex gap-2 flex-wrap">
-                {PRIORITIES.map((p) => (
-                    <button
-                        key={p}
-                        onClick={() => onPriorityChange(p)}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
-                            selectedPriority === p
-                                ? 'bg-primary text-white shadow-sm'
-                                : 'border border-slate-200 text-slate-600 hover:bg-slate-50'
-                        }`}
-                    >
-                        {p === 'ALL' ? 'All Priorities' : p}
-                    </button>
-                ))}
-            </div>
+            <SegmentedControl
+                value={selectedPriority}
+                onChange={onPriorityChange}
+                options={PRIORITY_OPTIONS}
+                ariaLabel="Filter by priority"
+                size="sm"
+                className="shrink-0"
+            />
         </div>
     );
 }

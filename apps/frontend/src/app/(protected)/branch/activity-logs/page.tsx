@@ -3,7 +3,28 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
+import {
+    Activity,
+    AlertTriangle,
+    Building2,
+    FileSpreadsheet,
+    History,
+    LogIn,
+    RefreshCw,
+    Search,
+    Users,
+    X,
+} from "lucide-react";
 import { getAuditLogs, getMetadata, type AuditLog } from "@/lib/api";
+import Button from "@/components/ui/Button";
+import PageHeader from "@/components/ui/PageHeader";
+import { InputField, SelectField } from "@/components/ui/Field";
+import SectionCard from "@/components/ui/SectionCard";
+import EmptyState from "@/components/ui/EmptyState";
+import KpiTile from "@/components/ui/KpiTile";
+import StatusChip, { humanizeStatus, type ChipTone } from "@/components/ui/StatusChip";
+import Pagination from "@/components/ui/Pagination";
+import { formatAuditTime } from "@/components/patient-dashboard/dashboard-data";
 
 type LogStatus = "SUCCESS" | "FAILED" | "WARNING";
 
@@ -20,7 +41,23 @@ type ActivityLogRow = {
     ipAddress: string;
 };
 
+/** Rows fetched from the API per refresh (filtered client-side). */
 const PAGE_SIZE = 200;
+/** Rows shown per table page (client-side pagination over the filtered set). */
+const TABLE_PAGE_SIZE = 25;
+const SKELETON_ROWS = 8;
+const REFRESH_INTERVAL_MS = 30000;
+
+/** Sentinel values for the "all" options — kept as-is so filter state semantics don't change. */
+const ALL_ROLES = "All Roles";
+const ALL_MODULES = "All Modules";
+const ALL_ACTIONS = "All Actions";
+
+const LOG_STATUS_TONE: Record<LogStatus, ChipTone> = {
+    SUCCESS: "success",
+    FAILED: "danger",
+    WARNING: "pending",
+};
 
 const ROLE_BY_ENTITY: Record<string, string> = {
     PATIENT: "Front Desk Officer",
@@ -68,6 +105,7 @@ function formatLabel(value?: string | null) {
         .join(" ");
 }
 
+/** Full timestamp used for the Excel export and row tooltips. */
 function formatTimestamp(value?: string) {
     if (!value) return "-";
     const date = new Date(value);
@@ -176,25 +214,30 @@ function isWithinDateRange(log: ActivityLogRow, startDate: string, endDate: stri
     return true;
 }
 
-
+/** Renders "-" placeholders from the row model as a muted dash. */
+function Cell({ value, mono = false }: { value: string; mono?: boolean }) {
+    if (!value || value === "-") return <span className="text-fg-faint">—</span>;
+    return <span className={mono ? "font-mono text-xs" : undefined}>{value}</span>;
+}
 
 export default function ActivityLogsPage() {
     const [branchName, setBranchName] = useState("Durdans Branch");
     const [logs, setLogs] = useState<ActivityLogRow[]>([]);
     const [loading, setLoading] = useState(true);
+    const [hasLoaded, setHasLoaded] = useState(false);
     const [error, setError] = useState("");
 
     const [searchQuery, setSearchQuery] = useState("");
-    const [selectedRole, setSelectedRole] = useState("All Roles");
-    const [selectedModule, setSelectedModule] = useState("All Modules");
-    const [selectedAction, setSelectedAction] = useState("All Actions");
+    const [selectedRole, setSelectedRole] = useState(ALL_ROLES);
+    const [selectedModule, setSelectedModule] = useState(ALL_MODULES);
+    const [selectedAction, setSelectedAction] = useState(ALL_ACTIONS);
     const [startDate, setStartDate] = useState("");
     const [endDate, setEndDate] = useState("");
+    const [tablePage, setTablePage] = useState(1);
 
     const loadLogs = useCallback(async () => {
         try {
             setLoading(true);
-            setError("");
 
             const [metadata, auditData] = await Promise.all([
                 getMetadata().catch(() => null),
@@ -203,18 +246,23 @@ export default function ActivityLogsPage() {
 
             setBranchName(metadata?.currentBranchName || "Durdans Branch");
             setLogs((auditData.content || []).map(toRow));
+            // Clear a previous failure only once fresh data has arrived, so the
+            // error state (with its spinning Retry button) stays visible while
+            // a retry is in flight instead of flashing "No activity yet".
+            setError("");
         } catch (loadError) {
             console.error("Failed to load branch activity logs", loadError);
-            setError("Could not load branch activity logs.");
+            setError("Couldn't load branch activity logs. Check your connection and retry.");
             setLogs([]);
         } finally {
             setLoading(false);
+            setHasLoaded(true);
         }
     }, []);
 
     useEffect(() => {
         void loadLogs();
-        const refresh = window.setInterval(loadLogs, 30000);
+        const refresh = window.setInterval(loadLogs, REFRESH_INTERVAL_MS);
 
         return () => window.clearInterval(refresh);
     }, [loadLogs]);
@@ -229,9 +277,9 @@ export default function ActivityLogsPage() {
                 log.entityId.toLowerCase().includes(query) ||
                 log.ipAddress.toLowerCase().includes(query) ||
                 log.action.toLowerCase().includes(query);
-            const matchesRole = selectedRole === "All Roles" || log.role === selectedRole;
-            const matchesModule = selectedModule === "All Modules" || log.module === selectedModule;
-            const matchesAction = selectedAction === "All Actions" || log.action === selectedAction;
+            const matchesRole = selectedRole === ALL_ROLES || log.role === selectedRole;
+            const matchesModule = selectedModule === ALL_MODULES || log.module === selectedModule;
+            const matchesAction = selectedAction === ALL_ACTIONS || log.action === selectedAction;
 
             return (
                 matchesSearch &&
@@ -243,9 +291,9 @@ export default function ActivityLogsPage() {
         });
     }, [endDate, logs, searchQuery, selectedAction, selectedModule, selectedRole, startDate]);
 
-    const uniqueRoles = useMemo(() => ["All Roles", ...Array.from(new Set(logs.map((log) => log.role)))], [logs]);
-    const uniqueModules = useMemo(() => ["All Modules", ...Array.from(new Set(logs.map((log) => log.module)))], [logs]);
-    const uniqueActions = useMemo(() => ["All Actions", ...Array.from(new Set(logs.map((log) => log.action)))], [logs]);
+    const uniqueRoles = useMemo(() => [ALL_ROLES, ...Array.from(new Set(logs.map((log) => log.role)))], [logs]);
+    const uniqueModules = useMemo(() => [ALL_MODULES, ...Array.from(new Set(logs.map((log) => log.module)))], [logs]);
+    const uniqueActions = useMemo(() => [ALL_ACTIONS, ...Array.from(new Set(logs.map((log) => log.action)))], [logs]);
 
     const now = new Date();
     const sevenDaysAgo = new Date(now);
@@ -258,6 +306,31 @@ export default function ActivityLogsPage() {
     const failedLogins = logs.filter((log) => log.status === "FAILED" && log.action.toLowerCase().includes("login")).length;
     const criticalActions = logs.filter((log) => log.status === "FAILED" || log.status === "WARNING").length;
     const activeUsers = new Set(logs.map((log) => log.user).filter((user) => user && user.toUpperCase() !== "SYSTEM")).size;
+
+    // Client-side paging over the filtered set. The page is clamped so a
+    // background refresh that shrinks the list never strands the user on an
+    // empty page.
+    const totalPages = Math.max(1, Math.ceil(filteredLogs.length / TABLE_PAGE_SIZE));
+    const currentPage = Math.min(tablePage, totalPages);
+    const pageRows = filteredLogs.slice((currentPage - 1) * TABLE_PAGE_SIZE, currentPage * TABLE_PAGE_SIZE);
+
+    const hasFilters =
+        Boolean(searchQuery) ||
+        selectedRole !== ALL_ROLES ||
+        selectedModule !== ALL_MODULES ||
+        selectedAction !== ALL_ACTIONS ||
+        Boolean(startDate) ||
+        Boolean(endDate);
+
+    const clearFilters = () => {
+        setSearchQuery("");
+        setSelectedRole(ALL_ROLES);
+        setSelectedModule(ALL_MODULES);
+        setSelectedAction(ALL_ACTIONS);
+        setStartDate("");
+        setEndDate("");
+        setTablePage(1);
+    };
 
     const handleExportExcel = () => {
         if (filteredLogs.length === 0) {
@@ -288,273 +361,306 @@ export default function ActivityLogsPage() {
         XLSX.writeFile(workbook, `Activity_Logs_${new Date().toISOString().slice(0, 10)}.xlsx`);
     };
 
+    const initialLoading = loading && !hasLoaded;
+    const refreshing = loading && hasLoaded;
+
     return (
-        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-6 w-full font-sans text-slate-900 bg-[#f8fafc] min-h-screen flex flex-col">
-            <div className="text-xs text-slate-500 mb-4 flex items-center gap-2">
-                <span>Home</span>
-                <span>/</span>
-                <span>Audit</span>
-                <span>/</span>
-                <span className="font-semibold text-slate-800">Activity Logs</span>
-            </div>
-
-            <div className="mb-6">
-                <h1 className="text-2xl font-bold text-slate-900">
-                    Activity Logs - {branchName}
-                </h1>
-                <p className="text-slate-500 text-sm mt-1">
-                    Real audit trail for branch workflow, user actions, and security events.
-                </p>
-            </div>
-
-            <div className="bg-white rounded-xl border border-slate-200 p-5 mb-6 shadow-sm flex flex-col gap-4">
-                <div className="flex flex-wrap md:flex-nowrap gap-4 items-end">
-                    <div className="flex flex-col gap-1.5 flex-1 min-w-[280px]">
-                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Date Range</label>
-                        <div className="flex items-center gap-2 border border-slate-200 rounded-lg px-2 py-1 bg-slate-50/50 hover:bg-slate-50 transition-colors">
-                            <input
-                                type="date"
-                                value={startDate}
-                                onChange={(event) => setStartDate(event.target.value)}
-                                className="w-1/2 bg-transparent text-slate-700 font-medium text-sm focus:outline-none cursor-pointer py-1"
-                            />
-                            <span className="text-slate-400 font-bold">-</span>
-                            <input
-                                type="date"
-                                value={endDate}
-                                onChange={(event) => setEndDate(event.target.value)}
-                                className="w-1/2 bg-transparent text-slate-700 font-medium text-sm focus:outline-none cursor-pointer py-1"
-                            />
-                        </div>
-                    </div>
-
-                    <div className="flex flex-col gap-1.5 flex-1 min-w-[150px]">
-                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">User Role</label>
-                        <div className="relative">
-                            <select
-                                value={selectedRole}
-                                onChange={(event) => setSelectedRole(event.target.value)}
-                                className="w-full appearance-none border border-slate-200 rounded-lg px-3 py-2 bg-slate-50/50 hover:bg-slate-50 transition-colors cursor-pointer text-sm font-medium text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                            >
-                                {uniqueRoles.map((role) => (
-                                    <option key={role} value={role}>{role}</option>
-                                ))}
-                            </select>
-                            <span className="material-icons absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-lg">expand_more</span>
-                        </div>
-                    </div>
-
-                    <div className="flex flex-col gap-1.5 flex-1 min-w-[150px]">
-                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Module</label>
-                        <div className="relative">
-                            <select
-                                value={selectedModule}
-                                onChange={(event) => setSelectedModule(event.target.value)}
-                                className="w-full appearance-none border border-slate-200 rounded-lg px-3 py-2 bg-slate-50/50 hover:bg-slate-50 transition-colors cursor-pointer text-sm font-medium text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                            >
-                                {uniqueModules.map((module) => (
-                                    <option key={module} value={module}>{module}</option>
-                                ))}
-                            </select>
-                            <span className="material-icons absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-lg">expand_more</span>
-                        </div>
-                    </div>
-
-                    <div className="flex flex-col gap-1.5 flex-1 min-w-[150px]">
-                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Action Type</label>
-                        <div className="relative">
-                            <select
-                                value={selectedAction}
-                                onChange={(event) => setSelectedAction(event.target.value)}
-                                className="w-full appearance-none border border-slate-200 rounded-lg px-3 py-2 bg-slate-50/50 hover:bg-slate-50 transition-colors cursor-pointer text-sm font-medium text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                            >
-                                {uniqueActions.map((action) => (
-                                    <option key={action} value={action}>{action}</option>
-                                ))}
-                            </select>
-                            <span className="material-icons absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-lg">expand_more</span>
-                        </div>
-                    </div>
-
-                    <div className="flex gap-2">
-                        <button
-                            onClick={loadLogs}
-                            className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg font-semibold text-sm transition-all shadow-sm shadow-blue-600/20 whitespace-nowrap"
-                        >
+        <div className="mx-auto max-w-[1400px]">
+            <PageHeader
+                title="Activity logs"
+                crumbs={[{ label: "Branch", href: "/branch" }, { label: "Activity logs" }]}
+                meta={
+                    <>
+                        <Building2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                        <span>{branchName}</span>
+                        <span aria-hidden="true">·</span>
+                        <span>Branch workflow, user actions and security events</span>
+                        <span aria-hidden="true">·</span>
+                        <span>Refreshes every 30 s</span>
+                    </>
+                }
+                actions={
+                    <>
+                        <Button icon={FileSpreadsheet} onClick={handleExportExcel} disabled={initialLoading}>
+                            Export Excel
+                        </Button>
+                        <Button icon={RefreshCw} onClick={() => void loadLogs()} loading={refreshing}>
                             Refresh
-                        </button>
-                        <button
-                            onClick={handleExportExcel}
-                            className="flex items-center justify-center border border-emerald-200 bg-emerald-50 rounded-lg w-10 h-10 hover:bg-emerald-100 transition-colors text-emerald-600"
-                            title="Download Excel"
-                        >
-                            <span className="material-icons text-[20px]">table_view</span>
-                        </button>
-                    </div>
-                </div>
+                        </Button>
+                    </>
+                }
+            />
 
-                <div className="flex flex-wrap md:flex-nowrap gap-4 items-center">
-                    <div className="flex-1 relative">
-                        <span className="material-icons absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">search</span>
-                        <input
-                            type="text"
-                            placeholder="Search by user, entity ID, action, or IP address..."
-                            value={searchQuery}
-                            onChange={(event) => setSearchQuery(event.target.value)}
-                            className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all placeholder:text-slate-400"
+            {/* Screen-reader status for async changes */}
+            <p role="status" aria-live="polite" className="sr-only">
+                {initialLoading
+                    ? "Loading branch activity logs"
+                    : error
+                      ? "Branch activity logs failed to load"
+                      : `Branch activity logs loaded. Showing ${pageRows.length} of ${filteredLogs.length} entries${
+                            totalPages > 1 ? `, page ${currentPage} of ${totalPages}` : ""
+                        }.`}
+            </p>
+
+            {/* Summary tiles */}
+            <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <KpiTile
+                    label="Actions, last 7 days"
+                    value={totalActionsLastSevenDays.toLocaleString()}
+                    icon={Activity}
+                    loading={initialLoading}
+                    note="From the latest audit entries"
+                />
+                <KpiTile
+                    label="Failed logins"
+                    value={failedLogins.toLocaleString()}
+                    icon={LogIn}
+                    tone={failedLogins > 0 ? "danger" : "neutral"}
+                    loading={initialLoading}
+                    note={failedLogins > 0 ? "Needs review" : "No failures recorded"}
+                />
+                <KpiTile
+                    label="Critical actions"
+                    value={criticalActions.toLocaleString()}
+                    icon={AlertTriangle}
+                    tone={criticalActions > 0 ? "warning" : "neutral"}
+                    loading={initialLoading}
+                    note="Failed or warning-level actions"
+                />
+                <KpiTile
+                    label="Active users"
+                    value={activeUsers.toLocaleString()}
+                    icon={Users}
+                    loading={initialLoading}
+                    note="Distinct users in loaded entries"
+                />
+            </div>
+
+            <SectionCard title="Audit trail" count={hasLoaded && !error ? filteredLogs.length.toLocaleString() : undefined} flush>
+                {/* Filter toolbar */}
+                <div className="flex flex-wrap items-center gap-2 border-b border-edge bg-surface-muted px-3 py-2">
+                    <InputField
+                        label="Search activity logs"
+                        hideLabel
+                        type="search"
+                        value={searchQuery}
+                        onChange={(event) => {
+                            setSearchQuery(event.target.value);
+                            setTablePage(1);
+                        }}
+                        placeholder="Search user, entity ID, action or IP address"
+                        autoComplete="off"
+                        className="min-w-[200px] flex-1"
+                    />
+                    <SelectField
+                        label="User role"
+                        hideLabel
+                        value={selectedRole}
+                        onChange={(event) => {
+                            setSelectedRole(event.target.value);
+                            setTablePage(1);
+                        }}
+                        className="w-full sm:w-44"
+                    >
+                        {uniqueRoles.map((role) => (
+                            <option key={role} value={role}>
+                                {role === ALL_ROLES ? "All roles" : role}
+                            </option>
+                        ))}
+                    </SelectField>
+                    <SelectField
+                        label="Module"
+                        hideLabel
+                        value={selectedModule}
+                        onChange={(event) => {
+                            setSelectedModule(event.target.value);
+                            setTablePage(1);
+                        }}
+                        className="w-full sm:w-44"
+                    >
+                        {uniqueModules.map((module) => (
+                            <option key={module} value={module}>
+                                {module === ALL_MODULES ? "All modules" : module}
+                            </option>
+                        ))}
+                    </SelectField>
+                    <SelectField
+                        label="Action type"
+                        hideLabel
+                        value={selectedAction}
+                        onChange={(event) => {
+                            setSelectedAction(event.target.value);
+                            setTablePage(1);
+                        }}
+                        className="w-full sm:w-44"
+                    >
+                        {uniqueActions.map((action) => (
+                            <option key={action} value={action}>
+                                {action === ALL_ACTIONS ? "All actions" : action}
+                            </option>
+                        ))}
+                    </SelectField>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                        <InputField
+                            label="From date"
+                            hideLabel
+                            type="date"
+                            value={startDate}
+                            onChange={(event) => {
+                                setStartDate(event.target.value);
+                                setTablePage(1);
+                            }}
+                            className="w-[8.75rem]"
+                        />
+                        <span className="text-xs text-fg-muted" aria-hidden="true">
+                            to
+                        </span>
+                        <InputField
+                            label="To date"
+                            hideLabel
+                            type="date"
+                            value={endDate}
+                            onChange={(event) => {
+                                setEndDate(event.target.value);
+                                setTablePage(1);
+                            }}
+                            className="w-[8.75rem]"
                         />
                     </div>
-                    <button
-                        onClick={handleExportExcel}
-                        className="flex items-center gap-2 border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-lg px-4 py-2.5 font-bold text-sm transition-colors whitespace-nowrap"
-                    >
-                        <span className="material-icons text-[18px]">table_view</span>
-                        Export Excel
-                    </button>
-                </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
-                    <div className="flex justify-between items-start mb-2">
-                        <h3 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Total Actions</h3>
-                        <div className="bg-blue-50 text-blue-500 w-7 h-7 rounded-md flex items-center justify-center">
-                            <span className="material-icons text-[16px]">bolt</span>
-                        </div>
-                    </div>
-                    <div className="flex flex-col gap-0.5 mt-2">
-                        <span className="text-3xl font-extrabold text-slate-900">{totalActionsLastSevenDays.toLocaleString()}</span>
-                        <span className="text-[11px] font-semibold text-slate-400">Last 7 days from audit logs</span>
-                    </div>
+                    {hasFilters && (
+                        <Button variant="ghost" icon={X} onClick={clearFilters}>
+                            Clear filters
+                        </Button>
+                    )}
                 </div>
 
-                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
-                    <div className="flex justify-between items-start mb-2">
-                        <h3 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Failed Logins</h3>
-                        <div className="bg-red-50 text-red-500 w-7 h-7 rounded-md flex items-center justify-center border border-red-100">
-                            <span className="material-icons text-[16px]">login</span>
-                        </div>
-                    </div>
-                    <span className="text-3xl font-extrabold text-slate-900 mt-2">{failedLogins.toLocaleString()}</span>
-                </div>
-
-                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
-                    <div className="flex justify-between items-start mb-2">
-                        <h3 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Critical Actions</h3>
-                        <div className="bg-orange-50 text-orange-500 w-7 h-7 rounded-md flex items-center justify-center">
-                            <span className="material-icons text-[16px]">priority_high</span>
-                        </div>
-                    </div>
-                    <span className="text-3xl font-extrabold text-slate-900 mt-2">{criticalActions.toLocaleString()}</span>
-                </div>
-
-                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
-                    <div className="flex justify-between items-start mb-2">
-                        <h3 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Active Users</h3>
-                        <div className="bg-emerald-50 text-emerald-500 w-7 h-7 rounded-md flex items-center justify-center">
-                            <span className="material-icons text-[16px]">people</span>
-                        </div>
-                    </div>
-                    <span className="text-3xl font-extrabold text-slate-900 mt-2">{activeUsers.toLocaleString()}</span>
-                </div>
-            </div>
-
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col flex-1 pb-4">
-                <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                        <span className="material-icons text-slate-400 text-[18px]">list_alt</span>
-                        <h2 className="text-[15px] font-extrabold text-slate-800">Audit Trail</h2>
-                    </div>
-                    <button
-                        onClick={loadLogs}
-                        className="flex items-center gap-1.5 text-slate-400 text-xs font-semibold hover:text-slate-600 transition-colors"
-                    >
-                        <span>{loading ? "Refreshing..." : "Refresh now"}</span>
-                        <span className="material-icons text-[14px]">refresh</span>
-                    </button>
-                </div>
-
-                <div className="overflow-x-auto">
-                    <table className="w-full text-left text-sm whitespace-nowrap">
-                        <thead className="bg-white border-b border-slate-100">
-                            <tr>
-                                <th className="px-5 py-3.5 text-[10px] font-extrabold text-slate-500 uppercase tracking-widest">Timestamp</th>
-                                <th className="px-5 py-3.5 text-[10px] font-extrabold text-slate-500 uppercase tracking-widest">User</th>
-                                <th className="px-5 py-3.5 text-[10px] font-extrabold text-slate-500 uppercase tracking-widest">Role</th>
-                                <th className="px-5 py-3.5 text-[10px] font-extrabold text-slate-500 uppercase tracking-widest">Module</th>
-                                <th className="px-5 py-3.5 text-[10px] font-extrabold text-slate-500 uppercase tracking-widest">Action</th>
-                                <th className="px-5 py-3.5 text-[10px] font-extrabold text-slate-500 uppercase tracking-widest">Entity ID</th>
-                                <th className="px-5 py-3.5 text-[10px] font-extrabold text-slate-500 uppercase tracking-widest">Status</th>
-                                <th className="px-5 py-3.5 text-[10px] font-extrabold text-slate-500 uppercase tracking-widest">IP Address</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-50">
-                            {loading ? (
-                                <tr>
-                                    <td colSpan={8} className="px-5 py-10 text-center text-sm text-slate-500">
-                                        Loading branch activity...
-                                    </td>
-                                </tr>
-                            ) : error ? (
-                                <tr>
-                                    <td colSpan={8} className="px-5 py-10 text-center text-sm text-red-500">
-                                        {error}
-                                    </td>
-                                </tr>
-                            ) : filteredLogs.length > 0 ? (
-                                filteredLogs.map((log) => (
-                                    <tr key={log.id} className="hover:bg-slate-50/50 transition-colors">
-                                        <td className="px-5 py-3 text-xs text-slate-500 font-medium whitespace-nowrap">
-                                            {log.timestamp}
-                                        </td>
-                                        <td className="px-5 py-3 text-xs font-semibold text-slate-800 whitespace-nowrap">
-                                            {log.user}
-                                        </td>
-                                        <td className="px-5 py-3 text-xs text-slate-600 whitespace-nowrap">
-                                            {log.role}
-                                        </td>
-                                        <td className="px-5 py-3 text-xs text-slate-600 whitespace-nowrap">
-                                            {log.module}
-                                        </td>
-                                        <td className="px-5 py-3 text-xs font-medium text-slate-800 whitespace-nowrap">
-                                            {log.action}
-                                        </td>
-                                        <td className="px-5 py-3 text-xs text-slate-500 font-mono whitespace-nowrap">
-                                            {log.entityId}
-                                        </td>
-                                        <td className="px-5 py-3 whitespace-nowrap">
-                                            {log.status === "SUCCESS" && (
-                                                <span className="inline-flex items-center gap-1.5 text-emerald-600 text-[11px] font-bold tracking-wide">
-                                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> SUCCESS
-                                                </span>
-                                            )}
-                                            {log.status === "FAILED" && (
-                                                <span className="inline-flex items-center gap-1.5 text-red-500 text-[11px] font-bold tracking-wide">
-                                                    <span className="w-1.5 h-1.5 rounded-full bg-red-500" /> FAILED
-                                                </span>
-                                            )}
-                                            {log.status === "WARNING" && (
-                                                <span className="inline-flex items-center gap-1.5 text-orange-500 text-[11px] font-bold tracking-wide">
-                                                    <span className="w-1.5 h-1.5 rounded-full bg-orange-500" /> WARNING
-                                                </span>
-                                            )}
-                                        </td>
-                                        <td className="px-5 py-3 text-xs text-slate-400 font-mono whitespace-nowrap">
-                                            {log.ipAddress}
-                                        </td>
+                {/* States live outside the table so they centre on small screens */}
+                {initialLoading ? (
+                    <ul aria-hidden="true" className="divide-y divide-edge">
+                        {Array.from({ length: SKELETON_ROWS }).map((_, i) => (
+                            <li key={i} className="flex items-center gap-3 px-4 py-2.5">
+                                <span className="h-3 w-20 shrink-0 rounded bg-skeleton" />
+                                <span className="h-4 w-28 shrink-0 rounded bg-skeleton" />
+                                <span className="hidden h-3 w-28 rounded bg-skeleton md:block" />
+                                <span className="hidden h-3 w-28 rounded bg-skeleton lg:block" />
+                                <span className="h-3 w-1/4 rounded bg-skeleton" />
+                                <span className="h-3 w-24 rounded bg-skeleton" />
+                                <span className="h-4 w-16 rounded bg-skeleton" />
+                                <span className="ml-auto hidden h-3 w-24 rounded bg-skeleton xl:block" />
+                            </li>
+                        ))}
+                    </ul>
+                ) : error ? (
+                    <EmptyState
+                        icon={AlertTriangle}
+                        title="Activity logs unavailable"
+                        description={error}
+                        action={
+                            <Button size="sm" icon={RefreshCw} onClick={() => void loadLogs()} loading={loading}>
+                                Retry
+                            </Button>
+                        }
+                    />
+                ) : filteredLogs.length === 0 ? (
+                    hasFilters ? (
+                        <EmptyState
+                            icon={Search}
+                            title="No entries match"
+                            description="Try a different search term, role, module, action or date range."
+                            action={
+                                <Button size="sm" icon={X} onClick={clearFilters}>
+                                    Clear filters
+                                </Button>
+                            }
+                        />
+                    ) : (
+                        <EmptyState
+                            icon={History}
+                            title="No activity yet"
+                            description="Branch workflow, user actions and security events will be recorded here."
+                        />
+                    )
+                ) : (
+                    <>
+                        <div className="overflow-x-auto">
+                            <table className="w-full min-w-[1200px] table-fixed text-left text-[13px]">
+                                <caption className="sr-only">Branch activity log entries</caption>
+                                <thead>
+                                    <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
+                                        <th scope="col" className="w-32 py-2 pl-4 pr-3 font-medium">
+                                            Time
+                                        </th>
+                                        <th scope="col" className="w-40 px-3 py-2 font-medium">
+                                            User
+                                        </th>
+                                        <th scope="col" className="hidden w-40 px-3 py-2 font-medium md:table-cell">
+                                            Role
+                                        </th>
+                                        <th scope="col" className="hidden w-44 px-3 py-2 font-medium lg:table-cell">
+                                            Module
+                                        </th>
+                                        <th scope="col" className="px-3 py-2 font-medium">
+                                            Action
+                                        </th>
+                                        <th scope="col" className="w-36 px-3 py-2 font-medium">
+                                            Entity ID
+                                        </th>
+                                        <th scope="col" className="w-28 px-3 py-2 font-medium">
+                                            Status
+                                        </th>
+                                        <th scope="col" className="hidden w-36 px-3 py-2 font-medium xl:table-cell">
+                                            IP address
+                                        </th>
                                     </tr>
-                                ))
-                            ) : (
-                                <tr>
-                                    <td colSpan={8} className="px-5 py-8 text-center text-sm text-slate-500">
-                                        No logs found matching your filters.
-                                    </td>
-                                </tr>
-                            )}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+                                </thead>
+                                <tbody className="divide-y divide-edge whitespace-nowrap">
+                                    {pageRows.map((log, index) => (
+                                        <tr key={`${log.id}-${index}`} className="transition-colors hover:bg-surface-hover">
+                                            <td className="py-2 pl-4 pr-3 tabular-nums text-fg-secondary">
+                                                <time dateTime={log.rawTimestamp} title={log.timestamp}>
+                                                    {formatAuditTime(log.rawTimestamp)}
+                                                </time>
+                                            </td>
+                                            <td className="truncate px-3 py-2 font-medium text-fg" title={log.user}>
+                                                {log.user}
+                                            </td>
+                                            <td className="hidden truncate px-3 py-2 text-fg-secondary md:table-cell" title={log.role}>
+                                                {log.role}
+                                            </td>
+                                            <td className="hidden truncate px-3 py-2 text-fg-secondary lg:table-cell" title={log.module}>
+                                                {log.module}
+                                            </td>
+                                            <td className="truncate px-3 py-2 text-fg" title={log.action}>
+                                                {log.action}
+                                            </td>
+                                            <td className="truncate px-3 py-2 text-fg-muted" title={log.entityId !== "-" ? log.entityId : undefined}>
+                                                <Cell value={log.entityId} mono />
+                                            </td>
+                                            <td className="px-3 py-2">
+                                                <StatusChip tone={LOG_STATUS_TONE[log.status]} dot size="sm">
+                                                    {humanizeStatus(log.status)}
+                                                </StatusChip>
+                                            </td>
+                                            <td className="hidden truncate px-3 py-2 text-fg-muted xl:table-cell">
+                                                <Cell value={log.ipAddress} mono />
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <Pagination
+                            currentPage={currentPage}
+                            totalPages={totalPages}
+                            totalItems={filteredLogs.length}
+                            pageSize={TABLE_PAGE_SIZE}
+                            onPageChange={setTablePage}
+                            itemLabel={filteredLogs.length === 1 ? "entry" : "entries"}
+                        />
+                    </>
+                )}
+            </SectionCard>
         </div>
     );
 }

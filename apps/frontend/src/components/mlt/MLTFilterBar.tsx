@@ -1,7 +1,19 @@
 'use client';
 
+import { useId } from 'react';
+import { Plus, Printer, Search } from 'lucide-react';
+import Button from '@/components/ui/Button';
+import { CONTROL_CLASS, SelectField } from '@/components/ui/Field';
+import { cn } from '@/lib/utils';
+
 const DEPARTMENTS = ['All Departments', 'Haematology', 'Biochemistry', 'Immunology', 'Microbiology'];
 const TEST_TYPES = ['All Test Types', 'Full Blood Count', 'Lipid Profile', 'Thyroid Panel', 'HbA1c', 'Blood Culture', 'Urine Culture', 'Serum Electrolytes'];
+
+/** Display labels only — option values stay unchanged so page filters keep matching. */
+const OPTION_LABELS: Record<string, string> = {
+    'All Departments': 'All departments',
+    'All Test Types': 'All test types',
+};
 
 interface MLTFilterBarProps {
     searchQuery: string;
@@ -21,64 +33,65 @@ export default function MLTFilterBar({
     onSearch, onDepartment, onTestType,
     mode, onPrintBatch, onNewEntry, onPrint,
 }: MLTFilterBarProps) {
+    const searchId = useId();
+
     return (
-        <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center flex-wrap">
-            <div className="relative flex-1 min-w-[200px]">
-                <span className="material-icons absolute left-3 top-1/2 -translate-y-1/2 text-lg text-slate-400">search</span>
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+            <div className="relative min-w-0 flex-1 sm:min-w-[200px]">
+                <label htmlFor={searchId} className="sr-only">Search sample ID or patient</label>
+                <Search
+                    className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-faint"
+                    aria-hidden="true"
+                />
                 <input
-                    type="text"
-                    placeholder="Search sample ID, patient..."
+                    id={searchId}
+                    type="search"
+                    placeholder="Search sample ID, patient…"
                     value={searchQuery}
                     onChange={(e) => onSearch(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                    className={cn(CONTROL_CLASS, 'h-9 pl-9')}
                 />
             </div>
-            <select
+
+            <SelectField
+                label="Department"
+                hideLabel
                 value={department}
                 onChange={(e) => onDepartment(e.target.value)}
-                className="border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                className="sm:w-44"
             >
-                {DEPARTMENTS.map((d) => <option key={d} value={d}>{d}</option>)}
-            </select>
-            <select
+                {DEPARTMENTS.map((d) => <option key={d} value={d}>{OPTION_LABELS[d] ?? d}</option>)}
+            </SelectField>
+
+            <SelectField
+                label="Test type"
+                hideLabel
                 value={testType}
                 onChange={(e) => onTestType(e.target.value)}
-                className="border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                className="sm:w-44"
             >
-                {TEST_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
+                {TEST_TYPES.map((t) => <option key={t} value={t}>{OPTION_LABELS[t] ?? t}</option>)}
+            </SelectField>
 
             {mode === 'worklist' && (
                 <>
                     {onPrintBatch && (
-                        <button
-                            onClick={onPrintBatch}
-                            className="flex items-center gap-1.5 px-3 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-600 hover:bg-slate-50 transition-all"
-                        >
-                            <span className="material-icons text-base">print</span>
-                            Print Batch
-                        </button>
+                        <Button variant="secondary" icon={Printer} onClick={onPrintBatch}>
+                            Print batch
+                        </Button>
                     )}
                     {onNewEntry && (
-                        <button
-                            onClick={onNewEntry}
-                            className="flex items-center gap-1.5 px-3 py-2.5 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 transition-all"
-                        >
-                            <span className="material-icons text-base">add</span>
-                            New Entry
-                        </button>
+                        <Button variant="primary" icon={Plus} onClick={onNewEntry}>
+                            New entry
+                        </Button>
                     )}
                 </>
             )}
 
             {mode === 'all' && onPrint && (
-                <button
-                    onClick={onPrint}
-                    className="flex items-center gap-1.5 px-3 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-600 hover:bg-slate-50 transition-all"
-                >
-                    <span className="material-icons text-base">print</span>
-                    Print List
-                </button>
+                <Button variant="secondary" icon={Printer} onClick={onPrint}>
+                    Print list
+                </Button>
             )}
         </div>
     );
