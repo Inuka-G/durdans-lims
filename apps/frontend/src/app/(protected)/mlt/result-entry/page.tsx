@@ -1,9 +1,18 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
+import { Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { AxiosError } from 'axios';
+import {
+    AlertTriangle,
+    ArrowLeftRight,
+    ChevronLeft,
+    FlaskConical,
+    History,
+    Save,
+    Search,
+    Send,
+} from 'lucide-react';
 import {
     getMltAllWorklist,
     getMltSampleResultActivity,
@@ -18,26 +27,38 @@ import {
     type InstrumentOption,
     type SubmitResultsRequest,
 } from '@/lib/api';
-import { formatStatusLabel } from '@/constants/sample-lifecycle';
+import { cn } from '@/lib/utils';
+import Button from '@/components/ui/Button';
+import PageHeader from '@/components/ui/PageHeader';
+import SectionCard from '@/components/ui/SectionCard';
+import EmptyState from '@/components/ui/EmptyState';
+import SegmentedControl, { type SegmentOption } from '@/components/ui/SegmentedControl';
+import StatusChip, { type ChipTone } from '@/components/ui/StatusChip';
+import { CONTROL_CLASS, FormSection, InputField, SelectField } from '@/components/ui/Field';
+import StatusBadge from '@/components/shared/StatusBadge';
+import PriorityBadge from '@/components/shared/PriorityBadge';
+import { formatAuditTime, formatRegistered } from '@/components/patient-dashboard/dashboard-data';
 
-const FLAG_STYLES: Record<string, string> = {
-    NORMAL: 'bg-slate-100 text-slate-600',
-    LOW: 'bg-amber-100 text-amber-700',
-    HIGH: 'bg-amber-100 text-amber-700',
-    CRITICAL_HIGH: 'bg-red-600 text-white',
-    CRITICAL_LOW: 'bg-red-600 text-white',
+const FLAG_TONES: Record<string, ChipTone> = {
+    NORMAL: 'neutral',
+    LOW: 'pending',
+    HIGH: 'pending',
+    CRITICAL_HIGH: 'danger',
+    CRITICAL_LOW: 'danger',
 };
 
 const FLAG_LABELS: Record<string, string> = {
-    NORMAL: 'NORMAL',
-    LOW: 'LOW',
-    HIGH: 'HIGH',
-    CRITICAL_HIGH: 'CRITICAL HIGH',
-    CRITICAL_LOW: 'CRITICAL LOW',
+    NORMAL: 'Normal',
+    LOW: 'Low',
+    HIGH: 'High',
+    CRITICAL_HIGH: 'Critical high',
+    CRITICAL_LOW: 'Critical low',
 };
 
 /** Typical LIS delta-check warning when change vs prior authoritative result exceeds this percent. */
 const DELTA_CHECK_THRESHOLD_PCT = 40;
+
+const SKELETON_ROWS = 6;
 
 type EditableParameter = ResultParameter & {
     result: string;
@@ -48,10 +69,25 @@ type DisplayResultFlag = 'NORMAL' | 'LOW' | 'HIGH' | 'CRITICAL_HIGH' | 'CRITICAL
 
 type MainTab = 'entry' | 'details' | 'history';
 
+const MAIN_TABS: SegmentOption<MainTab>[] = [
+    { value: 'entry', label: 'Results' },
+    { value: 'details', label: 'Specimen & order' },
+    { value: 'history', label: 'Activity' },
+];
+
 const UUID_PATTERN =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export default function ResultEntryPage() {
+    // useSearchParams needs a Suspense boundary for static prerendering.
+    return (
+        <Suspense fallback={null}>
+            <ResultEntryContent />
+        </Suspense>
+    );
+}
+
+function ResultEntryContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const sampleId = searchParams.get('sampleId');
@@ -338,275 +374,366 @@ export default function ResultEntryPage() {
         }
     };
 
+    /* ------------------------------------------------------------------ */
+    /*  Loading                                                            */
+    /* ------------------------------------------------------------------ */
+
     if (loading && sampleId) {
         return (
-            <div className="flex items-center justify-center min-h-[calc(100vh-64px)] -m-8 bg-slate-50/50">
-                <div className="text-center">
-                    <div className="inline-block h-8 w-8 animate-spin rounded-full border-2 border-slate-200 border-t-primary" />
-                    <p className="mt-3 text-sm text-slate-500">Loading result entry details...</p>
+            <div className="mx-auto max-w-[1400px]">
+                <PageHeader
+                    crumbs={[{ label: 'MLT worklist', href: '/mlt/worklist' }, { label: 'Result entry' }]}
+                    title="Result entry"
+                    meta={<span>Loading specimen…</span>}
+                />
+                <p role="status" aria-live="polite" className="sr-only">
+                    Loading result entry details
+                </p>
+                <div aria-hidden="true" className="grid gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
+                    <div className="space-y-4">
+                        <div className="space-y-3 rounded-lg border border-edge bg-surface p-4">
+                            {Array.from({ length: 4 }).map((_, i) => (
+                                <div key={i} className="space-y-1.5">
+                                    <span className="block h-2.5 w-16 rounded bg-skeleton" />
+                                    <span className="block h-3.5 w-32 rounded bg-skeleton" />
+                                </div>
+                            ))}
+                        </div>
+                        <div className="space-y-3 rounded-lg border border-edge bg-surface p-4">
+                            {Array.from({ length: 4 }).map((_, i) => (
+                                <div key={i} className="space-y-1.5">
+                                    <span className="block h-2.5 w-16 rounded bg-skeleton" />
+                                    <span className="block h-3.5 w-36 rounded bg-skeleton" />
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                    <div className="rounded-lg border border-edge bg-surface">
+                        <div className="border-b border-edge px-4 py-3">
+                            <span className="block h-4 w-40 rounded bg-skeleton" />
+                        </div>
+                        <ul className="divide-y divide-edge">
+                            {Array.from({ length: SKELETON_ROWS }).map((_, i) => (
+                                <li key={i} className="flex items-center gap-3 px-4 py-2.5">
+                                    <span className="h-3 w-32 rounded bg-skeleton" />
+                                    <span className="ml-auto h-3 w-12 rounded bg-skeleton" />
+                                    <span className="h-8 w-24 rounded bg-skeleton" />
+                                    <span className="hidden h-3 w-16 rounded bg-skeleton md:block" />
+                                    <span className="hidden h-5 w-20 rounded bg-skeleton md:block" />
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
                 </div>
             </div>
         );
     }
 
-    if (!sampleId) {
-        return (
-            <div className="min-h-[calc(100vh-64px)] -m-8 bg-slate-50/50 p-6">
-                <div className="max-w-5xl mx-auto">
-                    <div className="mb-6">
-                        <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">MLT / Result entry</p>
-                        <h1 className="text-2xl font-bold text-slate-800 mt-0.5">Select a specimen</h1>
-                        <p className="text-sm text-slate-500 mt-1">
-                            Choose a sample below or open one from the{' '}
-                            <Link href="/mlt/worklist" className="text-primary font-semibold hover:underline">
-                                sample worklist
-                            </Link>
-                            . Industry LIS workflows typically open result entry from the active worklist so context
-                            (priority, stability, repeats) travels with the specimen.
-                        </p>
-                    </div>
+    /* ------------------------------------------------------------------ */
+    /*  Specimen picker                                                    */
+    /* ------------------------------------------------------------------ */
 
-                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5 mb-6">
-                        <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
-                            Search barcode, patient, test, or order
-                        </label>
-                        <input
+    if (!sampleId) {
+        const hasQuery = pickerQuery.trim().length > 0;
+        return (
+            <div className="mx-auto max-w-5xl">
+                <PageHeader
+                    crumbs={[{ label: 'MLT worklist', href: '/mlt/worklist' }, { label: 'Result entry' }]}
+                    title="Select a specimen"
+                    meta={
+                        <span>
+                            Choose a sample below or open one from the worklist so priority, stability and repeat
+                            context travel with the specimen.
+                        </span>
+                    }
+                    actions={
+                        <Button href="/mlt/worklist" icon={ChevronLeft}>
+                            Open worklist
+                        </Button>
+                    }
+                />
+
+                <p role="status" aria-live="polite" className="sr-only">
+                    {pickerLoading
+                        ? 'Loading samples'
+                        : `Showing ${filteredPickerRows.length} of ${pickerRows.length} samples.`}
+                </p>
+
+                <SectionCard
+                    title="MLT worklist samples"
+                    count={pickerLoading ? undefined : filteredPickerRows.length}
+                    flush
+                >
+                    <div className="border-b border-edge bg-surface-muted px-3 py-2">
+                        <InputField
+                            label="Search barcode, patient, test or order"
+                            hideLabel
                             type="search"
                             value={pickerQuery}
                             onChange={(e) => setPickerQuery(e.target.value)}
-                            placeholder="Filter..."
-                            className="w-full max-w-md px-4 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/20"
+                            placeholder="Search barcode, patient, test or order"
+                            autoComplete="off"
+                            className="max-w-md"
                         />
                     </div>
 
-                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 overflow-hidden">
-                        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-                            <h3 className="text-sm font-bold text-slate-700">All MLT worklist samples</h3>
-                            {pickerLoading && (
-                                <span className="text-xs text-slate-400 animate-pulse">Loading...</span>
-                            )}
-                        </div>
+                    {pickerLoading ? (
+                        <ul aria-hidden="true" className="divide-y divide-edge">
+                            {Array.from({ length: SKELETON_ROWS }).map((_, i) => (
+                                <li key={i} className="flex items-center gap-3 px-4 py-2.5">
+                                    <span className="h-3 w-24 shrink-0 rounded bg-skeleton" />
+                                    <span className="h-3 w-32 rounded bg-skeleton" />
+                                    <span className="hidden h-3 w-28 rounded bg-skeleton md:block" />
+                                    <span className="hidden h-4 w-14 rounded bg-skeleton md:block" />
+                                    <span className="ml-auto h-7 w-14 rounded bg-skeleton" />
+                                </li>
+                            ))}
+                        </ul>
+                    ) : filteredPickerRows.length === 0 ? (
+                        hasQuery ? (
+                            <EmptyState
+                                icon={Search}
+                                title="No samples match"
+                                description="Try a different barcode, patient, test or order."
+                                action={
+                                    <Button size="sm" onClick={() => setPickerQuery('')}>
+                                        Clear search
+                                    </Button>
+                                }
+                            />
+                        ) : (
+                            <EmptyState
+                                icon={FlaskConical}
+                                title="No samples on the worklist"
+                                description="Specimens accepted for testing will appear here."
+                            />
+                        )
+                    ) : (
                         <div className="overflow-x-auto">
-                            <table className="w-full text-sm">
+                            {/* table-fixed: 144+96+160+80 = 480px of fixed columns, so the table needs
+                                480 + 2*160 = 800px before Patient and Test clear a 160px floor. */}
+                            <table className="w-full min-w-[800px] table-fixed text-left text-[13px]">
+                                <caption className="sr-only">MLT worklist samples</caption>
                                 <thead>
-                                    <tr className="text-left text-xs font-bold text-slate-400 uppercase tracking-wider bg-slate-50/50">
-                                        <th className="px-5 py-3 border-b border-slate-100">Barcode</th>
-                                        <th className="px-4 py-3 border-b border-slate-100">Patient</th>
-                                        <th className="px-4 py-3 border-b border-slate-100">Test</th>
-                                        <th className="px-4 py-3 border-b border-slate-100">Priority</th>
-                                        <th className="px-4 py-3 border-b border-slate-100">Status</th>
-                                        <th className="px-4 py-3 border-b border-slate-100 text-right">Action</th>
+                                    <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
+                                        <th scope="col" className="w-36 py-2 pl-4 pr-3 font-medium">
+                                            Barcode
+                                        </th>
+                                        <th scope="col" className="px-3 py-2 font-medium">
+                                            Patient
+                                        </th>
+                                        <th scope="col" className="px-3 py-2 font-medium">
+                                            Test
+                                        </th>
+                                        <th scope="col" className="w-24 px-3 py-2 font-medium">
+                                            Priority
+                                        </th>
+                                        <th scope="col" className="w-40 px-3 py-2 font-medium">
+                                            Status
+                                        </th>
+                                        <th scope="col" className="w-20 py-2 pl-3 pr-4 text-right font-medium">
+                                            <span className="sr-only">Action</span>
+                                        </th>
                                     </tr>
                                 </thead>
-                                <tbody>
-                                    {!pickerLoading && filteredPickerRows.length === 0 && (
-                                        <tr>
-                                            <td colSpan={6} className="px-5 py-12 text-center text-slate-500">
-                                                No samples match your filter.
-                                            </td>
-                                        </tr>
-                                    )}
+                                <tbody className="divide-y divide-edge whitespace-nowrap">
                                     {filteredPickerRows.map((row) => (
-                                        <tr key={row.sampleId} className="border-b border-slate-50 hover:bg-slate-50/40">
-                                            <td className="px-5 py-3 font-semibold text-primary">{row.barcode}</td>
-                                            <td className="px-4 py-3 text-slate-700">{row.patientName}</td>
-                                            <td className="px-4 py-3 text-slate-600">{row.testName}</td>
-                                            <td className="px-4 py-3 text-xs font-bold text-slate-500">{row.priority}</td>
-                                            <td className="px-4 py-3 text-xs font-semibold text-slate-500">
-                                                {formatStatusLabel(row.status)}
+                                        <tr key={row.sampleId} className="transition-colors hover:bg-surface-hover">
+                                            <td
+                                                className="truncate py-2 pl-4 pr-3 font-medium text-primary-strong"
+                                                title={row.barcode}
+                                            >
+                                                {row.barcode}
                                             </td>
-                                            <td className="px-4 py-3 text-right">
-                                                <button
-                                                    type="button"
+                                            <td className="truncate px-3 py-2 text-fg" title={row.patientName}>
+                                                {row.patientName}
+                                            </td>
+                                            <td className="truncate px-3 py-2 text-fg-secondary" title={row.testName}>
+                                                {row.testName}
+                                            </td>
+                                            <td className="px-3 py-2">
+                                                <PriorityBadge priority={row.priority} />
+                                            </td>
+                                            <td className="px-3 py-2">
+                                                <StatusBadge status={row.status} />
+                                            </td>
+                                            <td className="py-2 pl-3 pr-4 text-right">
+                                                <Button
+                                                    size="sm"
                                                     onClick={() =>
                                                         router.push(`/mlt/result-entry?sampleId=${row.sampleId}`)
                                                     }
-                                                    className="px-3 py-1.5 bg-primary text-white text-xs font-bold rounded-lg hover:bg-primary/90 transition-colors"
+                                                    aria-label={`Open result entry for ${row.barcode}`}
                                                 >
                                                     Open
-                                                </button>
+                                                </Button>
                                             </td>
                                         </tr>
                                     ))}
                                 </tbody>
                             </table>
                         </div>
-                    </div>
-                </div>
+                    )}
+                </SectionCard>
             </div>
         );
     }
+
+    /* ------------------------------------------------------------------ */
+    /*  Sample unavailable                                                 */
+    /* ------------------------------------------------------------------ */
 
     if (!sample) {
         return (
-            <div className="flex items-center justify-center min-h-[calc(100vh-64px)] -m-8 bg-slate-50/50">
-                <div className="rounded-2xl border border-slate-200 bg-white px-8 py-10 text-center shadow-sm max-w-md">
-                    <p className="text-base font-semibold text-slate-800">Result entry unavailable</p>
-                    <p className="text-sm text-slate-500 mt-2">{error ?? 'Sample details could not be loaded.'}</p>
-                    <Link
-                        href="/mlt/worklist"
-                        className="inline-flex items-center gap-1 mt-5 text-sm font-semibold text-primary hover:underline"
-                    >
-                        <span className="material-icons text-sm">chevron_left</span>
-                        Back to Worklist
-                    </Link>
-                    <button
-                        type="button"
-                        onClick={() => router.push('/mlt/result-entry')}
-                        className="block mx-auto mt-4 text-sm font-semibold text-slate-600 hover:text-primary"
-                    >
-                        Choose another specimen
-                    </button>
+            <div className="mx-auto max-w-5xl">
+                <PageHeader
+                    crumbs={[{ label: 'MLT worklist', href: '/mlt/worklist' }, { label: 'Result entry' }]}
+                    title="Result entry"
+                />
+                <div role="alert" className="rounded-lg border border-edge bg-surface">
+                    <EmptyState
+                        icon={AlertTriangle}
+                        title="Result entry unavailable"
+                        description={error ?? 'Sample details could not be loaded.'}
+                        action={
+                            <div className="flex flex-wrap items-center justify-center gap-2">
+                                <Button href="/mlt/worklist" icon={ChevronLeft}>
+                                    Back to worklist
+                                </Button>
+                                <Button
+                                    variant="ghost"
+                                    icon={ArrowLeftRight}
+                                    onClick={() => router.push('/mlt/result-entry')}
+                                >
+                                    Choose another specimen
+                                </Button>
+                            </div>
+                        }
+                    />
                 </div>
             </div>
         );
     }
 
+    /* ------------------------------------------------------------------ */
+    /*  Result entry                                                       */
+    /* ------------------------------------------------------------------ */
+
+    const alertTone = hasCritical ? 'danger' : 'pending';
+
     return (
-        <div className="flex gap-0 min-h-[calc(100vh-64px)] -m-8">
-            <div className="w-[260px] flex-shrink-0 bg-white border-r border-slate-200/80 flex flex-col">
-                <div className="p-4 flex-1 overflow-y-auto">
-                    <Link
-                        href="/mlt/worklist"
-                        className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-primary transition-colors mb-4"
-                    >
-                        <span className="material-icons text-sm">chevron_left</span>
-                        Worklist
-                    </Link>
+        <div className="mx-auto max-w-[1400px]">
+            <PageHeader
+                crumbs={[{ label: 'MLT worklist', href: '/mlt/worklist' }, { label: 'Result entry' }]}
+                title="Result entry"
+                meta={
+                    <>
+                        <span className="font-medium text-fg-secondary">{sample.barcode}</span>
+                        <span aria-hidden="true">·</span>
+                        <span>{sample.testName}</span>
+                        <span aria-hidden="true">·</span>
+                        <span>{sample.patientName}</span>
+                        <StatusBadge status={sample.status} />
+                    </>
+                }
+                actions={
+                    <>
+                        <Button variant="ghost" href="/mlt/worklist" icon={ChevronLeft}>
+                            Worklist
+                        </Button>
+                        <Button icon={ArrowLeftRight} onClick={() => router.push('/mlt/result-entry')}>
+                            Change specimen
+                        </Button>
+                    </>
+                }
+            />
 
-                    <button
-                        type="button"
-                        onClick={() => router.push('/mlt/result-entry')}
-                        className="block text-xs font-semibold text-slate-500 hover:text-primary mb-4"
-                    >
-                        Change specimen
-                    </button>
-
-                    {(hasCritical || hasDeltaAlert) && (
-                        <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5 mb-5 space-y-2">
-                            <div className="flex items-start gap-2">
-                                <span className="material-icons text-amber-600 text-base mt-0.5">warning</span>
-                                <div className="text-[11px] text-amber-800 font-semibold leading-snug space-y-1">
-                                    {hasCritical && <p>Critical result detected - confirm result before submission.</p>}
-                                    {hasDeltaAlert && (
-                                        <p>
-                                            Delta-check: one or more analytes changed ≥ {DELTA_CHECK_THRESHOLD_PCT}% vs
-                                            prior authoritative result — confirm before releasing.
-                                        </p>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
+            {(hasCritical || hasDeltaAlert) && (
+                <div
+                    role="alert"
+                    className={cn(
+                        'mb-4 flex items-start gap-3 rounded-lg border p-3 text-sm',
+                        alertTone === 'danger'
+                            ? 'border-status-danger-edge bg-status-danger-bg text-status-danger-fg'
+                            : 'border-status-pending-edge bg-status-pending-bg text-status-pending-fg'
                     )}
-
-                    <div className="bg-primary rounded-xl px-3 py-2 mb-4">
-                        <p className="text-[10px] font-bold text-white/70 uppercase tracking-wider">Patient</p>
-                    </div>
-
-                    <div className="space-y-3.5 text-[11px]">
-                        <div>
-                            <p className="font-bold text-slate-400 uppercase tracking-wider">Patient Name</p>
-                            <p className="font-semibold text-slate-700 mt-0.5">{sample.patientName}</p>
-                        </div>
-                        <div>
-                            <p className="font-bold text-slate-400 uppercase tracking-wider">Patient ID</p>
-                            <p className="font-semibold text-slate-700 mt-0.5">{sample.patientId}</p>
-                        </div>
-                        <div>
-                            <p className="font-bold text-slate-400 uppercase tracking-wider">Status</p>
-                            <p className="font-semibold text-slate-700 mt-0.5">{formatStatusLabel(sample.status)}</p>
-                        </div>
-                        <div>
-                            <p className="font-bold text-slate-400 uppercase tracking-wider">Order</p>
-                            <p className="font-semibold text-slate-700 mt-0.5">{sample.orderNo ?? sample.orderId}</p>
-                        </div>
-                    </div>
-
-                    <div className="mt-5">
-                        <div className="bg-primary rounded-xl px-3 py-2 mb-3">
-                            <p className="text-[10px] font-bold text-white/70 uppercase tracking-wider">Specimen</p>
-                        </div>
-                        <div className="space-y-3.5 text-[11px]">
-                            <div>
-                                <p className="font-bold text-slate-400 uppercase tracking-wider">Barcode</p>
-                                <p className="font-semibold text-primary mt-0.5">{sample.barcode}</p>
-                            </div>
-                            <div>
-                                <p className="font-bold text-slate-400 uppercase tracking-wider">Test</p>
-                                <p className="font-semibold text-slate-700 mt-0.5">{sample.testName}</p>
-                            </div>
-                            <div>
-                                <p className="font-bold text-slate-400 uppercase tracking-wider">Tube / Priority</p>
-                                <p className="font-semibold text-slate-700 mt-0.5">
-                                    {[sample.tubeType, sample.priority].filter(Boolean).join(' · ') || '—'}
-                                </p>
-                            </div>
-                            <div>
-                                <p className="font-bold text-slate-400 uppercase tracking-wider">Collected</p>
-                                <p className="font-semibold text-slate-700 mt-0.5">
-                                    {formatCollected(sample.collectedAt, sample.collectedBy)}
-                                </p>
-                            </div>
-                            <div>
-                                <p className="font-bold text-slate-400 uppercase tracking-wider">Progress</p>
-                                <p className="font-semibold text-slate-700 mt-0.5">
-                                    {enteredParameters.length} / {parameters.length} parameters
-                                </p>
-                            </div>
-                        </div>
+                >
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                    <div className="min-w-0 space-y-1">
+                        {hasCritical && <p className="font-medium">Critical result detected. Confirm the result before submission.</p>}
+                        {hasDeltaAlert && (
+                            <p>
+                                Delta-check: one or more analytes changed ≥ {DELTA_CHECK_THRESHOLD_PCT}% vs the prior
+                                authoritative result. Confirm before releasing.
+                            </p>
+                        )}
                     </div>
                 </div>
-            </div>
+            )}
 
-            <div className="flex-1 min-w-0 bg-slate-50/50 flex flex-col">
-                <div className="border-b border-slate-200/80 bg-white px-6 py-4 flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                        <h1 className="text-xl font-bold text-slate-800">Result entry</h1>
-                        <p className="text-sm text-slate-400 mt-0.5">
-                            {sample.barcode} · {sample.testName}
-                        </p>
+            <div className="grid gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
+                {/* Context column */}
+                <aside aria-label="Specimen context" className="space-y-4 lg:sticky lg:top-20 lg:self-start">
+                    <SectionCard title="Patient">
+                        <dl className="space-y-3">
+                            <ContextRow label="Patient name" value={sample.patientName} />
+                            <ContextRow label="Patient ID" value={sample.patientId} />
+                            <ContextRow label="Status" value={<StatusBadge status={sample.status} />} />
+                            <ContextRow label="Order" value={sample.orderNo ?? sample.orderId} />
+                        </dl>
+                    </SectionCard>
+                    <SectionCard title="Specimen">
+                        <dl className="space-y-3">
+                            <ContextRow
+                                label="Barcode"
+                                value={<span className="font-medium text-primary-strong">{sample.barcode}</span>}
+                            />
+                            <ContextRow label="Test" value={sample.testName} />
+                            <ContextRow
+                                label="Tube / priority"
+                                value={
+                                    <span className="flex flex-wrap items-center gap-1.5">
+                                        {sample.tubeType ? <span>{sample.tubeType}</span> : !sample.priority ? '—' : null}
+                                        {sample.priority && <PriorityBadge priority={sample.priority} />}
+                                    </span>
+                                }
+                            />
+                            <ContextRow label="Collected" value={formatCollected(sample.collectedAt, sample.collectedBy)} />
+                            <ContextRow
+                                label="Progress"
+                                value={
+                                    <span className="tabular-nums">
+                                        {enteredParameters.length} / {parameters.length} parameters
+                                    </span>
+                                }
+                            />
+                        </dl>
+                    </SectionCard>
+                </aside>
+
+                {/* Main column */}
+                <div className="min-w-0">
+                    <div className="mb-4">
+                        <SegmentedControl
+                            value={mainTab}
+                            onChange={setMainTab}
+                            options={MAIN_TABS}
+                            ariaLabel="Result entry sections"
+                        />
                     </div>
-                    <nav className="flex rounded-xl bg-slate-100 p-1 gap-1">
-                        {(
-                            [
-                                ['entry', 'Results'],
-                                ['details', 'Specimen & order'],
-                                ['history', 'Activity'],
-                            ] as const
-                        ).map(([id, label]) => (
-                            <button
-                                key={id}
-                                type="button"
-                                onClick={() => setMainTab(id)}
-                                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${
-                                    mainTab === id ? 'bg-white text-primary shadow-sm' : 'text-slate-500 hover:text-slate-800'
-                                }`}
-                            >
-                                {label}
-                            </button>
-                        ))}
-                    </nav>
-                </div>
 
-                <div className="flex-1 overflow-y-auto p-6">
                     {mainTab === 'details' && (
-                        <div className="max-w-3xl space-y-5">
-                            <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-6">
-                                <h3 className="text-sm font-extrabold text-slate-700 uppercase tracking-wider mb-4">
-                                    Order & identifiers
-                                </h3>
-                                <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                        <div className="max-w-3xl space-y-4">
+                            <SectionCard title="Order & identifiers">
+                                <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                                     <DetailRow label="Order number" value={sample.orderNo ?? sample.orderId} />
-                                    <DetailRow label="Order UUID" value={sample.orderId} />
+                                    <DetailRow label="Order UUID" value={sample.orderId} mono />
                                     <DetailRow label="Patient ID" value={sample.patientId} />
-                                    <DetailRow label="Sample UUID" value={sample.sampleId} />
+                                    <DetailRow label="Sample UUID" value={sample.sampleId} mono />
                                 </dl>
-                            </div>
-                            <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-6">
-                                <h3 className="text-sm font-extrabold text-slate-700 uppercase tracking-wider mb-4">
-                                    Specimen handling context
-                                </h3>
-                                <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                            </SectionCard>
+                            <SectionCard title="Specimen handling context">
+                                <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                                     <DetailRow label="Barcode" value={sample.barcode} />
                                     <DetailRow label="Tube type" value={sample.tubeType ?? '—'} />
                                     <DetailRow label="Clinical priority" value={sample.priority ?? '—'} />
@@ -615,203 +742,261 @@ export default function ResultEntryPage() {
                                         value={formatCollected(sample.collectedAt, sample.collectedBy)}
                                     />
                                 </dl>
-                                <p className="text-xs text-slate-400 mt-4 leading-relaxed">
-                                    Pre-analytical data supports correct processing (e.g., additive compatibility,
-                                    centrifugation rules). Final validation remains with pathologist / authorised
+                                <p className="mt-4 text-xs leading-relaxed text-fg-muted">
+                                    Pre-analytical data supports correct processing (e.g. additive compatibility,
+                                    centrifugation rules). Final validation remains with the pathologist or authorised
                                     verifier per your policy.
                                 </p>
-                            </div>
+                            </SectionCard>
                         </div>
                     )}
 
                     {mainTab === 'history' && (
                         <div className="max-w-4xl">
-                            <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 overflow-hidden">
-                                <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center">
-                                    <h3 className="text-sm font-extrabold text-slate-700 uppercase tracking-wider">
-                                        Result entry audit trail
-                                    </h3>
-                                    {activityLoading && (
-                                        <span className="text-xs text-slate-400">Loading activity…</span>
-                                    )}
-                                </div>
-                                <ul className="divide-y divide-slate-50">
-                                    {!activityLoading && activity.length === 0 && (
-                                        <li className="px-6 py-10 text-sm text-slate-500 text-center">
-                                            No recorded saves yet for this specimen. Draft and final submissions create
-                                            immutable audit rows for accreditation traceability.
-                                        </li>
-                                    )}
-                                    {activity.map((item) => (
-                                        <li key={item.id} className="px-6 py-4 hover:bg-slate-50/40">
-                                            <div className="flex flex-wrap justify-between gap-2">
-                                                <p className="text-sm font-bold text-slate-800">
-                                                    {formatActivityAction(item.action)}
-                                                </p>
-                                                <p className="text-xs text-slate-400">{formatTs(item.timestamp)}</p>
-                                            </div>
-                                            <p className="text-xs text-slate-500 mt-1">By {item.performedBy}</p>
-                                            {item.details && (
-                                                <pre className="mt-3 text-[11px] bg-slate-50 rounded-xl p-3 overflow-x-auto text-slate-600 whitespace-pre-wrap font-mono border border-slate-100">
-                                                    {formatActivityDetails(item.details)}
-                                                </pre>
-                                            )}
-                                        </li>
-                                    ))}
-                                </ul>
-                            </div>
+                            <p role="status" aria-live="polite" className="sr-only">
+                                {activityLoading ? 'Loading activity' : `${activity.length} activity entries.`}
+                            </p>
+                            <SectionCard
+                                title="Result entry audit trail"
+                                count={activityLoading ? undefined : activity.length}
+                                flush
+                            >
+                                {activityLoading ? (
+                                    <ul aria-hidden="true" className="divide-y divide-edge">
+                                        {Array.from({ length: 3 }).map((_, i) => (
+                                            <li key={i} className="space-y-2 px-4 py-3">
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <span className="h-3.5 w-40 rounded bg-skeleton" />
+                                                    <span className="h-3 w-16 rounded bg-skeleton" />
+                                                </div>
+                                                <span className="block h-3 w-24 rounded bg-skeleton" />
+                                            </li>
+                                        ))}
+                                    </ul>
+                                ) : activity.length === 0 ? (
+                                    <EmptyState
+                                        icon={History}
+                                        title="No recorded saves yet"
+                                        description="Draft and final submissions create immutable audit rows for accreditation traceability."
+                                    />
+                                ) : (
+                                    <ul className="divide-y divide-edge">
+                                        {activity.map((item) => (
+                                            <li key={item.id} className="px-4 py-3 transition-colors hover:bg-surface-hover">
+                                                <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                                                    <p className="text-sm font-medium text-fg">
+                                                        {formatActivityAction(item.action)}
+                                                    </p>
+                                                    <time
+                                                        dateTime={item.timestamp}
+                                                        title={formatDateTime(item.timestamp)}
+                                                        className="text-xs tabular-nums text-fg-muted"
+                                                    >
+                                                        {formatAuditTime(item.timestamp)}
+                                                    </time>
+                                                </div>
+                                                <p className="mt-0.5 text-xs text-fg-muted">By {item.performedBy}</p>
+                                                {item.details && (
+                                                    <pre className="mt-2 overflow-x-auto whitespace-pre-wrap rounded-md border border-edge bg-surface-muted p-3 font-mono text-[11px] text-fg-secondary">
+                                                        {formatActivityDetails(item.details)}
+                                                    </pre>
+                                                )}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                )}
+                            </SectionCard>
                         </div>
                     )}
 
                     {mainTab === 'entry' && (
                         <>
-                            <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
-                                <div />
-                                <button
-                                    type="button"
-                                    onClick={() => void handleSaveDraft()}
-                                    disabled={savingDraft || submitting || isReadOnly}
-                                    className="flex items-center gap-1.5 px-4 py-2 border border-slate-200 text-slate-600 text-sm font-semibold rounded-xl hover:bg-white bg-white/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
-                                >
-                                    <span className="material-icons text-base">save</span>
-                                    {savingDraft ? 'Saving...' : 'Save Draft'}
-                                </button>
-                            </div>
-
-                            {error && (
-                                <div className="mb-5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                                    {error}
-                                </div>
-                            )}
-
-                            {isReadOnly && (
-                                <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                                    {readOnlyMessage}
-                                </div>
-                            )}
-
-                            {successMessage && (
-                                <div className="mb-5 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-                                    {successMessage}
-                                </div>
-                            )}
-
-                            <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 mb-5 overflow-hidden">
-                                <div className="flex items-center justify-between px-6 py-3.5 border-b border-slate-100">
-                                    <h3 className="text-sm font-extrabold text-slate-700 uppercase tracking-wider">
-                                        {sample.testName}
-                                    </h3>
-                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                                        {parameters.length} analytes · delta-check vs prior verified/dispatched results
-                                    </span>
-                                </div>
-
-                                <div className="overflow-x-auto">
-                                    <div className="min-w-[920px] grid grid-cols-[minmax(140px,1fr)_minmax(100px,0.9fr)_72px_minmax(72px,0.7fr)_56px_minmax(110px,1fr)_minmax(124px,0.9fr)] px-6 py-2.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-50 bg-slate-50/40 gap-2">
-                                        <span>Parameter</span>
-                                        <span className="text-center">Previous</span>
-                                        <span className="text-center">Δ %</span>
-                                        <span className="text-center">Result</span>
-                                        <span className="text-center">Unit</span>
-                                        <span className="text-center">Reference</span>
-                                        <span className="text-center">Flag</span>
+                            <div aria-live="assertive" role="alert">
+                                {error && (
+                                    <div className="mb-4 flex items-start gap-3 rounded-lg border border-status-danger-edge bg-status-danger-bg p-3 text-sm text-status-danger-fg">
+                                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                                        <p className="min-w-0 break-words">{error}</p>
                                     </div>
-
-                                    {parameters.map((parameter) => {
-                                        const displayFlag = getDisplayFlag(parameter);
-                                        const isCritical = displayFlag?.startsWith('CRITICAL');
-                                        const isAbnormal = displayFlag && displayFlag !== 'NORMAL';
-                                        const flagClass = displayFlag
-                                            ? FLAG_STYLES[displayFlag] ?? 'bg-slate-100 text-slate-600'
-                                            : 'bg-slate-100 text-slate-600';
-                                        const flagLabel = displayFlag
-                                            ? FLAG_LABELS[displayFlag] ?? displayFlag
-                                            : '—';
-                                        const prevVal = parameter.previousValue?.result;
-                                        const delta = computeDeltaPercent(prevVal ?? '', parameter.result);
-                                        const deltaWarn =
-                                            delta !== null &&
-                                            prevVal &&
-                                            parameter.result.trim() &&
-                                            Math.abs(delta) >= DELTA_CHECK_THRESHOLD_PCT;
-
-                                        return (
-                                            <div
-                                                key={parameter.parameterId}
-                                                className={`min-w-[920px] grid grid-cols-[minmax(140px,1fr)_minmax(100px,0.9fr)_72px_minmax(72px,0.7fr)_56px_minmax(110px,1fr)_minmax(124px,0.9fr)] items-center px-6 py-3.5 border-b border-slate-50 last:border-0 gap-2 transition-colors ${
-                                                    isCritical
-                                                        ? 'bg-red-50/40'
-                                                        : deltaWarn
-                                                          ? 'bg-amber-50/35'
-                                                          : 'hover:bg-slate-50/50'
-                                                }`}
-                                            >
-                                                <span className="text-sm font-semibold text-slate-700">
-                                                    {parameter.parameterName}
-                                                </span>
-                                                <span className="text-xs text-slate-500 text-center font-mono">
-                                                    {prevVal ?? '—'}
-                                                </span>
-                                                <span
-                                                    className={`text-xs font-bold text-center ${deltaWarn ? 'text-amber-700' : 'text-slate-400'}`}
-                                                >
-                                                    {delta !== null ? `${delta > 0 ? '+' : ''}${delta.toFixed(0)}%` : '—'}
-                                                </span>
-                                                <div className="flex justify-center">
-                                                    <input
-                                                        type="text"
-                                                        value={parameter.result}
-                                                        onChange={(event) =>
-                                                            handleResultChange(
-                                                                parameter.parameterId,
-                                                                event.target.value
-                                                            )
-                                                        }
-                                                        disabled={isReadOnly}
-                                                        className={`w-full max-w-[72px] px-2 py-1.5 text-sm font-bold text-center border rounded-lg focus:outline-none focus:ring-2 transition-all ${
-                                                            isCritical
-                                                                ? 'border-red-300 bg-red-50 text-red-700 focus:ring-red-200'
-                                                                : isAbnormal
-                                                                  ? 'border-amber-200 bg-amber-50/50 text-amber-700 focus:ring-amber-200'
-                                                                  : 'border-slate-200 bg-white text-slate-800 focus:ring-primary/20'
-                                                        } disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500`}
-                                                    />
-                                                </div>
-                                                <span className="text-xs text-slate-400 text-center">
-                                                    {parameter.unit || '—'}
-                                                </span>
-                                                <span
-                                                    className={`text-xs text-center ${isAbnormal ? 'text-primary font-semibold' : 'text-slate-400'}`}
-                                                >
-                                                    {formatReferenceRange(parameter)}
-                                                </span>
-                                                <div className="flex justify-center">
-                                                    <span
-                                                        title={displayFlag ? 'Automatically calculated from reference range' : 'Enter a result to calculate the flag'}
-                                                        className={`inline-flex min-w-[86px] items-center justify-center rounded-lg px-2 py-1 text-[10px] font-bold tracking-wide ${flagClass}`}
-                                                    >
-                                                        {displayFlag ? flagLabel : 'NO FLAG'}
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
+                                )}
                             </div>
 
-                            <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5 mb-5">
-                                <label
-                                    htmlFor="instrumentCode"
-                                    className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2"
-                                >
-                                    Instrument
-                                </label>
-                                <select
+                            <div aria-live="polite" role="status">
+                                {isReadOnly && (
+                                    <div className="mb-4 rounded-lg border border-status-pending-edge bg-status-pending-bg p-3 text-sm text-status-pending-fg">
+                                        {readOnlyMessage}
+                                    </div>
+                                )}
+                                {successMessage && (
+                                    <div className="mb-4 rounded-lg border border-status-verified-edge bg-status-verified-bg p-3 text-sm text-status-verified-fg">
+                                        {successMessage}
+                                    </div>
+                                )}
+                            </div>
+
+                            <SectionCard
+                                title={sample.testName}
+                                count={parameters.length}
+                                actions={
+                                    <span className="hidden text-xs text-fg-muted sm:inline">
+                                        Delta-check vs prior verified or dispatched results
+                                    </span>
+                                }
+                                flush
+                            >
+                                {parameters.length === 0 ? (
+                                    <EmptyState
+                                        icon={FlaskConical}
+                                        title="No parameters configured"
+                                        description="This test has no result parameters to enter."
+                                    />
+                                ) : (
+                                    <div className="overflow-x-auto">
+                                        {/* table-fixed: 96+80+128+80+112+128 = 624px of fixed columns, so the
+                                            table needs 624 + 160 = 784px before Parameter clears a 160px floor. */}
+                                        <table className="w-full min-w-[790px] table-fixed text-left text-[13px]">
+                                            <caption className="sr-only">Result parameters for {sample.testName}</caption>
+                                            <thead>
+                                                <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
+                                                    <th scope="col" className="py-2 pl-4 pr-3 font-medium">
+                                                        Parameter
+                                                    </th>
+                                                    <th scope="col" className="w-24 px-3 py-2 text-right font-medium">
+                                                        Previous
+                                                    </th>
+                                                    <th scope="col" className="w-20 px-3 py-2 text-right font-medium">
+                                                        Δ %
+                                                    </th>
+                                                    <th scope="col" className="w-32 px-3 py-2 font-medium">
+                                                        Result
+                                                    </th>
+                                                    <th scope="col" className="w-20 px-3 py-2 font-medium">
+                                                        Unit
+                                                    </th>
+                                                    <th scope="col" className="w-28 px-3 py-2 font-medium">
+                                                        Reference
+                                                    </th>
+                                                    <th scope="col" className="w-32 py-2 pl-3 pr-4 font-medium">
+                                                        Flag
+                                                    </th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-edge whitespace-nowrap">
+                                                {parameters.map((parameter) => {
+                                                    const displayFlag = getDisplayFlag(parameter);
+                                                    const isCritical = displayFlag?.startsWith('CRITICAL');
+                                                    const isAbnormal = displayFlag && displayFlag !== 'NORMAL';
+                                                    const flagTone: ChipTone = displayFlag
+                                                        ? FLAG_TONES[displayFlag] ?? 'neutral'
+                                                        : 'neutral';
+                                                    const flagLabel = displayFlag
+                                                        ? FLAG_LABELS[displayFlag] ?? displayFlag
+                                                        : 'No flag';
+                                                    const prevVal = parameter.previousValue?.result;
+                                                    const delta = computeDeltaPercent(prevVal ?? '', parameter.result);
+                                                    const deltaWarn =
+                                                        delta !== null &&
+                                                        prevVal &&
+                                                        parameter.result.trim() &&
+                                                        Math.abs(delta) >= DELTA_CHECK_THRESHOLD_PCT;
+
+                                                    return (
+                                                        <tr
+                                                            key={parameter.parameterId}
+                                                            className={cn(
+                                                                'transition-colors',
+                                                                isCritical
+                                                                    ? 'bg-status-danger-bg'
+                                                                    : deltaWarn
+                                                                      ? 'bg-status-pending-bg'
+                                                                      : 'hover:bg-surface-hover'
+                                                            )}
+                                                        >
+                                                            <td className="truncate py-2 pl-4 pr-3 font-medium text-fg" title={parameter.parameterName}>
+                                                                {parameter.parameterName}
+                                                            </td>
+                                                            <td className="px-3 py-2 text-right font-mono text-xs tabular-nums text-fg-secondary">
+                                                                {prevVal ?? '—'}
+                                                            </td>
+                                                            <td
+                                                                className={cn(
+                                                                    'px-3 py-2 text-right text-xs tabular-nums',
+                                                                    deltaWarn ? 'font-semibold text-status-pending-fg' : 'text-fg-muted'
+                                                                )}
+                                                            >
+                                                                {delta !== null ? `${delta > 0 ? '+' : ''}${delta.toFixed(0)}%` : '—'}
+                                                            </td>
+                                                            <td className="px-3 py-1.5">
+                                                                <input
+                                                                    type="text"
+                                                                    value={parameter.result}
+                                                                    onChange={(event) =>
+                                                                        handleResultChange(
+                                                                            parameter.parameterId,
+                                                                            event.target.value
+                                                                        )
+                                                                    }
+                                                                    disabled={isReadOnly}
+                                                                    aria-label={`${parameter.parameterName} result`}
+                                                                    className={cn(
+                                                                        CONTROL_CLASS,
+                                                                        'h-8 max-w-[7rem] px-2 text-center font-semibold tabular-nums',
+                                                                        isCritical
+                                                                            ? 'border-status-danger-edge bg-status-danger-bg text-status-danger-fg focus:border-status-danger focus:ring-status-danger/30'
+                                                                            : isAbnormal
+                                                                              ? 'border-status-pending-edge bg-status-pending-bg text-status-pending-fg focus:border-status-pending focus:ring-status-pending/30'
+                                                                              : ''
+                                                                    )}
+                                                                />
+                                                            </td>
+                                                            <td
+                                                                className="truncate px-3 py-2 text-xs text-fg-muted"
+                                                                title={parameter.unit || undefined}
+                                                            >
+                                                                {parameter.unit || '—'}
+                                                            </td>
+                                                            <td
+                                                                className={cn(
+                                                                    'px-3 py-2 text-xs tabular-nums',
+                                                                    isAbnormal ? 'font-medium text-primary-strong' : 'text-fg-muted'
+                                                                )}
+                                                            >
+                                                                {formatReferenceRange(parameter)}
+                                                            </td>
+                                                            <td className="py-2 pl-3 pr-4">
+                                                                <StatusChip
+                                                                    tone={flagTone}
+                                                                    size="sm"
+                                                                    title={
+                                                                        displayFlag
+                                                                            ? 'Automatically calculated from reference range'
+                                                                            : 'Enter a result to calculate the flag'
+                                                                    }
+                                                                    className={cn(!displayFlag && 'text-fg-muted')}
+                                                                >
+                                                                    {flagLabel}
+                                                                </StatusChip>
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                )}
+                            </SectionCard>
+
+                            <FormSection
+                                title="Method and notes"
+                                description="Name the analyser that produced these values and add any technical comments."
+                                className="mt-4"
+                            >
+                                <SelectField
                                     id="instrumentCode"
+                                    label="Instrument"
                                     value={instrumentCode}
                                     onChange={(event) => setInstrumentCode(event.target.value)}
                                     disabled={isReadOnly}
-                                    className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
+                                    hint="Quality control is matched to the result through the analyser, so a specimen submitted without one is held at verification until a supervisor resolves it."
                                 >
                                     <option value="">Select the analyser…</option>
                                     {instruments.map((option) => (
@@ -820,38 +1005,46 @@ export default function ResultEntryPage() {
                                             {option.qcRequired ? '' : ' — no analyser QC'}
                                         </option>
                                     ))}
-                                </select>
-                                <p className="mt-2 text-xs text-slate-500">
-                                    Which analyser produced these values. Quality control is matched to the
-                                    result through it, so a specimen submitted without one is held at
-                                    verification until a supervisor resolves it.
+                                </SelectField>
+                                <div className="min-w-0 sm:col-span-2">
+                                    <label htmlFor="mltNotes" className="mb-1 block text-xs font-medium text-fg-secondary">
+                                        MLT notes
+                                    </label>
+                                    <textarea
+                                        id="mltNotes"
+                                        rows={4}
+                                        value={mltNotes}
+                                        onChange={(event) => setMltNotes(event.target.value)}
+                                        disabled={isReadOnly}
+                                        placeholder="Technical comments (hemolysis, instrument flags, repeat patterns, etc.)"
+                                        className={cn(CONTROL_CLASS, 'resize-none py-2')}
+                                    />
+                                </div>
+                            </FormSection>
+
+                            <div className="sticky bottom-0 z-10 mt-4 flex items-center justify-between gap-3 border-t border-edge bg-canvas py-3">
+                                <p className="min-w-0 truncate text-xs tabular-nums text-fg-muted">
+                                    {enteredParameters.length} of {parameters.length} results entered
                                 </p>
-                            </div>
-
-                            <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
-                                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
-                                    MLT notes
-                                </label>
-                                <textarea
-                                    rows={4}
-                                    value={mltNotes}
-                                    onChange={(event) => setMltNotes(event.target.value)}
-                                    disabled={isReadOnly}
-                                    placeholder="Technical comments (hemolysis, instrument flags, repeat patterns, etc.)"
-                                    className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary resize-none transition-all disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
-                                />
-                            </div>
-
-                            <div className="flex justify-end gap-3 mt-5">
-                                <button
-                                    type="button"
-                                    onClick={() => void handleSubmit()}
-                                    disabled={submitting || savingDraft || isReadOnly}
-                                    className="flex items-center gap-1.5 px-5 py-2.5 bg-primary text-white text-sm font-bold rounded-xl hover:bg-primary/90 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                    <span className="material-icons text-sm">send</span>
-                                    {submitting ? 'Submitting...' : 'Submit for verification'}
-                                </button>
+                                <div className="ml-auto flex shrink-0 items-center gap-2">
+                                    <Button
+                                        icon={Save}
+                                        loading={savingDraft}
+                                        disabled={savingDraft || submitting || isReadOnly}
+                                        onClick={() => void handleSaveDraft()}
+                                    >
+                                        {savingDraft ? 'Saving…' : 'Save draft'}
+                                    </Button>
+                                    <Button
+                                        variant="primary"
+                                        icon={Send}
+                                        loading={submitting}
+                                        disabled={submitting || savingDraft || isReadOnly}
+                                        onClick={() => void handleSubmit()}
+                                    >
+                                        {submitting ? 'Submitting…' : 'Submit for verification'}
+                                    </Button>
+                                </div>
                             </div>
                         </>
                     )}
@@ -861,11 +1054,20 @@ export default function ResultEntryPage() {
     );
 }
 
-function DetailRow({ label, value }: { label: string; value: string }) {
+function ContextRow({ label, value }: { label: string; value: ReactNode }) {
     return (
-        <div>
-            <dt className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">{label}</dt>
-            <dd className="text-sm font-semibold text-slate-800 mt-1 break-all">{value}</dd>
+        <div className="min-w-0">
+            <dt className="text-xs text-fg-muted">{label}</dt>
+            <dd className="mt-0.5 break-words text-sm font-medium text-fg">{value}</dd>
+        </div>
+    );
+}
+
+function DetailRow({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
+    return (
+        <div className="min-w-0">
+            <dt className="text-xs text-fg-muted">{label}</dt>
+            <dd className={cn('mt-0.5 break-all text-sm font-medium text-fg', mono && 'font-mono text-xs')}>{value}</dd>
         </div>
     );
 }
@@ -874,25 +1076,24 @@ function formatCollected(collectedAt?: string | null, collectedBy?: string | nul
     if (!collectedAt && !collectedBy) {
         return '—';
     }
-    const parts = [collectedAt ? formatTs(collectedAt) : null, collectedBy ? `by ${collectedBy}` : null].filter(
+    const parts = [collectedAt ? formatDateTime(collectedAt) : null, collectedBy ? `by ${collectedBy}` : null].filter(
         Boolean
     );
     return parts.join(' · ');
 }
 
-function formatTs(iso: string) {
-    try {
-        const d = new Date(iso);
-        if (Number.isNaN(d.getTime())) {
-            return iso;
-        }
-        return d.toLocaleString(undefined, {
-            dateStyle: 'medium',
-            timeStyle: 'short',
-        });
-    } catch {
+/** `Today 09:12` / `Yesterday 14:02` / `16 Aug 2026 09:12` (design-system date + 24h time). */
+function formatDateTime(iso: string) {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) {
         return iso;
     }
+    const label = formatRegistered(d);
+    if (label.startsWith('Today') || label.startsWith('Yesterday')) {
+        return label;
+    }
+    const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
+    return `${label} ${time}`;
 }
 
 function formatActivityAction(action: string) {

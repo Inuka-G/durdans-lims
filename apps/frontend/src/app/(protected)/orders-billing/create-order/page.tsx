@@ -1,14 +1,37 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
+import {
+    AlertCircle,
+    AlertTriangle,
+    ChevronRight,
+    ClipboardPlus,
+    FlaskConical,
+    Loader2,
+    Search,
+    SearchX,
+    UserRound,
+    Users,
+    X,
+} from 'lucide-react';
 import type { OrderPatient, LabTest } from '@/types/orders-billing';
 import { formatCurrency, calculateServiceCharge, calculateTotal } from '@/constants/orders-billing';
 import { getPatients, getLabTests, createOrder } from '@/lib/api';
+import PageHeader from '@/components/ui/PageHeader';
+import Button from '@/components/ui/Button';
+import SectionCard from '@/components/ui/SectionCard';
+import EmptyState from '@/components/ui/EmptyState';
+import StatusChip from '@/components/ui/StatusChip';
+import { FormSection, InputField, TextareaField } from '@/components/ui/Field';
+import PriorityBadge from '@/components/shared/PriorityBadge';
+import { formatPhone, patientInitials } from '@/components/patient-dashboard/dashboard-data';
 
 type Priority = 'NORMAL' | 'URGENT' | 'STAT';
 type SelectedLabTest = LabTest & { priority: Priority };
+
+const SKELETON_ROWS = 6;
 
 const calculateAge = (dob?: string) => {
     if (!dob) return '';
@@ -47,6 +70,22 @@ const formatTurnaround = (hours?: number) => {
     return hours === 1 ? '1 hr TAT' : `${hours} hr TAT`;
 };
 
+/** "34 / Male" — keeps the page's own age + gender values, with em-dash fallbacks. */
+const formatAgeSex = (patient: OrderPatient) => {
+    const age = String(patient.age ?? '').trim() || '—';
+    return `${age} / ${patient.gender || '—'}`;
+};
+
+const SEARCH_ICON_CLASS = 'pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-fg-faint';
+
+const ROW_BUTTON_CLASS =
+    'flex w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-surface-hover ' +
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary';
+
+const PRIORITY_SELECT_CLASS =
+    'h-7 w-28 rounded-md border border-edge bg-surface px-2 text-xs font-medium text-fg ' +
+    'focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30';
+
 // ─── Page Component ───────────────────────────────────────────────────────────
 
 export default function CreateTestOrderPage() {
@@ -79,21 +118,22 @@ export default function CreateTestOrderPage() {
     const [remarks, setRemarks] = useState('');
 
     // ── Fetch Lab Tests on Mount ───────────────────────────────────────────────
-    useEffect(() => {
-        const fetchTests = async () => {
-            try {
-                setTestsLoading(true);
-                setTestsError(null);
-                const data = await getLabTests();
-                setAllTests(Array.isArray(data) ? data : []);
-            } catch (err: any) {
-                setTestsError(err?.message || 'Failed to load lab tests.');
-            } finally {
-                setTestsLoading(false);
-            }
-        };
-        fetchTests();
+    const loadTests = useCallback(async () => {
+        try {
+            setTestsLoading(true);
+            setTestsError(null);
+            const data = await getLabTests();
+            setAllTests(Array.isArray(data) ? data : []);
+        } catch (err: any) {
+            setTestsError(err?.message || 'Failed to load lab tests.');
+        } finally {
+            setTestsLoading(false);
+        }
     }, []);
+
+    useEffect(() => {
+        loadTests();
+    }, [loadTests]);
 
     useEffect(() => {
         let active = true;
@@ -123,11 +163,12 @@ export default function CreateTestOrderPage() {
     useEffect(() => {
         if (searchQuery.trim().length < 2) {
             setPatientResults([]);
+            setPatientSearchLoading(false);
             return;
         }
+        setPatientSearchLoading(true);
         const timer = setTimeout(async () => {
             try {
-                setPatientSearchLoading(true);
                 const res = await getPatients({ keyword: searchQuery.trim() });
                 const list = res?.content ?? res?.data?.content ?? res ?? [];
                 const mapped: OrderPatient[] = (Array.isArray(list) ? list : []).map(mapPatientForOrder);
@@ -207,71 +248,137 @@ export default function CreateTestOrderPage() {
     const serviceCharge = calculateServiceCharge(subtotal);
     const totalAmount = calculateTotal(subtotal, 0);
 
+    const showPatientSearch = isSearching || !selectedPatient;
+    const trimmedQuery = searchQuery.trim();
+    const canSubmit = Boolean(selectedPatient) && selectedTests.length > 0 && !isSubmitting;
+
+    const readiness = !selectedPatient
+        ? 'Select a patient to continue.'
+        : selectedTests.length === 0
+            ? 'Select at least one test to continue.'
+            : `${selectedTests.length} ${selectedTests.length === 1 ? 'test' : 'tests'} · ${formatCurrency(totalAmount)}`;
+
+    const renderPatientRow = (patient: OrderPatient) => (
+        <li key={patient.id}>
+            <button type="button" onClick={() => handleSelectPatient(patient)} className={ROW_BUTTON_CLASS}>
+                <span
+                    aria-hidden="true"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-skeleton text-[11px] font-semibold text-fg-secondary"
+                >
+                    {patientInitials(patient.fullName)}
+                </span>
+                <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[13px] font-medium text-fg">{patient.fullName || 'Unnamed patient'}</span>
+                    <span className="block truncate text-xs text-fg-muted">
+                        <span className="font-mono">{patient.patientId || '—'}</span>
+                        <span className="text-fg-faint"> · </span>
+                        <span className="tabular-nums">{formatAgeSex(patient)}</span>
+                        <span className="text-fg-faint"> · </span>
+                        <span className="tabular-nums">{formatPhone(patient.phone)}</span>
+                    </span>
+                </span>
+                <ChevronRight className="h-4 w-4 shrink-0 text-fg-faint" aria-hidden="true" />
+            </button>
+        </li>
+    );
+
     return (
-        <div>
-            {/* ── Header ── */}
-            <div className="mb-6">
-                <h1 className="text-2xl font-bold text-slate-800">Create New Test Order</h1>
-                <p className="text-sm text-slate-500 mt-1">Select patient and tests to generate a laboratory order.</p>
-            </div>
+        <div className="mx-auto max-w-[1400px]">
+            <PageHeader
+                crumbs={[{ label: 'Orders & billing', href: '/orders-billing/orders' }, { label: 'Create order' }]}
+                title="Create order"
+                meta={<span>Select a patient and the tests to generate a laboratory order.</span>}
+            />
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* ── Left Column ── */}
-                <div className="lg:col-span-2 space-y-6">
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+                {/* ── Left column ── */}
+                <div className="space-y-4 lg:col-span-2">
+                    {/* ── Step 1: Patient ── */}
+                    <SectionCard
+                        title="Patient"
+                        actions={
+                            selectedPatient && !isSearching ? (
+                                <Button size="sm" variant="ghost" icon={Search} onClick={handleChangePatient}>
+                                    Change patient
+                                </Button>
+                            ) : undefined
+                        }
+                    >
+                        {showPatientSearch && (
+                            <div className="space-y-3">
+                                <div className="relative">
+                                    <InputField
+                                        label="Search patients"
+                                        hideLabel
+                                        type="text"
+                                        autoComplete="off"
+                                        placeholder="Search by name, patient ID or phone"
+                                        className="[&_input]:pl-9"
+                                        value={searchQuery}
+                                        onChange={(e) => setSearchQuery(e.target.value)}
+                                        autoFocus
+                                    />
+                                    <Search className={SEARCH_ICON_CLASS} aria-hidden="true" />
+                                </div>
 
-                    {/* ── Step 1: Patient Selection ── */}
-                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-6">
-                        <div className="flex items-center gap-3 mb-5">
-                            <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center text-white text-sm font-bold">1</div>
-                            <h2 className="text-lg font-bold text-slate-800">Patient Selection</h2>
-                        </div>
-
-                        {/* Search input */}
-                        {(isSearching || !selectedPatient) && (
-                            <div className="relative mb-4">
-                                <span className="material-icons absolute left-3 top-1/2 -translate-y-1/2 text-lg text-slate-400">search</span>
-                                <input
-                                    type="text"
-                                    placeholder="Search Patient by Name, ID, or Phone Number..."
-                                    className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-                                    value={searchQuery}
-                                    onChange={(e) => setSearchQuery(e.target.value)}
-                                    autoFocus
-                                />
-
-                                {/* Loading indicator */}
-                                {patientSearchLoading && (
-                                    <div className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg px-4 py-3 text-sm text-slate-400 flex items-center gap-2">
-                                        <span className="material-icons text-base animate-spin">progress_activity</span>
-                                        Searching...
-                                    </div>
-                                )}
+                                {/* Search feedback */}
+                                <div role="status" aria-live="polite">
+                                    {trimmedQuery.length > 0 && trimmedQuery.length < 2 && (
+                                        <p className="text-xs text-fg-muted">Type at least 2 characters to search.</p>
+                                    )}
+                                    {patientSearchLoading && trimmedQuery.length >= 2 && (
+                                        <p className="flex items-center gap-2 text-xs text-fg-muted">
+                                            <Loader2 className="h-3.5 w-3.5 animate-spin text-primary-strong" aria-hidden="true" />
+                                            Searching patients…
+                                        </p>
+                                    )}
+                                </div>
 
                                 {/* Search results */}
-                                {!patientSearchLoading && patientResults.length > 0 && (
-                                    <div className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden">
-                                        {patientResults.map((patient) => (
-                                            <div
-                                                key={patient.id}
-                                                className="flex items-center gap-3 px-4 py-3 hover:bg-primary/5 cursor-pointer border-b border-slate-50 last:border-0 transition-colors"
-                                                onClick={() => handleSelectPatient(patient)}
-                                            >
-                                                <div className="w-9 h-9 rounded-xl bg-blue-100 flex items-center justify-center flex-shrink-0">
-                                                    <span className="material-icons text-blue-600 text-lg">person</span>
-                                                </div>
-                                                <div className="flex-1">
-                                                    <p className="font-semibold text-slate-800 text-sm">{patient.fullName}</p>
-                                                    <p className="text-xs text-slate-400">{patient.patientId} • {patient.age}Y / {patient.gender} • {patient.phone}</p>
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
+                                {!patientSearchLoading && trimmedQuery.length >= 2 && (
+                                    patientResults.length > 0 ? (
+                                        <div className="overflow-hidden rounded-lg border border-edge">
+                                            <p className="border-b border-edge bg-surface-muted px-3 py-1.5 text-xs font-medium text-fg-muted">
+                                                {patientResults.length} {patientResults.length === 1 ? 'match' : 'matches'}
+                                            </p>
+                                            <ul className="divide-y divide-edge">{patientResults.map(renderPatientRow)}</ul>
+                                        </div>
+                                    ) : (
+                                        <EmptyState
+                                            compact
+                                            icon={SearchX}
+                                            title={`No patients match "${trimmedQuery}"`}
+                                            description="Check the spelling, or search by patient ID or phone number."
+                                        />
+                                    )
                                 )}
 
-                                {/* No results */}
-                                {!patientSearchLoading && searchQuery.trim().length >= 2 && patientResults.length === 0 && (
-                                    <div className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg px-4 py-3 text-sm text-slate-400">
-                                        No patients found for &quot;{searchQuery}&quot;
+                                {/* Recent patients */}
+                                {trimmedQuery.length === 0 && (
+                                    <div className="overflow-hidden rounded-lg border border-edge" aria-busy={recentPatientsLoading}>
+                                        <p className="border-b border-edge bg-surface-muted px-3 py-1.5 text-xs font-medium text-fg-muted">
+                                            Recently registered
+                                        </p>
+                                        {recentPatientsLoading ? (
+                                            <ul aria-hidden="true" className="divide-y divide-edge">
+                                                {Array.from({ length: 3 }).map((_, i) => (
+                                                    <li key={i} className="flex items-center gap-3 px-3 py-2.5">
+                                                        <span className="h-8 w-8 shrink-0 rounded-full bg-skeleton" />
+                                                        <span className="h-3 w-36 rounded bg-skeleton" />
+                                                        <span className="hidden h-3 w-24 rounded bg-skeleton sm:block" />
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        ) : recentPatients.length > 0 ? (
+                                            <ul className="divide-y divide-edge">{recentPatients.map(renderPatientRow)}</ul>
+                                        ) : (
+                                            <EmptyState
+                                                compact
+                                                icon={Users}
+                                                title="No recent patients"
+                                                description="Search by name, patient ID or phone above."
+                                            />
+                                        )}
                                     </div>
                                 )}
                             </div>
@@ -279,266 +386,330 @@ export default function CreateTestOrderPage() {
 
                         {/* Selected patient */}
                         {selectedPatient && !isSearching && (
-                            <div className="border border-slate-200 rounded-xl p-4 bg-slate-50/50">
-                                <div className="flex items-start justify-between">
-                                    <div className="flex gap-4">
-                                        <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center flex-shrink-0">
-                                            <span className="material-icons text-blue-600">person</span>
-                                        </div>
-                                        <div>
-                                            <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Patient ID</p>
-                                            <p className="font-bold text-slate-800 mb-2">{selectedPatient.patientId}</p>
-                                            <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Full Name</p>
-                                            <p className="font-semibold text-slate-800 mb-2">{selectedPatient.fullName}</p>
-                                            <div className="flex gap-6 text-sm">
-                                                <div>
-                                                    <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Age / Gender</p>
-                                                    <p className="font-medium text-slate-700">{selectedPatient.age}Y / {selectedPatient.gender}</p>
-                                                </div>
-                                                <div>
-                                                    <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Phone</p>
-                                                    <p className="font-medium text-slate-700">{selectedPatient.phone}</p>
-                                                </div>
-                                            </div>
-                                        </div>
+                            <div className="flex items-start gap-3 rounded-lg border border-edge bg-surface-muted p-3">
+                                <span
+                                    aria-hidden="true"
+                                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-skeleton text-xs font-semibold text-fg-secondary"
+                                >
+                                    {patientInitials(selectedPatient.fullName)}
+                                </span>
+                                <div className="min-w-0 flex-1">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <p className="truncate text-sm font-medium text-fg">{selectedPatient.fullName || 'Unnamed patient'}</p>
+                                        <StatusChip tone="success" size="sm" dot>
+                                            Selected
+                                        </StatusChip>
                                     </div>
-                                    <button onClick={handleChangePatient} className="text-sm font-semibold text-primary hover:underline">
-                                        Change
-                                    </button>
+                                    <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs sm:grid-cols-3">
+                                        <div className="min-w-0">
+                                            <dt className="text-fg-muted">Patient ID</dt>
+                                            <dd className="truncate font-mono text-fg-secondary">{selectedPatient.patientId || '—'}</dd>
+                                        </div>
+                                        <div className="min-w-0">
+                                            <dt className="text-fg-muted">Age / sex</dt>
+                                            <dd className="truncate tabular-nums text-fg-secondary">{formatAgeSex(selectedPatient)}</dd>
+                                        </div>
+                                        <div className="min-w-0">
+                                            <dt className="text-fg-muted">Phone</dt>
+                                            <dd className="truncate tabular-nums text-fg-secondary">{formatPhone(selectedPatient.phone)}</dd>
+                                        </div>
+                                    </dl>
                                 </div>
                             </div>
                         )}
+                    </SectionCard>
 
-                        {/* Recent patients */}
-                        {!selectedPatient && searchQuery.trim().length === 0 && (
-                            <div className="border border-slate-200 rounded-xl overflow-hidden">
-                                <div className="px-4 py-3 bg-slate-50/80 border-b border-slate-100 flex items-center justify-between">
-                                    <div className="flex items-center gap-2">
-                                        <span className="material-icons text-primary text-lg">history</span>
-                                        <p className="text-sm font-bold text-slate-800">Latest Patients</p>
-                                    </div>
-                                    <span className="text-[11px] font-semibold text-slate-400">Recently registered</span>
+                    {/* ── Step 2: Tests ── */}
+                    <SectionCard
+                        title="Tests"
+                        count={!testsLoading && !testsError ? filteredTests.length : undefined}
+                        flush
+                        actions={
+                            <>
+                                <span className="hidden text-xs tabular-nums text-fg-muted sm:inline" aria-live="polite">
+                                    {selectedTests.length} selected
+                                </span>
+                                <div className="relative">
+                                    <InputField
+                                        label="Filter tests"
+                                        hideLabel
+                                        type="text"
+                                        autoComplete="off"
+                                        placeholder="Filter by code or name"
+                                        className="w-44 sm:w-56 [&_input]:pl-9"
+                                        value={testSearchQuery}
+                                        onChange={(e) => setTestSearchQuery(e.target.value)}
+                                    />
+                                    <Search className={SEARCH_ICON_CLASS} aria-hidden="true" />
                                 </div>
-
-                                {recentPatientsLoading ? (
-                                    <div className="px-4 py-6 text-sm text-slate-400 flex items-center justify-center gap-2">
-                                        <span className="material-icons text-base animate-spin">progress_activity</span>
-                                        Loading latest patients...
-                                    </div>
-                                ) : recentPatients.length > 0 ? (
-                                    <div className="divide-y divide-slate-100">
-                                        {recentPatients.map((patient) => (
-                                            <button
-                                                key={patient.id}
-                                                type="button"
-                                                onClick={() => handleSelectPatient(patient)}
-                                                className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-primary/5 transition-colors"
-                                            >
-                                                <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center flex-shrink-0">
-                                                    <span className="material-icons text-blue-600 text-lg">person</span>
-                                                </div>
-                                                <div className="flex-1 min-w-0">
-                                                    <p className="font-semibold text-slate-800 text-sm truncate">{patient.fullName || 'Unnamed Patient'}</p>
-                                                    <p className="text-xs text-slate-400 truncate">
-                                                        {patient.patientId} &bull; {patient.age ? `${patient.age}Y` : 'Age N/A'} / {patient.gender || 'N/A'} &bull; {patient.phone || 'No phone'}
-                                                    </p>
-                                                </div>
-                                                <span className="material-icons text-slate-300 text-lg">chevron_right</span>
-                                            </button>
-                                        ))}
-                                    </div>
-                                ) : (
-                                    <div className="px-4 py-6 text-sm text-slate-400 text-center">
-                                        No recent patients found. Search by name, ID, or phone above.
-                                    </div>
-                                )}
-                            </div>
-                        )}
-                    </div>
-
-                    {/* ── Step 2: Test Selection ── */}
-                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-6">
-                        <div className="flex items-center justify-between mb-5">
-                            <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center text-white text-sm font-bold">2</div>
-                                <h2 className="text-lg font-bold text-slate-800">Test Selection</h2>
-                            </div>
-                            <div className="relative">
-                                <span className="material-icons absolute left-3 top-1/2 -translate-y-1/2 text-lg text-slate-400">tune</span>
-                                <input
-                                    type="text"
-                                    placeholder="Filter tests..."
-                                    className="pl-10 pr-4 py-2 text-sm border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all w-48"
-                                    value={testSearchQuery}
-                                    onChange={(e) => setTestSearchQuery(e.target.value)}
+                            </>
+                        }
+                    >
+                        <div aria-busy={testsLoading}>
+                            {testsLoading ? (
+                                <ul aria-hidden="true" className="divide-y divide-edge">
+                                    {Array.from({ length: SKELETON_ROWS }).map((_, i) => (
+                                        <li key={i} className="flex items-center gap-3 px-4 py-2.5">
+                                            <span className="h-4 w-4 shrink-0 rounded bg-skeleton" />
+                                            <span className="h-3 w-16 rounded bg-skeleton" />
+                                            <span className="h-3 w-48 rounded bg-skeleton" />
+                                            <span className="ml-auto hidden h-3 w-20 rounded bg-skeleton md:block" />
+                                            <span className="hidden h-3 w-14 rounded bg-skeleton sm:block" />
+                                        </li>
+                                    ))}
+                                </ul>
+                            ) : testsError ? (
+                                <EmptyState
+                                    icon={AlertTriangle}
+                                    title="Couldn't load tests"
+                                    description={testsError}
+                                    action={
+                                        <Button size="sm" onClick={loadTests}>
+                                            Retry
+                                        </Button>
+                                    }
                                 />
-                            </div>
-                        </div>
-
-                        {/* Tests loading */}
-                        {testsLoading && (
-                            <div className="flex items-center justify-center py-12 gap-3 text-slate-400">
-                                <span className="material-icons animate-spin">progress_activity</span>
-                                <span className="text-sm">Loading lab tests...</span>
-                            </div>
-                        )}
-
-                        {/* Tests error */}
-                        {testsError && !testsLoading && (
-                            <div className="flex items-center justify-center py-12 gap-3 text-red-400">
-                                <span className="material-icons">error_outline</span>
-                                <span className="text-sm">{testsError}</span>
-                            </div>
-                        )}
-
-                        {/* Tests table */}
-                        {!testsLoading && !testsError && (
-                            <div className="overflow-hidden rounded-xl border border-slate-200">
-                                <table className="w-full text-sm">
-                                    <thead>
-                                        <tr className="text-left text-xs font-bold text-slate-400 uppercase tracking-wider bg-slate-50/80">
-                                            <th className="py-3 px-4 border-b border-slate-100 w-10"></th>
-                                            <th className="py-3 px-4 border-b border-slate-100">Test Code</th>
-                                            <th className="py-3 px-4 border-b border-slate-100">Test Name</th>
-                                            <th className="py-3 px-4 border-b border-slate-100">Category</th>
-                                            <th className="py-3 px-4 border-b border-slate-100">Priority</th>
-                                            <th className="py-3 px-4 border-b border-slate-100 text-right">Price (LKR)</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {filteredTests.length === 0 ? (
-                                            <tr>
-                                                <td colSpan={6} className="text-center py-8 text-slate-400 text-sm">
-                                                    No tests match your filter.
-                                                </td>
+                            ) : filteredTests.length === 0 ? (
+                                testSearchQuery.trim() ? (
+                                    <EmptyState
+                                        icon={SearchX}
+                                        title={`No tests match "${testSearchQuery.trim()}"`}
+                                        description="Try a different test code or name."
+                                        action={
+                                            <Button size="sm" onClick={() => setTestSearchQuery('')}>
+                                                Clear filter
+                                            </Button>
+                                        }
+                                    />
+                                ) : (
+                                    <EmptyState
+                                        icon={FlaskConical}
+                                        title="No tests in the catalogue"
+                                        description="Ask an administrator to add lab tests before creating orders."
+                                    />
+                                )
+                            ) : (
+                                <div className="overflow-x-auto">
+                                    <table className="w-full min-w-[720px] table-fixed text-left text-[13px]">
+                                        <thead>
+                                            <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
+                                                <th scope="col" className="w-10 py-2 pl-4 pr-2">
+                                                    <span className="sr-only">Select</span>
+                                                </th>
+                                                <th scope="col" className="w-[13%] px-3 py-2 font-medium">Code</th>
+                                                <th scope="col" className="px-3 py-2 font-medium">Test</th>
+                                                <th scope="col" className="hidden w-[16%] px-3 py-2 font-medium lg:table-cell">Category</th>
+                                                <th scope="col" className="w-[19%] px-3 py-2 font-medium">Priority</th>
+                                                <th scope="col" className="w-[15%] px-3 py-2 pr-4 text-right font-medium">Price (LKR)</th>
                                             </tr>
-                                        ) : (
-                                            filteredTests.map((test) => {
+                                        </thead>
+                                        <tbody className="divide-y divide-edge whitespace-nowrap">
+                                            {filteredTests.map((test) => {
                                                 const isChecked = selectedTests.some(t => t.id === test.id);
                                                 return (
                                                     <tr
                                                         key={test.id}
-                                                        className={`border-b border-slate-50 last:border-0 cursor-pointer transition-colors ${isChecked ? 'bg-primary/5' : 'hover:bg-slate-50/50'}`}
+                                                        data-selected={isChecked || undefined}
+                                                        className={`cursor-pointer transition-colors ${isChecked ? 'bg-primary-soft' : 'hover:bg-surface-hover'}`}
                                                         onClick={() => handleTestToggle(test)}
                                                     >
-                                                        <td className="py-3 px-4">
+                                                        <td className="py-2 pl-4 pr-2">
                                                             <input
                                                                 type="checkbox"
                                                                 checked={isChecked}
+                                                                aria-label={`Select ${test.testName}`}
                                                                 onClick={(event) => event.stopPropagation()}
                                                                 onChange={() => handleTestToggle(test)}
-                                                                className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary/30"
+                                                                className="h-4 w-4 rounded border-edge-strong accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-surface"
                                                             />
                                                         </td>
-                                                        <td className="py-3 px-4 font-semibold text-slate-700">{test.testCode}</td>
-                                                        <td className="py-3 px-4 text-slate-700">
-                                                            <p className="font-semibold">{test.testName}</p>
-                                                            <p className="mt-1 text-[11px] font-medium text-slate-400">
-                                                                {test.sampleType || 'Specimen per SOP'} &bull; {formatTubeType(test.tubeType)} &bull; {formatTurnaround(test.turnAroundTimeHours)}
+                                                        <td className="truncate px-3 py-2 font-mono text-xs text-fg-secondary">{test.testCode}</td>
+                                                        <td className="px-3 py-2">
+                                                            <p className="truncate font-medium text-fg">{test.testName}</p>
+                                                            <p className="truncate text-xs text-fg-muted">
+                                                                {test.sampleType || 'Specimen per SOP'}
+                                                                <span className="text-fg-faint"> · </span>
+                                                                {formatTubeType(test.tubeType)}
+                                                                <span className="text-fg-faint"> · </span>
+                                                                {formatTurnaround(test.turnAroundTimeHours)}
+                                                                {test.requiresFasting && (
+                                                                    <StatusChip tone="pending" size="sm" className="ml-1.5 align-middle">
+                                                                        Fasting
+                                                                    </StatusChip>
+                                                                )}
                                                             </p>
                                                         </td>
-                                                        <td className="py-3 px-4 text-slate-500">
-                                                            <p>{test.category}</p>
-                                                            {test.requiresFasting && (
-                                                                <span className="mt-1 inline-flex rounded-md bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">
-                                                                    Fasting
-                                                                </span>
-                                                            )}
+                                                        <td className="hidden px-3 py-2 text-fg-secondary lg:table-cell">
+                                                            <p className="truncate">{test.category}</p>
                                                         </td>
-                                                        <td className="py-3 px-4">
+                                                        <td className="px-3 py-2">
                                                             {isChecked ? (
                                                                 <select
                                                                     value={selectedTests.find(t => t.id === test.id)?.priority ?? priority}
+                                                                    aria-label={`Priority for ${test.testName}`}
                                                                     onClick={(event) => event.stopPropagation()}
                                                                     onChange={(event) => handleTestPriorityChange(test.id, event.target.value as Priority)}
-                                                                    className="w-28 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                                                                    className={PRIORITY_SELECT_CLASS}
                                                                 >
                                                                     <option value="NORMAL">Normal</option>
                                                                     <option value="URGENT">Urgent</option>
                                                                     <option value="STAT">STAT</option>
                                                                 </select>
                                                             ) : (
-                                                                <span className="text-xs text-slate-300">Select test</span>
+                                                                <span className="text-xs text-fg-faint">—</span>
                                                             )}
                                                         </td>
-                                                        <td className="py-3 px-4 text-right font-semibold text-slate-700">{test.price.toLocaleString()}</td>
+                                                        <td className="px-3 py-2 pr-4 text-right tabular-nums text-fg">{test.price.toLocaleString()}</td>
                                                     </tr>
                                                 );
-                                            })
-                                        )}
-                                    </tbody>
-                                </table>
-                            </div>
-                        )}
-                    </div>
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+                        </div>
+                    </SectionCard>
+
+                    {/* ── Referral (optional) ── */}
+                    <FormSection title="Referral" description="Optional. Who requested the tests and any notes for the lab.">
+                        <InputField
+                            label="Referring doctor"
+                            placeholder="Dr. name"
+                            autoComplete="off"
+                            value={referringDoctor}
+                            onChange={(e) => setReferringDoctor(e.target.value)}
+                        />
+                        <InputField
+                            label="Referring department"
+                            placeholder="e.g. OPD, Ward 3"
+                            autoComplete="off"
+                            value={referringDepartment}
+                            onChange={(e) => setReferringDepartment(e.target.value)}
+                        />
+                        <TextareaField
+                            label="Remarks"
+                            placeholder="Clinical notes or special instructions"
+                            rows={2}
+                            className="sm:col-span-2"
+                            value={remarks}
+                            onChange={(e) => setRemarks(e.target.value)}
+                        />
+                    </FormSection>
                 </div>
 
-                {/* ── Right Column: Order Summary ── */}
+                {/* ── Right column: Order summary ── */}
                 <div>
-                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-6 sticky top-24">
-                        <div className="flex items-center gap-3 mb-6">
-                            <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center text-white text-sm font-bold">3</div>
-                            <h2 className="text-lg font-bold text-slate-800">Order Summary</h2>
+                    <SectionCard title="Order summary" count={selectedTests.length} flush className="lg:sticky lg:top-20">
+                        {/* Patient line */}
+                        <div className="flex items-center gap-2 border-b border-edge px-4 py-2.5 text-[13px]">
+                            <UserRound className="h-4 w-4 shrink-0 text-fg-faint" aria-hidden="true" />
+                            {selectedPatient ? (
+                                <span className="min-w-0 truncate text-fg">
+                                    <span className="font-medium">{selectedPatient.fullName || 'Unnamed patient'}</span>
+                                    <span className="text-fg-faint"> · </span>
+                                    <span className="font-mono text-xs text-fg-secondary">{selectedPatient.patientId || '—'}</span>
+                                </span>
+                            ) : (
+                                <span className="text-fg-muted">No patient selected</span>
+                            )}
                         </div>
 
+                        {/* Line items */}
                         {selectedTests.length === 0 ? (
-                            <p className="text-sm text-slate-400 text-center py-6">No tests selected yet</p>
+                            <EmptyState
+                                compact
+                                icon={FlaskConical}
+                                title="No tests selected"
+                                description="Tick tests in the catalogue to add them to this order."
+                            />
                         ) : (
-                            <div className="space-y-3 mb-6">
+                            <ul className="max-h-[40vh] divide-y divide-edge overflow-y-auto">
                                 {selectedTests.map((test) => (
-                                    <div key={test.id} className="flex justify-between items-start">
-                                        <div className="flex-1 mr-3">
-                                            <p className="font-medium text-slate-700 text-sm">{test.testName}</p>
-                                            <p className="mt-0.5 text-[11px] text-slate-400">
-                                                {formatTubeType(test.tubeType)} &bull; {test.sampleType || 'Specimen per SOP'}
+                                    <li key={test.id} className="flex items-start gap-2 px-4 py-2">
+                                        <div className="min-w-0 flex-1">
+                                            <p className="truncate text-[13px] font-medium text-fg">{test.testName}</p>
+                                            <p className="truncate text-xs text-fg-muted">
+                                                <span className="font-mono">{test.testCode}</span>
+                                                <span className="text-fg-faint"> · </span>
+                                                {formatTubeType(test.tubeType)}
+                                                <span className="text-fg-faint"> · </span>
+                                                {test.sampleType || 'Specimen per SOP'}
                                             </p>
-                                            <p className="text-xs text-slate-400">{test.testCode} • {test.priority}</p>
+                                            <div className="mt-1">
+                                                <PriorityBadge priority={test.priority} />
+                                            </div>
                                         </div>
-                                        <p className="font-semibold text-slate-700 text-sm">{test.price.toLocaleString()}</p>
-                                    </div>
+                                        <span className="shrink-0 text-[13px] tabular-nums text-fg">{test.price.toLocaleString()}</span>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleTestToggle(test)}
+                                            aria-label={`Remove ${test.testName}`}
+                                            className="-mr-1 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-fg-faint transition-colors hover:bg-surface-hover hover:text-fg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                                        >
+                                            <X className="h-4 w-4" aria-hidden="true" />
+                                        </button>
+                                    </li>
                                 ))}
-                            </div>
+                            </ul>
                         )}
 
-                        <div className="border-t border-slate-100 pt-4 space-y-3">
-                            <div className="flex justify-between text-sm">
-                                <span className="text-slate-500">Subtotal</span>
-                                <span className="font-medium text-slate-700">{formatCurrency(subtotal)}</span>
+                        {/* Totals */}
+                        <dl className="space-y-2 border-t border-edge px-4 py-3 text-sm">
+                            <div className="flex items-center justify-between gap-3">
+                                <dt className="text-fg-muted">Subtotal</dt>
+                                <dd className="tabular-nums text-fg-secondary">{formatCurrency(subtotal)}</dd>
                             </div>
-                            <div className="flex justify-between text-sm">
-                                <span className="text-slate-500">Service Charge (5%)</span>
-                                <span className="font-medium text-slate-700">{formatCurrency(serviceCharge)}</span>
+                            <div className="flex items-center justify-between gap-3">
+                                <dt className="text-fg-muted">Service charge (5%)</dt>
+                                <dd className="tabular-nums text-fg-secondary">{formatCurrency(serviceCharge)}</dd>
                             </div>
-                            <div className="flex justify-between items-center pt-3 border-t border-slate-100">
-                                <span className="font-bold text-slate-800">Total Amount</span>
-                                <span className="text-2xl font-bold text-primary">{formatCurrency(totalAmount)}</span>
+                            <div className="flex items-center justify-between gap-3 border-t border-edge pt-2">
+                                <dt className="font-semibold text-fg">Total</dt>
+                                <dd className="text-lg font-semibold tabular-nums text-fg">{formatCurrency(totalAmount)}</dd>
                             </div>
-                        </div>
+                        </dl>
 
                         {/* Submit error */}
-                        {submitError && (
-                            <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-600 font-medium">
-                                {submitError}
-                            </div>
-                        )}
-
-                        <div className="mt-6 space-y-3">
-                            <button
-                                onClick={handleCreateOrder}
-                                disabled={selectedTests.length === 0 || !selectedPatient || isSubmitting}
-                                className="w-full py-3 bg-primary text-white rounded-xl font-bold text-sm hover:bg-primary/90 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                            >
-                                {isSubmitting && <span className="material-icons text-base animate-spin">progress_activity</span>}
-                                {isSubmitting ? 'Creating Order...' : 'Create Order'}
-                            </button>
-                            <button
-                                onClick={() => router.push('/orders-billing/orders')}
-                                className="w-full py-3 bg-white text-slate-600 border border-slate-200 rounded-xl font-semibold text-sm hover:bg-slate-50 transition-colors"
-                            >
-                                Cancel
-                            </button>
+                        <div role="alert" aria-live="assertive">
+                            {submitError && (
+                                <div className="mx-4 mb-4 flex items-start gap-2 rounded-lg border border-status-danger-edge bg-status-danger-bg p-3 text-xs text-status-danger-fg">
+                                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                                    <div className="min-w-0">
+                                        <p className="font-medium">Couldn&apos;t create order</p>
+                                        <p className="mt-0.5 break-words">{submitError}</p>
+                                    </div>
+                                </div>
+                            )}
                         </div>
-                    </div>
+                    </SectionCard>
+                </div>
+            </div>
+
+            {/* ── Sticky action bar ── */}
+            <div className="sticky bottom-0 z-10 mt-6 flex items-center justify-between gap-3 border-t border-edge bg-canvas py-3">
+                <div role="status" aria-live="polite" className="flex min-w-0 items-center gap-2 text-xs text-fg-muted">
+                    {isSubmitting ? (
+                        <>
+                            <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary-strong" aria-hidden="true" />
+                            <span className="truncate font-medium text-fg-secondary">Creating order…</span>
+                        </>
+                    ) : (
+                        <span className="truncate tabular-nums">{readiness}</span>
+                    )}
+                </div>
+                <div className="ml-auto flex shrink-0 items-center gap-2">
+                    <Button variant="secondary" onClick={() => router.push('/orders-billing/orders')}>
+                        Cancel
+                    </Button>
+                    <Button
+                        variant="primary"
+                        icon={ClipboardPlus}
+                        loading={isSubmitting}
+                        disabled={!canSubmit}
+                        onClick={handleCreateOrder}
+                    >
+                        {isSubmitting ? 'Creating order…' : 'Create order'}
+                    </Button>
                 </div>
             </div>
         </div>

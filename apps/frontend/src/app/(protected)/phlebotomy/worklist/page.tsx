@@ -3,12 +3,36 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { usePathname, useRouter } from 'next/navigation';
-import { PRIORITY_COLORS, formatStatusLabel } from '@/constants/sample-lifecycle';
+import {
+    AlertTriangle,
+    Ban,
+    ClipboardList,
+    Clock,
+    Play,
+    RefreshCw,
+    RotateCcw,
+    Search,
+    Siren,
+} from 'lucide-react';
+import { formatStatusLabel } from '@/constants/sample-lifecycle';
 import { collectSample, getPhlebotomyStats, getPhlebotomyWorklist, rejectPhlebotomySample } from '@/lib/api';
 import { getTubeHexColor } from '@/lib/phlebotomy-label-print';
 import type { Sample, TubeType } from '@/types/sample-lifecycle';
+import { cn } from '@/lib/utils';
+import Button from '@/components/ui/Button';
+import PageHeader from '@/components/ui/PageHeader';
+import SectionCard from '@/components/ui/SectionCard';
+import EmptyState from '@/components/ui/EmptyState';
+import Modal from '@/components/ui/Modal';
+import Pagination from '@/components/ui/Pagination';
+import StatusChip from '@/components/ui/StatusChip';
+import { SelectField, TextareaField } from '@/components/ui/Field';
+import StatCard from '@/components/shared/StatCard';
+import PriorityBadge from '@/components/shared/PriorityBadge';
+import WorklistFilters from '@/components/phlebotomy/WorklistFilters';
 
 const PAGE_SIZE = 8;
+const SKELETON_ROWS = 6;
 type RejectionReason = 'HEMOLYZED' | 'INSUFFICIENT_VOLUME' | 'CLOTTED' | 'CONTAMINATED' | 'OTHER';
 type PhlebotomyStats = {
     pendingCollections: number;
@@ -45,30 +69,15 @@ type RawWorklistItem = {
 };
 /** Tube colour is stocked data, not part of the shared Sample shape, so it rides alongside it. */
 type WorklistSample = Sample & { tubeColor: string };
-const PHLEBOTOMY_STAT_CARDS = {
-    pending: {
-        label: 'Pending Collections',
-        icon: 'assignment',
-        iconClasses: 'bg-blue-100 text-blue-600',
-    },
-    stat: {
-        label: 'STAT Priority',
-        icon: 'emergency',
-        iconClasses: 'bg-red-100 text-red-600',
-        badgeClasses: 'text-red-600 bg-red-50',
-    },
-    urgent: {
-        label: 'Urgent Priority',
-        icon: 'warning',
-        iconClasses: 'bg-orange-100 text-orange-600',
-        badgeClasses: 'text-orange-600 bg-orange-50',
-    },
-    normal: {
-        label: 'Normal Priority',
-        icon: 'schedule',
-        iconClasses: 'bg-emerald-100 text-emerald-600',
-    },
-};
+
+/** Mirrors the backend RejectionReason enum — anything outside this list is rejected server-side. */
+const REJECTION_REASON_OPTIONS: { value: RejectionReason; label: string }[] = [
+    { value: 'HEMOLYZED', label: 'Hemolyzed' },
+    { value: 'INSUFFICIENT_VOLUME', label: 'Insufficient volume' },
+    { value: 'CLOTTED', label: 'Clotted' },
+    { value: 'CONTAMINATED', label: 'Contaminated' },
+    { value: 'OTHER', label: 'Other' },
+];
 
 function formatWaitTime(minutes?: number) {
     const totalMinutes = Math.max(0, Math.floor(minutes ?? 0));
@@ -85,6 +94,13 @@ function formatWaitTime(minutes?: number) {
     }
 
     return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
+}
+
+function waitTimeTone(minutes?: number) {
+    const value = minutes ?? 0;
+    if (value > 30) return 'text-status-danger-fg';
+    if (value > 15) return 'text-status-pending-fg';
+    return 'text-fg-secondary';
 }
 
 function isRecollectionSample(sample: Sample) {
@@ -151,7 +167,7 @@ export default function PhlebotomyWorklistPage() {
             });
         } catch (error) {
             console.error('Failed to load phlebotomy worklist:', error);
-            setLoadError('Failed to load worklist. Please try again.');
+            setLoadError("Couldn't load the worklist. Check your connection and retry.");
             setWorklist([]);
         } finally {
             setIsLoading(false);
@@ -172,7 +188,21 @@ export default function PhlebotomyWorklistPage() {
     }, [worklist, searchQuery, priorityFilter]);
 
     const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-    const paginated = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+    // Clamp so a shrinking list (after collect / reject) never leaves the pager on an empty page.
+    const page = Math.min(currentPage, totalPages);
+    const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+    const hasFilters = Boolean(searchQuery) || priorityFilter !== 'ALL';
+
+    const handleSearch = (q: string) => {
+        setSearchQuery(q);
+        setCurrentPage(1);
+    };
+
+    const handlePriorityChange = (p: string) => {
+        setPriorityFilter(p);
+        setCurrentPage(1);
+    };
+
     const handleCollect = async (sampleUuid: string, sampleLabel: string) => {
         try {
             setActionLoadingId(sampleUuid);
@@ -187,6 +217,7 @@ export default function PhlebotomyWorklistPage() {
         }
     };
 
+    // Every other reason is self-describing, so free text is only mandatory for "Other".
     const requiresCustomMessage = rejectionReason === 'OTHER';
 
     const openRejectForm = (sample: Sample) => {
@@ -195,6 +226,12 @@ export default function PhlebotomyWorklistPage() {
         setRejectionNotes('');
         setRejectionError('');
     };
+
+    // Stable so the Modal's focus/keyboard effect does not re-run on every keystroke.
+    const closeRejectForm = useCallback(() => {
+        setRejectingSample(null);
+        setRejectionError('');
+    }, []);
 
     const handleReject = async () => {
         if (!rejectingSample) return;
@@ -222,242 +259,334 @@ export default function PhlebotomyWorklistPage() {
         }
     };
 
+    const isSubmittingRejection = rejectingSample !== null && actionLoadingId === rejectingSample.id;
+
     return (
-        <div>
-            <div className="mb-6">
-                <h1 className="text-2xl font-bold text-slate-800">Sample Collection</h1>
-                <p className="text-sm text-slate-500 mt-1">Manage pending laboratory collection orders and patient queues.</p>
+        <div className="mx-auto max-w-[1400px]">
+            <PageHeader
+                crumbs={[{ label: 'Phlebotomy', href: '/phlebotomy/worklist' }, { label: 'Worklist' }]}
+                title="Sample collection"
+                meta={
+                    <>
+                        <ClipboardList className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                        <span>Pending laboratory collection orders and patient queues</span>
+                        {!isLoading && !loadError && (
+                            <>
+                                <span aria-hidden="true">·</span>
+                                <span className="tabular-nums">
+                                    {worklist.length} {worklist.length === 1 ? 'sample' : 'samples'}
+                                </span>
+                            </>
+                        )}
+                    </>
+                }
+                actions={
+                    <Button icon={RefreshCw} onClick={() => void loadWorklist()} loading={isLoading}>
+                        Refresh
+                    </Button>
+                }
+            />
+
+            {/* Screen-reader status for async changes */}
+            <p role="status" aria-live="polite" className="sr-only">
+                {isLoading
+                    ? 'Loading worklist'
+                    : loadError
+                      ? 'Worklist failed to load'
+                      : `Worklist loaded. Showing ${paginated.length} of ${filtered.length} samples${
+                            totalPages > 1 ? `, page ${page} of ${totalPages}` : ''
+                        }.`}
+            </p>
+
+            {/* Stat cards */}
+            <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+                <StatCard label="Pending collections" value={stats.pendingCollections} icon={ClipboardList} color="blue" loading={isLoading} />
+                <StatCard
+                    label="STAT priority"
+                    value={stats.statPriority}
+                    icon={Siren}
+                    color="red"
+                    sub={stats.statPriority > 0 ? 'Action needed' : undefined}
+                    loading={isLoading}
+                />
+                <StatCard
+                    label="Urgent priority"
+                    value={stats.urgentPriority}
+                    icon={AlertTriangle}
+                    color="orange"
+                    sub={stats.urgentPriority > 0 ? 'Action needed' : undefined}
+                    loading={isLoading}
+                />
+                <StatCard label="Normal priority" value={stats.normalPriority} icon={Clock} color="blue" loading={isLoading} />
             </div>
 
-            {rejectingSample && (
-                <div className="bg-white rounded-2xl shadow-sm border border-red-200 p-5 mb-6">
-                    <div className="flex items-start justify-between gap-4 mb-4">
-                        <div>
-                            <h2 className="text-base font-bold text-slate-800">Reject Sample</h2>
-                            <p className="text-sm text-slate-500 mt-1">
-                                {rejectingSample.sampleId} • {rejectingSample.patient.name} • {rejectingSample.testType}
-                            </p>
-                        </div>
-                        <button
-                            type="button"
-                            onClick={() => {
-                                setRejectingSample(null);
-                                setRejectionError('');
-                            }}
-                            className="text-slate-400 hover:text-slate-600"
-                        >
-                            <span className="material-icons text-lg">close</span>
-                        </button>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-3">
-                        <div>
-                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Reason</label>
-                            <select
-                                value={rejectionReason}
-                                onChange={(event) => {
-                                    setRejectionReason(event.target.value as RejectionReason);
-                                    setRejectionError('');
-                                }}
-                                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
-                            >
-                                <option value="HEMOLYZED">Hemolyzed</option>
-                                <option value="INSUFFICIENT_VOLUME">Insufficient volume</option>
-                                <option value="CLOTTED">Clotted</option>
-                                <option value="CONTAMINATED">Contaminated</option>
-                                <option value="OTHER">Other</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
-                                {requiresCustomMessage ? 'Custom message' : 'Message'}
-                                {requiresCustomMessage && <span className="text-red-500 ml-1">*</span>}
-                            </label>
-                            <textarea
-                                value={rejectionNotes}
-                                onChange={(event) => setRejectionNotes(event.target.value)}
-                                rows={3}
-                                maxLength={500}
-                                placeholder={requiresCustomMessage
-                                    ? 'Describe why this sample is being rejected...'
-                                    : 'Optional message to show in collection history...'}
-                                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
-                            />
-                        </div>
-                    </div>
-                    {rejectionError && (
-                        <p className="mt-3 text-sm font-medium text-red-600">{rejectionError}</p>
-                    )}
-                    <div className="flex justify-end gap-2 mt-4">
-                        <button
-                            type="button"
-                            onClick={() => {
-                                setRejectingSample(null);
-                                setRejectionError('');
-                            }}
-                            className="px-4 py-2 border border-slate-200 text-slate-600 text-sm font-semibold rounded-xl hover:bg-slate-50"
-                        >
-                            Cancel
-                        </button>
-                        <button
-                            type="button"
-                            disabled={actionLoadingId === rejectingSample.id}
-                            onClick={handleReject}
-                            className="px-4 py-2 bg-red-600 text-white text-sm font-bold rounded-xl hover:bg-red-700 disabled:opacity-60"
-                        >
-                            {actionLoadingId === rejectingSample.id ? 'Submitting...' : 'Submit Rejection'}
-                        </button>
-                    </div>
-                </div>
-            )}
-
-            {/* Stat Cards */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-5 mb-6">
-                {[
-                    { ...PHLEBOTOMY_STAT_CARDS.pending, value: stats.pendingCollections, badge: undefined, badgeClasses: '' },
-                    { ...PHLEBOTOMY_STAT_CARDS.stat, value: stats.statPriority, badge: stats.statPriority > 0 ? 'Action needed' : undefined },
-                    { ...PHLEBOTOMY_STAT_CARDS.urgent, value: stats.urgentPriority, badge: stats.urgentPriority > 0 ? 'Action needed' : undefined },
-                    { ...PHLEBOTOMY_STAT_CARDS.normal, value: stats.normalPriority, badge: undefined, badgeClasses: '' },
-                ].map((s) => (
-                    <div key={s.label} className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
-                        <div className="flex items-center justify-between mb-2">
-                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${s.iconClasses}`}>
-                                <span className="material-icons">{s.icon}</span>
-                            </div>
-                            {s.badge && <span className={`text-[10px] font-bold px-2 py-0.5 rounded-lg ${s.badgeClasses}`}>{s.badge}</span>}
-                        </div>
-                        <p className="text-2xl font-bold text-slate-800">{s.value}</p>
-                        <p className="text-xs text-slate-500">{s.label}</p>
-                    </div>
-                ))}
-            </div>
-
-            {/* Worklist Table */}
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60">
-                {/* Filters */}
-                <div className="p-4 border-b border-slate-100">
-                    <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
-                        <div className="relative flex-1">
-                            <span className="material-icons absolute left-3 top-1/2 -translate-y-1/2 text-lg text-slate-400">search</span>
-                            <input type="text" placeholder="Search patient name, ID, order..." className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }} />
-                        </div>
-                        <select className="border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20" value={priorityFilter} onChange={(e) => { setPriorityFilter(e.target.value); setCurrentPage(1); }}>
-                            <option value="ALL">All Priorities</option>
-                            <option value="STAT">STAT</option>
-                            <option value="URGENT">Urgent</option>
-                            <option value="NORMAL">Normal</option>
-                        </select>
-                    </div>
+            {/* Worklist */}
+            <SectionCard title="Pending samples" count={isLoading || loadError ? undefined : filtered.length} flush>
+                {/* Filter toolbar */}
+                <div className="border-b border-edge bg-surface-muted px-3 py-2">
+                    <WorklistFilters onSearch={handleSearch} onPriorityChange={handlePriorityChange} selectedPriority={priorityFilter} />
                 </div>
 
-                {/* Table */}
-                <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                        <thead>
-                            <tr className="text-left text-xs font-bold text-slate-400 uppercase tracking-wider">
-                                <th className="px-5 py-3 border-b border-slate-100 bg-slate-50/50">Patient Details</th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Priority</th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Tests Requested</th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Tubes</th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Wait Time</th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50 text-right">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {isLoading ? (
-                                <tr><td colSpan={6} className="text-center py-12 text-slate-400">Loading worklist...</td></tr>
-                            ) : loadError ? (
-                                <tr><td colSpan={6} className="text-center py-12 text-red-500">{loadError}</td></tr>
-                            ) : paginated.length === 0 ? (
-                                <tr><td colSpan={6} className="text-center py-12 text-slate-400">No samples match your search criteria</td></tr>
-                            ) : paginated.map((sample) => (
-                                <tr
-                                    key={sample.id}
-                                    className={`border-b border-slate-50 last:border-0 transition-colors ${
-                                        isRecollectionSample(sample)
-                                            ? 'bg-amber-50/35 hover:bg-amber-50/60'
-                                            : 'hover:bg-slate-50/50'
-                                    }`}
-                                >
-                                    <td className="px-5 py-3">
-                                        <div className="flex flex-wrap items-center gap-2">
-                                            <p className="font-semibold text-slate-700">{sample.patient.name}</p>
-                                            {isRecollectionSample(sample) && (
-                                                <span className="rounded-md bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700">
-                                                    Recollection
-                                                </span>
-                                            )}
-                                        </div>
-                                        <p className="text-xs text-slate-400">{sample.patient.pid} • {sample.patient.age}Y {sample.patient.gender}</p>
-                                        {sample.patient.wardRoom && <p className="text-xs text-primary mt-0.5">{sample.patient.wardRoom}</p>}
-                                    </td>
-                                    <td className="px-4 py-3">
-                                        <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold ${PRIORITY_COLORS[sample.priority]}`}>
-                                            {sample.priority}
-                                        </span>
-                                    </td>
-                                    <td className="px-4 py-3">
-                                        <p className="text-slate-700 font-medium">{sample.testType}</p>
-                                        <div className="flex gap-1 mt-1 flex-wrap">
-                                            {sample.testCodes.map((c) => (
-                                                <span key={c} className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">{c}</span>
-                                            ))}
-                                        </div>
-                                    </td>
-                                    <td className="px-4 py-3">
-                                        <div className="flex gap-1">
-                                            {sample.tubeTypes.map((t) => (
-                                                <div key={t} className="w-4 h-4 rounded-full border border-white shadow-sm" style={{ backgroundColor: sample.tubeColor }} title={formatStatusLabel(t)} />
-                                            ))}
-                                        </div>
-                                    </td>
-                                    <td className="px-4 py-3">
-                                        <span className={`text-sm font-semibold ${(sample.waitTimeMinutes ?? 0) > 30 ? 'text-red-600' : (sample.waitTimeMinutes ?? 0) > 15 ? 'text-amber-600' : 'text-slate-600'}`}>
-                                            {formatWaitTime(sample.waitTimeMinutes)}
-                                        </span>
-                                    </td>
-                                    <td className="px-4 py-3 text-right">
-                                        <div className="flex justify-end gap-2">
-                                            <button
-                                                disabled={actionLoadingId === sample.id}
-                                                onClick={() => handleCollect(sample.id, sample.sampleId)}
-                                                className={`px-3 py-1.5 text-white text-xs font-bold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                                                    isRecollectionSample(sample)
-                                                        ? 'bg-amber-600 hover:bg-amber-700'
-                                                        : 'bg-primary hover:bg-primary/90'
-                                                }`}
-                                            >
-                                                <span className="material-icons text-sm mr-1 align-middle">
-                                                    {isRecollectionSample(sample) ? 'refresh' : 'play_arrow'}
-                                                </span>
-                                                {isRecollectionSample(sample) ? 'Recollect' : 'Collect'}
-                                            </button>
-                                            <button disabled={actionLoadingId === sample.id} onClick={() => openRejectForm(sample)} className="px-3 py-1.5 border border-red-200 text-red-600 text-xs font-bold rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                                                <span className="material-icons text-sm mr-1 align-middle">cancel</span>Reject
-                                            </button>
-                                        </div>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-
-                {/* Pagination */}
-                <div className="flex items-center justify-between px-5 py-3 border-t border-slate-100 text-sm text-slate-500">
-                    <p>Showing {filtered.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1} to {Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length}</p>
-                    <div className="flex items-center gap-2">
-                        <button disabled={currentPage === 1} onClick={() => setCurrentPage(p => p - 1)} className="flex items-center gap-1 px-3 py-1.5 border border-slate-200 rounded-lg text-sm font-medium hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
-                            <span className="material-icons text-base">chevron_left</span>Prev
-                        </button>
-                        {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-                            <button key={page} onClick={() => setCurrentPage(page)} className={`w-8 h-8 rounded-lg text-sm font-bold transition-colors ${currentPage === page ? 'bg-primary text-white shadow-sm' : 'border border-slate-200 hover:bg-slate-50 text-slate-600'}`}>{page}</button>
+                {/* States live outside the table so they centre on small screens */}
+                {isLoading ? (
+                    <ul aria-hidden="true" className="divide-y divide-edge">
+                        {Array.from({ length: SKELETON_ROWS }).map((_, i) => (
+                            <li key={i} className="flex items-center gap-3 px-4 py-3">
+                                <span className="flex w-48 shrink-0 flex-col gap-1.5">
+                                    <span className="h-3.5 w-32 rounded bg-skeleton" />
+                                    <span className="h-3 w-24 rounded bg-skeleton" />
+                                </span>
+                                <span className="h-4 w-14 shrink-0 rounded bg-skeleton" />
+                                <span className="h-3 w-40 rounded bg-skeleton" />
+                                <span className="hidden h-4 w-12 rounded-full bg-skeleton md:block" />
+                                <span className="hidden h-3 w-12 rounded bg-skeleton md:block" />
+                                <span className="ml-auto h-7 w-36 shrink-0 rounded bg-skeleton" />
+                            </li>
                         ))}
-                        <button disabled={currentPage === totalPages} onClick={() => setCurrentPage(p => p + 1)} className="flex items-center gap-1 px-3 py-1.5 border border-slate-200 rounded-lg text-sm font-medium hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
-                            Next<span className="material-icons text-base">chevron_right</span>
-                        </button>
+                    </ul>
+                ) : loadError ? (
+                    <EmptyState
+                        icon={AlertTriangle}
+                        title="Worklist unavailable"
+                        description={loadError}
+                        action={
+                            <Button size="sm" icon={RefreshCw} onClick={() => void loadWorklist()}>
+                                Retry
+                            </Button>
+                        }
+                    />
+                ) : filtered.length === 0 ? (
+                    hasFilters ? (
+                        <EmptyState
+                            icon={Search}
+                            title="No samples match"
+                            description="Try a different search term or priority."
+                            action={
+                                priorityFilter !== 'ALL' ? (
+                                    <Button size="sm" onClick={() => handlePriorityChange('ALL')}>
+                                        Show all priorities
+                                    </Button>
+                                ) : undefined
+                            }
+                        />
+                    ) : (
+                        <EmptyState
+                            icon={ClipboardList}
+                            title="No pending collections"
+                            description="Samples waiting for collection will appear here."
+                        />
+                    )
+                ) : (
+                    <div className="overflow-x-auto">
+                        {/* table-fixed budget: fixed cols = 96 (Priority) + 112 (Tubes) + 96 (Wait) + 192 (Actions) = 496px,
+                            plus Patient at 26%. The auto "Tests requested" column gets W - 0.26W - 496, so W must be
+                            >= 887 for it to clear the 160px text-column floor. min-w-[900px] leaves it 170px. */}
+                        <table className="w-full min-w-[900px] table-fixed text-left text-[13px]">
+                            <caption className="sr-only">Samples pending collection</caption>
+                            <thead>
+                                <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
+                                    <th scope="col" className="w-[26%] py-2 pl-4 pr-3 font-medium">
+                                        Patient
+                                    </th>
+                                    <th scope="col" className="w-24 px-3 py-2 font-medium">
+                                        Priority
+                                    </th>
+                                    <th scope="col" className="px-3 py-2 font-medium">
+                                        Tests requested
+                                    </th>
+                                    <th scope="col" className="w-28 px-3 py-2 font-medium">
+                                        Tubes
+                                    </th>
+                                    <th scope="col" className="w-24 px-3 py-2 font-medium">
+                                        Wait time
+                                    </th>
+                                    <th scope="col" className="w-48 py-2 pl-2 pr-3 text-right font-medium">
+                                        Actions
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-edge whitespace-nowrap">
+                                {paginated.map((sample) => {
+                                    const recollection = isRecollectionSample(sample);
+                                    const busy = actionLoadingId === sample.id;
+                                    return (
+                                        <tr
+                                            key={sample.id}
+                                            className={cn(
+                                                'transition-colors',
+                                                recollection ? 'bg-status-pending-bg' : 'hover:bg-surface-hover'
+                                            )}
+                                        >
+                                            {/* Patient */}
+                                            <td className="py-2 pl-4 pr-3">
+                                                <div className="flex min-w-0 items-center gap-2">
+                                                    <p className="min-w-0 truncate font-medium text-fg">{sample.patient.name}</p>
+                                                    {recollection && (
+                                                        <StatusChip tone="pending" size="sm" className="shrink-0">
+                                                            Recollection
+                                                        </StatusChip>
+                                                    )}
+                                                </div>
+                                                <p className="truncate text-xs text-fg-muted">
+                                                    {sample.patient.pid} · {sample.patient.age}Y {sample.patient.gender}
+                                                </p>
+                                                {sample.patient.wardRoom && (
+                                                    <p className="mt-0.5 truncate text-xs text-primary-strong">{sample.patient.wardRoom}</p>
+                                                )}
+                                            </td>
+                                            {/* Priority */}
+                                            <td className="px-3 py-2">
+                                                <PriorityBadge priority={sample.priority} />
+                                            </td>
+                                            {/* Tests */}
+                                            <td className="px-3 py-2">
+                                                <p className="truncate font-medium text-fg-secondary" title={sample.testType}>
+                                                    {sample.testType}
+                                                </p>
+                                                {sample.testCodes.length > 0 && (
+                                                    <div className="mt-1 flex flex-wrap gap-1">
+                                                        {sample.testCodes.map((c) => (
+                                                            <StatusChip key={c} tone="neutral" size="sm" title={c}>
+                                                                {c}
+                                                            </StatusChip>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </td>
+                                            {/* Tubes — the cap colour comes from the stocked supply for this tube
+                                                type, so it stays a literal physical colour, not a theme token. */}
+                                            <td className="px-3 py-2">
+                                                {sample.tubeTypes.length > 0 ? (
+                                                    <ul
+                                                        className="flex gap-1"
+                                                        aria-label={`Tubes: ${sample.tubeTypes.map((t) => formatStatusLabel(t)).join(', ')}`}
+                                                    >
+                                                        {sample.tubeTypes.map((t) => (
+                                                            <li
+                                                                key={t}
+                                                                className="h-4 w-4 rounded-full ring-2 ring-surface"
+                                                                style={{ backgroundColor: sample.tubeColor }}
+                                                                title={formatStatusLabel(t)}
+                                                            />
+                                                        ))}
+                                                    </ul>
+                                                ) : (
+                                                    <span className="text-fg-faint">—</span>
+                                                )}
+                                            </td>
+                                            {/* Wait time */}
+                                            <td className="px-3 py-2">
+                                                <span className={cn('font-semibold tabular-nums', waitTimeTone(sample.waitTimeMinutes))}>
+                                                    {formatWaitTime(sample.waitTimeMinutes)}
+                                                </span>
+                                            </td>
+                                            {/* Actions */}
+                                            <td className="py-2 pl-2 pr-3 text-right">
+                                                <div className="flex justify-end gap-1.5">
+                                                    <Button
+                                                        variant="primary"
+                                                        size="sm"
+                                                        icon={recollection ? RotateCcw : Play}
+                                                        loading={busy}
+                                                        onClick={() => handleCollect(sample.id, sample.sampleId)}
+                                                        aria-label={`${recollection ? 'Recollect' : 'Collect'} sample ${sample.sampleId} for ${sample.patient.name}`}
+                                                    >
+                                                        {recollection ? 'Recollect' : 'Collect'}
+                                                    </Button>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        icon={Ban}
+                                                        disabled={busy}
+                                                        onClick={() => openRejectForm(sample)}
+                                                        aria-label={`Reject sample ${sample.sampleId} for ${sample.patient.name}`}
+                                                        className="text-status-danger-fg hover:bg-status-danger-bg hover:text-status-danger-fg"
+                                                    >
+                                                        Reject
+                                                    </Button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
                     </div>
+                )}
+
+                {/* Footer: paging */}
+                {!isLoading && !loadError && filtered.length > 0 && (
+                    <Pagination
+                        currentPage={page}
+                        totalPages={totalPages}
+                        totalItems={filtered.length}
+                        pageSize={PAGE_SIZE}
+                        onPageChange={setCurrentPage}
+                        itemLabel="samples"
+                    />
+                )}
+            </SectionCard>
+
+            {/* Reject dialog */}
+            <Modal
+                open={rejectingSample !== null}
+                onClose={closeRejectForm}
+                title="Reject sample"
+                description={
+                    rejectingSample ? `${rejectingSample.sampleId} · ${rejectingSample.patient.name} · ${rejectingSample.testType}` : undefined
+                }
+                size="md"
+                dismissible={!isSubmittingRejection}
+                footer={
+                    <>
+                        <Button variant="secondary" disabled={isSubmittingRejection} onClick={closeRejectForm}>
+                            Cancel
+                        </Button>
+                        <Button variant="danger" icon={Ban} loading={isSubmittingRejection} onClick={handleReject}>
+                            {isSubmittingRejection ? 'Submitting…' : 'Submit rejection'}
+                        </Button>
+                    </>
+                }
+            >
+                <div className="space-y-4">
+                    <SelectField
+                        label="Reason"
+                        value={rejectionReason}
+                        onChange={(event) => {
+                            setRejectionReason(event.target.value as RejectionReason);
+                            setRejectionError('');
+                        }}
+                    >
+                        {REJECTION_REASON_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                                {option.label}
+                            </option>
+                        ))}
+                    </SelectField>
+                    <TextareaField
+                        label={requiresCustomMessage ? 'Custom message' : 'Message'}
+                        required={requiresCustomMessage}
+                        hint={
+                            requiresCustomMessage
+                                ? 'Required when the reason is Other. Shown in the collection history for this sample.'
+                                : 'Optional. Shown in the collection history for this sample.'
+                        }
+                        error={rejectionError || undefined}
+                        value={rejectionNotes}
+                        onChange={(event) => {
+                            setRejectionNotes(event.target.value);
+                            if (rejectionError) setRejectionError('');
+                        }}
+                        rows={3}
+                        maxLength={500}
+                        placeholder={
+                            requiresCustomMessage
+                                ? 'Describe why this sample is being rejected'
+                                : 'Optional message to show in collection history'
+                        }
+                    />
                 </div>
-            </div>
+            </Modal>
         </div>
     );
 }

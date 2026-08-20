@@ -1,24 +1,26 @@
 'use client';
 
-import { QC_STATUS_CONFIG } from '@/constants/sample-lifecycle';
 import { MOCK_QC_DASHBOARD_DATA } from '@/mock/mlt.mock';
-import { getQcDashboard, type QcDashboardData } from '@/lib/api';
+import { getQcDashboard, type QcDashboardData, type QcRunItem } from '@/lib/api';
 import { useCallback, useEffect, useState } from 'react';
+import { AlertTriangle, CheckCircle2, FlaskConical, RefreshCw, XCircle } from 'lucide-react';
 import RecordQcRunForm from '@/components/mlt/RecordQcRunForm';
+import Button from '@/components/ui/Button';
+import PageHeader from '@/components/ui/PageHeader';
+import SectionCard from '@/components/ui/SectionCard';
+import EmptyState from '@/components/ui/EmptyState';
+import StatusChip, { humanizeStatus, type ChipTone } from '@/components/ui/StatusChip';
+import StatCard from '@/components/shared/StatCard';
+import DemoDataBanner from '@/components/shared/DemoDataBanner';
+import { cn } from '@/lib/utils';
 
-const STAT_CARD_STYLES = {
-    blue: {
-        iconClasses: 'bg-blue-100 text-blue-600',
-    },
-    emerald: {
-        iconClasses: 'bg-emerald-100 text-emerald-600',
-    },
-    amber: {
-        iconClasses: 'bg-amber-100 text-amber-600',
-    },
-    red: {
-        iconClasses: 'bg-red-100 text-red-600',
-    },
+const SKELETON_ROWS = 6;
+
+/** QC outcome → chip tone (PASS / WARN / FAIL are not part of the shared STATUS_TONE map). */
+const QC_TONE: Record<QcRunItem['status'], ChipTone> = {
+    PASS: 'success',
+    WARN: 'pending',
+    FAIL: 'danger',
 };
 
 export default function QCDashboardPage() {
@@ -54,124 +56,169 @@ export default function QCDashboardPage() {
     const warnCount = dashboard?.warnings ?? 0;
 
     return (
-        <div>
-            <div className="mb-6">
-                <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">Laboratory / Quality Control</p>
-                <h1 className="text-2xl font-bold text-slate-800 mt-0.5">QC Dashboard</h1>
-            </div>
+        <div className="mx-auto max-w-[1400px]">
+            <PageHeader
+                crumbs={[{ label: 'Laboratory' }, { label: 'Quality control' }]}
+                title="QC dashboard"
+                meta={<span>Internal control runs recorded today and their Westgard outcome</span>}
+                actions={
+                    <Button icon={RefreshCw} loading={loading} onClick={loadDashboard}>
+                        Refresh
+                    </Button>
+                }
+            />
+
+            {/* Screen-reader status for async changes */}
+            <p role="status" aria-live="polite" className="sr-only">
+                {loading
+                    ? 'Loading QC dashboard'
+                    : `QC dashboard loaded. ${runs.length} runs today: ${passCount} passed, ${warnCount} warnings, ${failCount} failed.`}
+            </p>
 
             <RecordQcRunForm onRecorded={loadDashboard} />
 
             {demoMode && (
-                <div className="mb-6 rounded-2xl border border-violet-200 bg-violet-50 px-5 py-3 flex gap-3 items-start">
-                    <span className="material-icons text-violet-600 text-xl">science</span>
-                    <div className="text-sm text-violet-900">
-                        <p className="font-bold">Demo QC data</p>
-                        <p className="text-violet-800/90 mt-1">
-                            No live middleware or analyser interface detected — showing representative QC runs so training
-                            and UI reviews can continue without hardware. When the API is available, live Westgard / L-J
-                            style summaries replace this block automatically.
-                        </p>
-                    </div>
-                </div>
+                <DemoDataBanner note="Demo QC data — no live middleware or analyser interface detected. Showing representative QC runs so training and UI reviews can continue without hardware; live Westgard / L-J summaries replace this automatically when the API is available." />
             )}
 
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-5 mb-6">
-                {[
-                    { label: 'Total QC Runs', value: dashboard?.totalRuns ?? 0, icon: 'assessment', tone: 'blue' as const },
-                    { label: 'Passed', value: passCount, icon: 'check_circle', tone: 'emerald' as const },
-                    { label: 'Warnings', value: warnCount, icon: 'warning', tone: 'amber' as const },
-                    { label: 'Failures', value: failCount, icon: 'cancel', tone: 'red' as const },
-                ].map((stat) => (
-                    <div key={stat.label} className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
-                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-2 ${STAT_CARD_STYLES[stat.tone].iconClasses}`}>
-                            <span className="material-icons">{stat.icon}</span>
-                        </div>
-                        <p className="text-2xl font-bold text-slate-800">{stat.value}</p>
-                        <p className="text-xs text-slate-500">{stat.label}</p>
-                    </div>
-                ))}
+            <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <StatCard label="Total QC runs" value={dashboard?.totalRuns ?? 0} icon={FlaskConical} color="blue" loading={loading} />
+                <StatCard label="Passed" value={passCount} icon={CheckCircle2} color="emerald" loading={loading} />
+                <StatCard label="Warnings" value={warnCount} icon={AlertTriangle} color="orange" loading={loading} />
+                <StatCard label="Failures" value={failCount} icon={XCircle} color="red" loading={loading} />
             </div>
 
             {failCount > 0 && (
-                <div className="bg-red-50 border border-red-200 rounded-2xl px-5 py-3 mb-6 flex items-center gap-3">
-                    <span className="material-icons text-red-600">error</span>
-                    <p className="text-sm text-red-700 font-medium">
-                        {failCount} QC run(s) failed. Instruments with failed QC should not be used until corrective action is taken.
+                <div
+                    role="alert"
+                    className="mb-4 flex items-start gap-2 rounded-md border border-status-danger-edge bg-status-danger-bg px-4 py-2.5 text-sm text-status-danger-fg"
+                >
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                    <p>
+                        <span className="font-medium">
+                            {failCount} QC {failCount === 1 ? 'run' : 'runs'} failed.
+                        </span>{' '}
+                        Instruments with failed QC should not be used until corrective action is taken.
                     </p>
                 </div>
             )}
 
             {error && !demoMode && (
-                <div className="bg-red-50 border border-red-200 rounded-2xl px-5 py-3 mb-6 text-sm text-red-700">
-                    {error}
+                <div
+                    role="alert"
+                    className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-status-danger-edge bg-status-danger-bg px-4 py-2.5 text-sm text-status-danger-fg"
+                >
+                    <span className="inline-flex items-center gap-2">
+                        <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
+                        {error}
+                    </span>
+                    <Button size="sm" icon={RefreshCw} onClick={loadDashboard}>
+                        Retry
+                    </Button>
                 </div>
             )}
 
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60">
-                <div className="px-5 py-4 border-b border-slate-100">
-                    <h3 className="text-sm font-bold text-slate-700">Today&apos;s QC Runs</h3>
-                </div>
-                <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                        <thead>
-                            <tr className="text-left text-xs font-bold text-slate-400 uppercase tracking-wider">
-                                <th className="px-5 py-3 border-b border-slate-100 bg-slate-50/50">Instrument</th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Test Group</th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Level</th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Result</th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Expected</th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">SD</th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Status</th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">By</th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Time</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {loading && (
-                                <tr>
-                                    <td colSpan={9} className="px-5 py-10 text-center text-sm text-slate-500">
-                                        Loading QC runs...
-                                    </td>
+            <SectionCard title="Today's QC runs" count={loading ? undefined : runs.length} flush>
+                {/* States live outside the table so they centre on small screens */}
+                {loading ? (
+                    <ul aria-hidden="true" className="divide-y divide-edge">
+                        {Array.from({ length: SKELETON_ROWS }).map((_, i) => (
+                            <li key={i} className="flex items-center gap-3 px-4 py-2.5">
+                                <span className="h-3 w-28 shrink-0 rounded bg-skeleton" />
+                                <span className="h-3 w-24 shrink-0 rounded bg-skeleton" />
+                                <span className="hidden h-3 w-10 rounded bg-skeleton sm:block" />
+                                <span className="h-3 w-14 rounded bg-skeleton" />
+                                <span className="hidden h-3 w-14 rounded bg-skeleton md:block" />
+                                <span className="hidden h-3 w-10 rounded bg-skeleton md:block" />
+                                <span className="h-4 w-12 rounded bg-skeleton" />
+                                <span className="ml-auto hidden h-3 w-20 rounded bg-skeleton lg:block" />
+                                <span className="h-3 w-12 rounded bg-skeleton" />
+                            </li>
+                        ))}
+                    </ul>
+                ) : runs.length === 0 ? (
+                    <EmptyState
+                        icon={FlaskConical}
+                        title="No QC runs today"
+                        description="Record a control run above to start governing result release for today."
+                    />
+                ) : (
+                    <div className="overflow-x-auto">
+                        {/* min-w must cover the sum of the nine fixed columns
+                            (44+40+16+24+24+16+20+36+20 = 240 spacing units = 960px);
+                            below that `table-fixed` scales every column down and clips
+                            the nowrap headers. */}
+                        <table className="w-full min-w-[960px] table-fixed text-left text-[13px]">
+                            <caption className="sr-only">Today&apos;s QC runs</caption>
+                            <thead>
+                                <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
+                                    <th scope="col" className="w-44 py-2 pl-4 pr-3 font-medium">
+                                        Instrument
+                                    </th>
+                                    <th scope="col" className="w-40 px-3 py-2 font-medium">
+                                        Test group
+                                    </th>
+                                    <th scope="col" className="w-16 px-3 py-2 font-medium">
+                                        Level
+                                    </th>
+                                    <th scope="col" className="w-24 px-3 py-2 font-medium">
+                                        Result
+                                    </th>
+                                    <th scope="col" className="w-24 px-3 py-2 font-medium">
+                                        Expected
+                                    </th>
+                                    <th scope="col" className="w-16 px-3 py-2 font-medium">
+                                        SD
+                                    </th>
+                                    <th scope="col" className="w-20 px-3 py-2 font-medium">
+                                        Status
+                                    </th>
+                                    <th scope="col" className="w-36 px-3 py-2 font-medium">
+                                        By
+                                    </th>
+                                    <th scope="col" className="w-20 px-3 py-2 font-medium">
+                                        Time
+                                    </th>
                                 </tr>
-                            )}
-                            {!loading && runs.length === 0 && (
-                                <tr>
-                                    <td colSpan={9} className="px-5 py-10 text-center text-sm text-slate-500">
-                                        No QC runs are available right now.
-                                    </td>
-                                </tr>
-                            )}
-                            {!loading &&
-                                runs.map((run) => {
-                                    const statusConfig = QC_STATUS_CONFIG[run.status];
+                            </thead>
+                            <tbody className="divide-y divide-edge whitespace-nowrap">
+                                {runs.map((run) => {
+                                    const failed = run.status === 'FAIL';
                                     return (
                                         <tr
                                             key={run.id}
-                                            className={`border-b border-slate-50 last:border-0 transition-colors ${
-                                                run.status === 'FAIL' ? 'bg-red-50/50' : 'hover:bg-slate-50/50'
-                                            }`}
+                                            className={cn(
+                                                'transition-colors',
+                                                failed ? 'bg-status-danger-bg' : 'hover:bg-surface-hover'
+                                            )}
                                         >
-                                            <td className="px-5 py-3 font-semibold text-slate-700">{run.instrument}</td>
-                                            <td className="px-4 py-3 text-slate-700">{run.testGroup}</td>
-                                            <td className="px-4 py-3 text-slate-500">{run.level}</td>
-                                            <td className="px-4 py-3 font-semibold text-slate-800">{run.result}</td>
-                                            <td className="px-4 py-3 text-slate-500">{run.expected}</td>
-                                            <td className="px-4 py-3 text-slate-500">{run.sd}</td>
-                                            <td className="px-4 py-3">
-                                                <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold ${statusConfig.className}`}>
-                                                    {statusConfig.label}
-                                                </span>
+                                            <td className="truncate py-2 pl-4 pr-3 font-medium text-fg" title={run.instrument}>
+                                                {run.instrument}
                                             </td>
-                                            <td className="px-4 py-3 text-slate-500 text-xs">{run.performedBy}</td>
-                                            <td className="px-4 py-3 text-slate-500">{run.timestamp}</td>
+                                            <td className="truncate px-3 py-2 text-fg-secondary" title={run.testGroup}>
+                                                {run.testGroup}
+                                            </td>
+                                            <td className="px-3 py-2 text-fg-muted">{run.level}</td>
+                                            <td className="px-3 py-2 font-medium tabular-nums text-fg">{run.result}</td>
+                                            <td className="px-3 py-2 tabular-nums text-fg-muted">{run.expected}</td>
+                                            <td className="px-3 py-2 tabular-nums text-fg-muted">{run.sd}</td>
+                                            <td className="px-3 py-2">
+                                                <StatusChip tone={QC_TONE[run.status]} dot size="sm">
+                                                    {humanizeStatus(run.status)}
+                                                </StatusChip>
+                                            </td>
+                                            <td className="truncate px-3 py-2 text-xs text-fg-muted" title={run.performedBy}>
+                                                {run.performedBy}
+                                            </td>
+                                            <td className="px-3 py-2 tabular-nums text-fg-muted">{run.timestamp}</td>
                                         </tr>
                                     );
                                 })}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+            </SectionCard>
         </div>
     );
 }

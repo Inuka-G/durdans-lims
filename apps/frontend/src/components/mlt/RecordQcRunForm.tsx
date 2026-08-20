@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
     getInstrumentRegistry,
     getQcAnalytes,
@@ -9,6 +9,9 @@ import {
     type QcAnalyteOption,
     type QcRunOutcome
 } from '@/lib/api';
+import Button from '@/components/ui/Button';
+import { FormSection, InputField, SelectField } from '@/components/ui/Field';
+import { cn } from '@/lib/utils';
 
 /**
  * Records an internal-QC run.
@@ -104,119 +107,121 @@ export default function RecordQcRunForm({ onRecorded }: { onRecorded: () => void
 
     const outcomeStyle =
         outcome?.status === 'FAIL'
-            ? 'border-red-200 bg-red-50 text-red-800'
+            ? 'border-status-danger-edge bg-status-danger-bg text-status-danger-fg'
             : outcome?.status === 'WARN'
-              ? 'border-amber-200 bg-amber-50 text-amber-800'
-              : 'border-emerald-200 bg-emerald-50 text-emerald-800';
+              ? 'border-status-pending-edge bg-status-pending-bg text-status-pending-fg'
+              : 'border-status-verified-edge bg-status-verified-bg text-status-verified-fg';
 
     return (
-        <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-5">
-            <h2 className="text-lg font-bold text-slate-800">Record a QC run</h2>
-            <p className="mt-1 text-sm text-slate-600">
-                Results are held at verification until the control governing their analyser and
-                analyte has passed.
-            </p>
-
+        <FormSection
+            title="Record a QC run"
+            description="Results are held at verification until the control governing their analyser and analyte has passed."
+            className="mb-6"
+        >
             {loadingOptions ? (
-                <p className="mt-4 text-sm text-slate-500">Loading instruments and analytes…</p>
+                <div className="sm:col-span-2" role="status" aria-live="polite">
+                    <span className="sr-only">Loading instruments and analytes…</span>
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2" aria-hidden="true">
+                        {Array.from({ length: 4 }).map((_, i) => (
+                            <div key={i}>
+                                <div className="mb-1 h-3 w-24 rounded bg-skeleton" />
+                                <div className="h-9 w-full rounded-md bg-skeleton" />
+                            </div>
+                        ))}
+                    </div>
+                </div>
             ) : (
                 <>
-                    <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                        <label className="block">
-                            <span className="text-sm font-medium text-slate-700">Instrument</span>
-                            <select
-                                value={instrument}
-                                onChange={(e) => setInstrument(e.target.value)}
-                                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                            >
-                                <option value="">Select…</option>
-                                {instruments.map((i) => (
-                                    <option key={i.code} value={i.code}>
-                                        {i.name} ({i.code})
-                                    </option>
-                                ))}
-                            </select>
-                        </label>
+                    <SelectField
+                        label="Instrument"
+                        required
+                        value={instrument}
+                        onChange={(e) => setInstrument(e.target.value)}
+                    >
+                        <option value="">Select…</option>
+                        {instruments.map((i) => (
+                            <option key={i.code} value={i.code}>
+                                {i.name} ({i.code})
+                            </option>
+                        ))}
+                    </SelectField>
 
-                        <label className="block">
-                            <span className="text-sm font-medium text-slate-700">Analyte</span>
-                            <select
-                                value={loincCode}
-                                onChange={(e) => setLoincCode(e.target.value)}
-                                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                            >
-                                <option value="">Select…</option>
-                                {analytes.map((a) => (
-                                    <option key={a.loincCode} value={a.loincCode}>
-                                        {a.name} ({a.loincCode})
-                                    </option>
-                                ))}
-                            </select>
-                        </label>
+                    <SelectField
+                        label="Analyte"
+                        required
+                        value={loincCode}
+                        onChange={(e) => setLoincCode(e.target.value)}
+                    >
+                        <option value="">Select…</option>
+                        {analytes.map((a) => (
+                            <option key={a.loincCode} value={a.loincCode}>
+                                {a.name} ({a.loincCode})
+                            </option>
+                        ))}
+                    </SelectField>
 
-                        <label className="block">
-                            <span className="text-sm font-medium text-slate-700">Control level</span>
-                            <input
-                                value={controlLevel}
-                                onChange={(e) => setControlLevel(e.target.value)}
-                                placeholder="L1"
-                                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                            />
-                        </label>
+                    <InputField
+                        label="Control level"
+                        required
+                        value={controlLevel}
+                        onChange={(e) => setControlLevel(e.target.value)}
+                        placeholder="L1"
+                    />
 
-                        <label className="block">
-                            <span className="text-sm font-medium text-slate-700">Measured value</span>
-                            <input
-                                type="number"
-                                step="any"
-                                value={measuredValue}
-                                onChange={(e) => setMeasuredValue(e.target.value)}
-                                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                            />
-                        </label>
+                    <InputField
+                        label="Control lot"
+                        hint="Optional"
+                        value={controlLot}
+                        onChange={(e) => setControlLot(e.target.value)}
+                    />
 
-                        <label className="block">
-                            <span className="text-sm font-medium text-slate-700">Target mean</span>
-                            <input
-                                type="number"
-                                step="any"
-                                value={mean}
-                                onChange={(e) => setMean(e.target.value)}
-                                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                            />
-                        </label>
+                    <InputField
+                        label="Measured value"
+                        required
+                        type="number"
+                        step="any"
+                        inputMode="decimal"
+                        value={measuredValue}
+                        onChange={(e) => setMeasuredValue(e.target.value)}
+                    />
 
-                        <label className="block">
-                            <span className="text-sm font-medium text-slate-700">SD</span>
-                            <input
-                                type="number"
-                                step="any"
-                                min="0"
-                                value={sd}
-                                onChange={(e) => setSd(e.target.value)}
-                                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                            />
-                            <span className="mt-1 block text-xs text-slate-500">Must be greater than zero.</span>
-                        </label>
+                    <InputField
+                        label="Target mean"
+                        required
+                        type="number"
+                        step="any"
+                        inputMode="decimal"
+                        value={mean}
+                        onChange={(e) => setMean(e.target.value)}
+                    />
 
-                        <label className="block">
-                            <span className="text-sm font-medium text-slate-700">Control lot (optional)</span>
-                            <input
-                                value={controlLot}
-                                onChange={(e) => setControlLot(e.target.value)}
-                                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                            />
-                        </label>
-                    </div>
+                    <InputField
+                        label="SD"
+                        required
+                        hint="Must be greater than zero."
+                        type="number"
+                        step="any"
+                        min="0"
+                        inputMode="decimal"
+                        value={sd}
+                        onChange={(e) => setSd(e.target.value)}
+                    />
 
                     {error && (
-                        <div className="mt-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                        <div
+                            role="alert"
+                            className="rounded-md border border-status-danger-edge bg-status-danger-bg p-3 text-sm text-status-danger-fg sm:col-span-2"
+                        >
                             {error}
                         </div>
                     )}
 
                     {outcome && (
-                        <div className={`mt-4 rounded-md border p-3 text-sm ${outcomeStyle}`}>
+                        <div
+                            role="status"
+                            aria-live="polite"
+                            className={cn('rounded-md border p-3 text-sm sm:col-span-2', outcomeStyle)}
+                        >
                             <span className="font-semibold">Westgard: {outcome.status}</span>
                             {outcome.violations.length > 0 && <> — {outcome.violations.join(', ')}</>}
                             {outcome.status === 'FAIL' && (
@@ -228,18 +233,18 @@ export default function RecordQcRunForm({ onRecorded }: { onRecorded: () => void
                         </div>
                     )}
 
-                    <div className="mt-4 flex justify-end">
-                        <button
-                            type="button"
+                    <div className="flex justify-end border-t border-edge pt-4 sm:col-span-2">
+                        <Button
+                            variant="primary"
                             onClick={() => void submit()}
                             disabled={!canSubmit || submitting}
-                            className="rounded-md bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-900 disabled:opacity-50"
+                            loading={submitting}
                         >
                             {submitting ? 'Recording…' : 'Record QC run'}
-                        </button>
+                        </Button>
                     </div>
                 </>
             )}
-        </div>
+        </FormSection>
     );
 }

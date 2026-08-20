@@ -1,40 +1,111 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { AlertTriangle, ExternalLink, FileText, RefreshCw } from "lucide-react";
 import { getPatientReports, type DispatchDashboardItem } from "@/lib/api";
+import { cn } from "@/lib/utils";
+import Button from "@/components/ui/Button";
+import SectionCard from "@/components/ui/SectionCard";
+import EmptyState from "@/components/ui/EmptyState";
+import { formatRegistered } from "@/components/patient-dashboard/dashboard-data";
 import { usePatient } from "../../PatientProvider";
 
-const STATUS_STYLES: Record<string, string> = {
-    PENDING: "border bg-amber-50 text-amber-700 border-amber-100",
-    PARTIAL: "border bg-blue-50 text-blue-700 border-blue-100",
-    DELIVERED: "border bg-green-50 text-green-700 border-green-100",
-    FAILED: "border bg-red-50 text-red-700 border-red-100",
+/* ------------------------------------------------------------------ */
+/*  Status chip — colour = meaning, same tokens as the rest of the module */
+/* ------------------------------------------------------------------ */
+
+type StatusToken = { label: string; chip: string; dot: string };
+
+const STATUS_TOKEN: Record<string, StatusToken> = {
+    PENDING: {
+        label: "Pending",
+        chip: "bg-status-pending-bg text-status-pending-fg ring-status-pending-edge",
+        dot: "bg-status-pending",
+    },
+    PARTIAL: {
+        label: "Partially delivered",
+        chip: "bg-primary-soft text-primary-strong ring-edge",
+        dot: "bg-primary",
+    },
+    DELIVERED: {
+        label: "Delivered",
+        chip: "bg-status-verified-bg text-status-verified-fg ring-status-verified-edge",
+        dot: "bg-status-verified",
+    },
+    FAILED: {
+        label: "Failed",
+        chip: "bg-status-danger-bg text-status-danger-fg ring-status-danger-edge",
+        dot: "bg-status-danger",
+    },
 };
 
-function formatReportDate(report: DispatchDashboardItem) {
+const NEUTRAL_TOKEN: Omit<StatusToken, "label"> = {
+    chip: "bg-surface-muted text-fg-secondary ring-edge",
+    dot: "bg-fg-faint",
+};
+
+/** Sentence-case fallback for statuses we don't have a token for. */
+function formatStatus(value?: string | null) {
+    if (!value) return "—";
+    const words = value.replace(/_/g, " ").toLowerCase();
+    return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+function ReportStatusChip({ status }: { status?: string | null }) {
+    const key = status ? status.toUpperCase() : "";
+    const token = STATUS_TOKEN[key];
+    const label = token?.label ?? formatStatus(status);
+    const chip = token?.chip ?? NEUTRAL_TOKEN.chip;
+    const dot = token?.dot ?? NEUTRAL_TOKEN.dot;
+    return (
+        <span
+            title={label}
+            className={cn(
+                "inline-flex items-center gap-1.5 whitespace-nowrap rounded px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset",
+                chip
+            )}
+        >
+            <span aria-hidden="true" className={cn("h-1.5 w-1.5 shrink-0 rounded-full", dot)} />
+            {label}
+        </span>
+    );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Dates                                                               */
+/* ------------------------------------------------------------------ */
+
+function parseAuthorizedAt(report: DispatchDashboardItem): Date | null {
     const dateValue = report.authorizedDate;
     const timeValue = report.authorizedTime;
-
-    if (!dateValue && !timeValue) return "-";
+    if (!dateValue && !timeValue) return null;
 
     const parsed = dateValue && timeValue ? new Date(`${dateValue}T${timeValue}`) : new Date(dateValue || timeValue);
-    if (Number.isNaN(parsed.getTime())) {
-        return [dateValue, timeValue].filter(Boolean).join(", ");
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+/**
+ * "Today 09:12" / "Yesterday 14:02" / "16 Aug 2026 09:12"; falls back to the raw API strings.
+ * Older reports keep their time (same-day repeats matter on lab reports) — but only when
+ * the API actually supplied one, so a date-only record doesn't grow a fake midnight.
+ */
+function formatAuthorizedAt(report: DispatchDashboardItem) {
+    const parsed = parseAuthorizedAt(report);
+    if (parsed) {
+        const label = formatRegistered(parsed);
+        if (/^(Today|Yesterday)/.test(label) || !report.authorizedTime) return label;
+        const time = parsed.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
+        return `${label} ${time}`;
     }
-
-    return parsed.toLocaleString("en-LK", {
-        year: "numeric",
-        month: "short",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-    });
+    const raw = [report.authorizedDate, report.authorizedTime].filter(Boolean).join(", ");
+    return raw || "—";
 }
 
-function formatStatus(value?: string | null) {
-    return value ? value.replace(/_/g, " ") : "-";
-}
+/* ------------------------------------------------------------------ */
+/*  Page                                                                */
+/* ------------------------------------------------------------------ */
+
+const SKELETON_ROWS = 5;
 
 export default function PatientReportsTab() {
     const { patient } = usePatient();
@@ -71,90 +142,149 @@ export default function PatientReportsTab() {
 
     if (!patient) return null;
 
+    const showCount = !loading && !error;
+
     return (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-8">
-            <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-                <h3 className="font-bold text-slate-900 flex items-center gap-2">
-                    <span className="material-icons text-primary text-xl">description</span>
-                    Laboratory Reports
-                </h3>
-                <button
-                    onClick={loadReports}
-                    className="border border-slate-200 bg-white text-slate-600 px-3 py-2 rounded text-sm font-semibold flex items-center gap-2 hover:bg-slate-50 transition-colors"
+        <SectionCard
+            title="Laboratory reports"
+            count={showCount ? reports.length : undefined}
+            flush
+            className="mb-8"
+            actions={
+                <Button
+                    size="sm"
+                    variant="ghost"
+                    icon={RefreshCw}
+                    onClick={() => void loadReports()}
+                    disabled={loading}
                 >
-                    <span className="material-icons text-sm">refresh</span>
                     Refresh
-                </button>
-            </div>
-            <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                    <thead>
-                        <tr className="bg-slate-50/50 text-slate-500 uppercase text-[11px] font-bold tracking-wider">
-                            <th className="px-6 py-4 border-b border-slate-100">Report ID</th>
-                            <th className="px-6 py-4 border-b border-slate-100">Test / Panel Name</th>
-                            <th className="px-6 py-4 border-b border-slate-100">Patient ID</th>
-                            <th className="px-6 py-4 border-b border-slate-100">Authorized Date</th>
-                            <th className="px-6 py-4 border-b border-slate-100 text-center">Delivery Status</th>
-                            <th className="px-6 py-4 border-b border-slate-100 text-right">Action</th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                        {loading ? (
-                            <tr>
-                                <td colSpan={6} className="px-6 py-10 text-center text-sm text-slate-400">
-                                    Loading patient reports...
-                                </td>
+                </Button>
+            }
+        >
+            {/* States live outside the 760px-wide table so they centre on small screens */}
+            {loading ? (
+                <div role="status" aria-live="polite">
+                    <span className="sr-only">Loading reports…</span>
+                    <ul aria-hidden="true" className="divide-y divide-edge">
+                        {Array.from({ length: SKELETON_ROWS }).map((_, i) => (
+                            <li key={i} className="flex items-center gap-3 px-4 py-2.5">
+                                <span className="h-3 w-24 shrink-0 rounded bg-skeleton" />
+                                <span className="h-3 w-44 rounded bg-skeleton" />
+                                <span className="ml-auto hidden h-3 w-20 rounded bg-skeleton sm:block" />
+                                <span className="hidden h-4 w-16 rounded bg-skeleton md:block" />
+                                <span className="h-6 w-14 rounded bg-skeleton" />
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            ) : error ? (
+                <div role="alert">
+                    <EmptyState
+                        icon={AlertTriangle}
+                        title="Reports unavailable"
+                        description={error}
+                        compact
+                        action={
+                            <Button size="sm" icon={RefreshCw} onClick={() => void loadReports()}>
+                                Retry
+                            </Button>
+                        }
+                    />
+                </div>
+            ) : reports.length === 0 ? (
+                <EmptyState
+                    icon={FileText}
+                    title="No reports yet"
+                    description="Authorised laboratory reports for this patient will appear here."
+                    compact
+                    action={
+                        <Button size="sm" icon={RefreshCw} onClick={() => void loadReports()}>
+                            Refresh
+                        </Button>
+                    }
+                />
+            ) : (
+                <div className="overflow-x-auto">
+                    {/*
+                     * table-fixed budget — the percentages resolve against the table's own width,
+                     * so they have to leave room for the fixed actions column: 0.86·760 = 653.6
+                     * + 96 (w-24) = 749.6 <= 760. Checked against worst-case content at min width:
+                     * id 108.8px, test 173.6px, "16 Aug 2026 09:12" 128px, "Partially delivered"
+                     * chip 143px, View button 76px.
+                     */}
+                    <table className="w-full min-w-[760px] table-fixed text-left text-[13px]">
+                        <thead>
+                            <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
+                                <th scope="col" className="w-[18%] py-2 pl-4 pr-3 font-medium">
+                                    Report id
+                                </th>
+                                <th scope="col" className="w-[26%] px-3 py-2 font-medium">
+                                    Test
+                                </th>
+                                <th scope="col" className="w-[20%] px-3 py-2 font-medium">
+                                    Authorised
+                                </th>
+                                <th scope="col" className="w-[22%] px-3 py-2 font-medium">
+                                    Status
+                                </th>
+                                <th scope="col" className="w-24 py-2 pl-2 pr-3 text-right">
+                                    <span className="sr-only">Actions</span>
+                                </th>
                             </tr>
-                        ) : error ? (
-                            <tr>
-                                <td colSpan={6} className="px-6 py-10 text-center text-sm text-red-500">
-                                    {error}
-                                </td>
-                            </tr>
-                        ) : reports.length === 0 ? (
-                            <tr>
-                                <td colSpan={6} className="px-6 py-10 text-center text-sm text-slate-400">
-                                    No laboratory reports found for this patient.
-                                </td>
-                            </tr>
-                        ) : (
-                            reports.map((report) => (
-                                <tr key={report.id || report.reportId} className="hover:bg-slate-50/50 transition-colors">
-                                    <td className="px-6 py-4 font-semibold text-primary text-sm whitespace-nowrap">
-                                        {report.reportId}
-                                    </td>
-                                    <td className="px-6 py-4 text-sm font-medium text-slate-900">
-                                        {report.testName || "-"}
-                                    </td>
-                                    <td className="px-6 py-4 text-sm text-slate-500">
-                                        {report.patientId || "-"}
-                                    </td>
-                                    <td className="px-6 py-4 text-sm text-slate-600 whitespace-nowrap">
-                                        {formatReportDate(report)}
-                                    </td>
-                                    <td className="px-6 py-4 text-center">
-                                        <span className={`px-2.5 py-1 text-[10px] font-bold uppercase rounded tracking-wider ${STATUS_STYLES[report.status] ?? STATUS_STYLES.PENDING}`}>
-                                            {formatStatus(report.status)}
-                                        </span>
-                                    </td>
-                                    <td className="px-6 py-4 text-right">
-                                        <Link
-                                            href={`/dispatch/authorized-reports/${encodeURIComponent(report.reportId)}`}
-                                            className="inline-flex items-center justify-end gap-1 text-primary hover:text-primary/80 text-sm font-bold"
+                        </thead>
+                        <tbody className="divide-y divide-edge whitespace-nowrap">
+                            {reports.map((report) => {
+                                const authorizedAt = parseAuthorizedAt(report);
+                                return (
+                                    <tr key={report.id || report.reportId} className="transition-colors hover:bg-surface-hover">
+                                        <td
+                                            className="truncate py-2 pl-4 pr-3 font-mono text-xs text-fg-secondary"
+                                            title={report.reportId || undefined}
                                         >
-                                            View Report
-                                            <span className="material-icons text-sm">open_in_new</span>
-                                        </Link>
-                                    </td>
-                                </tr>
-                            ))
-                        )}
-                    </tbody>
-                </table>
-            </div>
-            <div className="p-4 border-t border-slate-100 flex items-center justify-between">
-                <p className="text-xs text-slate-500">Showing {reports.length} report{reports.length === 1 ? "" : "s"}</p>
-            </div>
-        </div>
+                                            {report.reportId || "—"}
+                                        </td>
+                                        <td className="truncate px-3 py-2 font-medium text-fg" title={report.testName || undefined}>
+                                            {report.testName || "—"}
+                                        </td>
+                                        <td className="px-3 py-2 tabular-nums text-fg-secondary">
+                                            <time
+                                                dateTime={authorizedAt ? authorizedAt.toISOString() : undefined}
+                                                title={authorizedAt ? authorizedAt.toLocaleString() : undefined}
+                                            >
+                                                {formatAuthorizedAt(report)}
+                                            </time>
+                                        </td>
+                                        <td className="px-3 py-2">
+                                            <ReportStatusChip status={report.status} />
+                                        </td>
+                                        <td className="py-2 pl-2 pr-3 text-right">
+                                            <Button
+                                                size="sm"
+                                                variant="ghost"
+                                                icon={ExternalLink}
+                                                href={`/dispatch/authorized-reports/${encodeURIComponent(report.reportId)}`}
+                                                aria-label={`View report ${report.reportId}`}
+                                            >
+                                                View
+                                            </Button>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+
+            {/* Footer */}
+            {showCount && reports.length > 0 && (
+                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-edge px-4 py-2 text-xs text-fg-muted">
+                    <span className="tabular-nums">
+                        Showing {reports.length} report{reports.length === 1 ? "" : "s"}
+                    </span>
+                </div>
+            )}
+        </SectionCard>
     );
 }

@@ -1,9 +1,32 @@
 'use client';
 
-import { INSTRUMENT_STATUS_CONFIG, QC_STATUS_CONFIG } from '@/constants/sample-lifecycle';
 import { MOCK_INSTRUMENT_STATUS_FALLBACK } from '@/mock/mlt.mock';
 import { getInstruments, syncInstrument, type InstrumentStatusItem } from '@/lib/api';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { AlertTriangle, Cpu, Microscope, RefreshCw, Wifi, WifiOff } from 'lucide-react';
+import Button from '@/components/ui/Button';
+import PageHeader from '@/components/ui/PageHeader';
+import SectionCard from '@/components/ui/SectionCard';
+import EmptyState from '@/components/ui/EmptyState';
+import StatusChip, { humanizeStatus, type ChipTone } from '@/components/ui/StatusChip';
+import StatCard from '@/components/shared/StatCard';
+import DemoDataBanner from '@/components/shared/DemoDataBanner';
+
+const SKELETON_CARDS = 4;
+
+/** Instrument connectivity → chip tone. */
+const INSTRUMENT_TONE: Record<InstrumentStatusItem['status'], ChipTone> = {
+    online: 'success',
+    offline: 'danger',
+    busy: 'pending',
+};
+
+/** QC outcome → chip tone (PASS / WARN / FAIL are not part of the shared STATUS_TONE map). */
+const QC_TONE: Record<InstrumentStatusItem['qcStatus'], ChipTone> = {
+    PASS: 'success',
+    WARN: 'pending',
+    FAIL: 'danger',
+};
 
 export default function InstrumentsPage() {
     const [instruments, setInstruments] = useState<InstrumentStatusItem[]>([]);
@@ -61,133 +84,181 @@ export default function InstrumentsPage() {
     const offline = useMemo(() => instruments.filter((instrument) => instrument.status === 'offline').length, [instruments]);
 
     return (
-        <div>
-            <div className="mb-6">
-                <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">Laboratory / Equipment</p>
-                <h1 className="text-2xl font-bold text-slate-800 mt-0.5">Instruments</h1>
-            </div>
+        <div className="mx-auto max-w-[1400px]">
+            <PageHeader
+                crumbs={[{ label: 'Laboratory' }, { label: 'Equipment' }]}
+                title="Instruments"
+                meta={
+                    loading ? (
+                        <span>Loading analyser status…</span>
+                    ) : (
+                        <>
+                            <span>
+                                {instruments.length} {instruments.length === 1 ? 'analyser' : 'analysers'}
+                            </span>
+                            <span aria-hidden="true">·</span>
+                            <span>{online} online</span>
+                        </>
+                    )
+                }
+                actions={
+                    <Button icon={RefreshCw} loading={loading} onClick={loadInstruments}>
+                        Refresh
+                    </Button>
+                }
+            />
+
+            {/* Screen-reader status for async changes */}
+            <p role="status" aria-live="polite" className="sr-only">
+                {loading
+                    ? 'Loading instruments'
+                    : syncingId
+                      ? 'Syncing instrument'
+                      : `Instruments loaded. ${instruments.length} analysers, ${online} online, ${offline} offline.`}
+            </p>
 
             {demoMode && (
-                <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-3 flex gap-3 items-start">
-                    <span className="material-icons text-amber-700 text-xl">precision_manufacturing</span>
-                    <div className="text-sm text-amber-950">
-                        <p className="font-bold">Instrument middleware offline</p>
-                        <p className="text-amber-900/90 mt-1">
-                            Showing mock analyser status cards for classroom / demo use. Live deployments typically pull
-                            ASTM / HL7 / vendor middleware queues; sync updates the last handshake timestamp only.
-                        </p>
-                    </div>
-                </div>
+                <DemoDataBanner note="Instrument middleware offline — showing mock analyser status for classroom / demo use. Live deployments pull ASTM / HL7 / vendor middleware queues; sync updates the last handshake timestamp only." />
             )}
 
-            <div className="flex gap-4 mb-6">
-                <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                    <span className="text-sm font-semibold text-emerald-700">{online} Online</span>
-                </div>
-                {offline > 0 && (
-                    <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-2">
-                        <span className="w-2 h-2 rounded-full bg-red-500" />
-                        <span className="text-sm font-semibold text-red-700">{offline} Offline</span>
-                    </div>
-                )}
+            <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <StatCard label="Instruments" value={instruments.length} icon={Microscope} color="blue" loading={loading} />
+                <StatCard label="Online" value={online} icon={Wifi} color="emerald" loading={loading} />
+                <StatCard
+                    label="Offline"
+                    value={offline}
+                    icon={WifiOff}
+                    color={offline > 0 ? 'red' : 'blue'}
+                    sub={offline > 0 ? 'Check middleware connection' : undefined}
+                    loading={loading}
+                />
             </div>
 
             {error && !demoMode && (
-                <div className="bg-red-50 border border-red-200 rounded-2xl px-5 py-3 mb-6 text-sm text-red-700">
+                <div
+                    role="alert"
+                    className="mb-4 flex items-center gap-2 rounded-md border border-status-danger-edge bg-status-danger-bg px-4 py-2.5 text-sm text-status-danger-fg"
+                >
+                    <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
                     {error}
                 </div>
             )}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                {loading && (
-                    <div className="md:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-200/60 p-8 text-center text-sm text-slate-500">
-                        Loading instruments...
-                    </div>
-                )}
-
-                {!loading &&
-                    instruments.map((instrument) => {
-                        const statusConfig = INSTRUMENT_STATUS_CONFIG[instrument.status];
-                        const qcConfig = QC_STATUS_CONFIG[instrument.qcStatus];
-
-                        return (
-                            <div key={instrument.id} className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
-                                <div className="flex items-start justify-between mb-4">
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center">
-                                            <span className="material-icons text-xl text-slate-500">biotech</span>
-                                        </div>
-                                        <div>
-                                            <p className="font-bold text-slate-800">{instrument.name}</p>
-                                            <p className="text-xs text-slate-400">{instrument.type}</p>
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        <span
-                                            className={`w-2 h-2 rounded-full ${statusConfig.dot} ${
-                                                instrument.status === 'online' ? 'animate-pulse' : ''
-                                            }`}
-                                        />
-                                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-lg ${statusConfig.badge}`}>
-                                            {statusConfig.label}
-                                        </span>
-                                    </div>
+            {loading ? (
+                <div aria-hidden="true" className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                    {Array.from({ length: SKELETON_CARDS }).map((_, i) => (
+                        <div key={i} className="rounded-lg border border-edge bg-surface">
+                            <div className="flex items-center justify-between border-b border-edge px-4 py-3">
+                                <span className="h-4 w-36 rounded bg-skeleton" />
+                                <span className="h-4 w-14 rounded bg-skeleton" />
+                            </div>
+                            <div className="space-y-3 p-4">
+                                <span className="block h-3 w-28 rounded bg-skeleton" />
+                                <div className="grid grid-cols-2 gap-3">
+                                    <span className="h-3 w-full rounded bg-skeleton" />
+                                    <span className="h-3 w-full rounded bg-skeleton" />
+                                    <span className="h-3 w-3/4 rounded bg-skeleton" />
+                                    <span className="h-3 w-3/4 rounded bg-skeleton" />
                                 </div>
-
-                                <div className="grid grid-cols-2 gap-3 text-sm mb-4">
-                                    <div>
-                                        <span className="text-slate-400">Model:</span>
-                                        <span className="font-medium text-slate-700 ml-1">{instrument.model}</span>
-                                    </div>
-                                    <div>
-                                        <span className="text-slate-400">Serial:</span>
-                                        <span className="font-medium text-slate-700 ml-1">{instrument.serial}</span>
-                                    </div>
-                                    <div>
-                                        <span className="text-slate-400">Location:</span>
-                                        <span className="font-medium text-slate-700 ml-1">{instrument.location}</span>
-                                    </div>
-                                    <div>
-                                        <span className="text-slate-400">Last Sync:</span>
-                                        <span className="font-medium text-slate-700 ml-1">{instrument.lastSync}</span>
-                                    </div>
-                                </div>
-
-                                <div className="flex items-center justify-between pt-3 border-t border-slate-100">
-                                    <div className="flex items-center gap-3">
-                                        <div className="text-center">
-                                            <p className="text-lg font-bold text-slate-800">{instrument.testsToday}</p>
-                                            <p className="text-[10px] text-slate-400">Tests Today</p>
-                                        </div>
-                                        <div className="w-px h-8 bg-slate-200" />
-                                        <div>
-                                            <p className="text-[10px] text-slate-400 mb-0.5">QC Status</p>
-                                            <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-[10px] font-bold ${qcConfig.className}`}>
-                                                {qcConfig.label}
-                                            </span>
-                                        </div>
-                                    </div>
-
-                                    <button
-                                        onClick={() => handleSync(instrument.id)}
-                                        disabled={syncingId === instrument.id}
-                                        className="flex items-center gap-1 px-3 py-1.5 border border-slate-200 text-slate-600 text-xs font-bold rounded-lg hover:bg-slate-50 transition-colors disabled:opacity-60"
-                                    >
-                                        <span className={`material-icons text-sm ${syncingId === instrument.id ? 'animate-spin' : ''}`}>sync</span>
-                                        {syncingId === instrument.id ? 'Syncing...' : 'Sync'}
-                                    </button>
+                                <div className="flex items-center justify-between border-t border-edge pt-3">
+                                    <span className="h-6 w-24 rounded bg-skeleton" />
+                                    <span className="h-7 w-16 rounded bg-skeleton" />
                                 </div>
                             </div>
+                        </div>
+                    ))}
+                </div>
+            ) : instruments.length === 0 ? (
+                <div className="rounded-lg border border-edge bg-surface">
+                    <EmptyState
+                        icon={Cpu}
+                        title="No instruments registered"
+                        description="Analysers connected through the instrument middleware will appear here."
+                        action={
+                            <Button size="sm" icon={RefreshCw} onClick={loadInstruments}>
+                                Refresh
+                            </Button>
+                        }
+                    />
+                </div>
+            ) : (
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                    {instruments.map((instrument) => {
+                        const syncing = syncingId === instrument.id;
+                        return (
+                            <SectionCard
+                                key={instrument.id}
+                                title={instrument.name}
+                                actions={
+                                    <StatusChip tone={INSTRUMENT_TONE[instrument.status]} dot>
+                                        {humanizeStatus(instrument.status)}
+                                    </StatusChip>
+                                }
+                            >
+                                <p className="mb-3 flex items-center gap-1.5 text-xs text-fg-muted">
+                                    <Cpu className="h-4 w-4 shrink-0 text-fg-faint" aria-hidden="true" />
+                                    <span className="truncate">{instrument.type}</span>
+                                </p>
+
+                                <dl className="mb-4 grid grid-cols-1 gap-x-4 gap-y-2 text-[13px] sm:grid-cols-2">
+                                    <div className="flex min-w-0 gap-1.5">
+                                        <dt className="shrink-0 text-fg-muted">Model</dt>
+                                        <dd className="truncate font-medium text-fg" title={instrument.model}>
+                                            {instrument.model}
+                                        </dd>
+                                    </div>
+                                    <div className="flex min-w-0 gap-1.5">
+                                        <dt className="shrink-0 text-fg-muted">Serial</dt>
+                                        <dd className="truncate font-medium tabular-nums text-fg" title={instrument.serial}>
+                                            {instrument.serial}
+                                        </dd>
+                                    </div>
+                                    <div className="flex min-w-0 gap-1.5">
+                                        <dt className="shrink-0 text-fg-muted">Location</dt>
+                                        <dd className="truncate font-medium text-fg" title={instrument.location}>
+                                            {instrument.location}
+                                        </dd>
+                                    </div>
+                                    <div className="flex min-w-0 gap-1.5">
+                                        <dt className="shrink-0 text-fg-muted">Last sync</dt>
+                                        <dd className="truncate font-medium text-fg" title={instrument.lastSync}>
+                                            {instrument.lastSync}
+                                        </dd>
+                                    </div>
+                                </dl>
+
+                                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-edge pt-3">
+                                    <div className="flex items-center gap-4">
+                                        <div>
+                                            <p className="text-lg font-semibold leading-none tabular-nums text-fg">
+                                                {instrument.testsToday}
+                                            </p>
+                                            <p className="mt-1 text-xs text-fg-muted">Tests today</p>
+                                        </div>
+                                        <div aria-hidden="true" className="h-8 w-px bg-edge" />
+                                        <div>
+                                            <p className="mb-1 text-xs text-fg-muted">QC status</p>
+                                            <StatusChip tone={QC_TONE[instrument.qcStatus]} dot size="sm">
+                                                {humanizeStatus(instrument.qcStatus)}
+                                            </StatusChip>
+                                        </div>
+                                    </div>
+
+                                    <Button
+                                        size="sm"
+                                        icon={RefreshCw}
+                                        loading={syncing}
+                                        onClick={() => handleSync(instrument.id)}
+                                        aria-label={`${syncing ? 'Syncing' : 'Sync'} ${instrument.name}`}
+                                    >
+                                        {syncing ? 'Syncing…' : 'Sync'}
+                                    </Button>
+                                </div>
+                            </SectionCard>
                         );
                     })}
-
-                {!loading && instruments.length === 0 && (
-                    <div className="md:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-200/60 p-8 text-center text-sm text-slate-500">
-                        No instruments are available right now.
-                    </div>
-                )}
-            </div>
+                </div>
+            )}
         </div>
     );
 }
