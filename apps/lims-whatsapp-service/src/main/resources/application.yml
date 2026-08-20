@@ -68,7 +68,7 @@ app:
     business-account-id: ${META_WABA_ID:}
     access-token: ${META_ACCESS_TOKEN:}
     graph-base-url: ${META_GRAPH_BASE_URL:https://graph.facebook.com}
-    graph-version: ${META_GRAPH_VERSION:v24.0}
+    graph-version: ${META_GRAPH_VERSION:v26.0}
 
 logging:
   level:

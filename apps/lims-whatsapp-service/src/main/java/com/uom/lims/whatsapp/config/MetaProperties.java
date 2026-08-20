@@ -26,7 +26,7 @@ public record MetaProperties(
         graphBaseUrl = (graphBaseUrl == null || graphBaseUrl.isBlank())
                 ? "https://graph.facebook.com" : graphBaseUrl.trim();
         graphVersion = (graphVersion == null || graphVersion.isBlank())
-                ? "v24.0" : graphVersion.trim();
+                ? "v26.0" : graphVersion.trim();
     }
 
     /** Base for phone-number-scoped calls: {@code /{version}/{phone-number-id}}. */
