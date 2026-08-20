@@ -159,6 +159,31 @@ A caveat on `nip.io`: the hostname contains the IP address, so changing the Elas
 changes the webhook URL. Meta's callback URL is awkward to change — re-verification has
 a window where deliveries fail — so a real domain is worth having before launch.
 
+## Phase 2c — landed
+
+Structure for the conversation, and the first patient-scoped read.
+
+- Interactive list support on the outbound path. Inside the 24-hour window these are
+  ordinary free-form messages — no Meta template approval — and the tap comes back on
+  the webhook as a `list_reply` whose title reads as the patient's next utterance, so
+  the agent needs no special casing for taps
+- A welcome menu for bare greetings ("hi", "ආයුබෝවන්", "வணக்கம்", "menu"), served
+  deterministically without a model call, claim-gated to one per minute. Recognition
+  is a closed list on purpose: a false negative costs one Gemini call, a false
+  positive swallows a real question
+- Order status over WhatsApp: `GET /api/v1/agent/orders/status` on the core, same
+  `AGENT_READONLY` role, answering stage / progress counts / report-ready only —
+  never content. Ownership is a possession check: the WhatsApp sender's number,
+  injected into the tool call server-side (the model has no parameter for it), must
+  match the phone on the order's patient record. Unknown order and wrong phone
+  produce byte-identical `found=false` responses, so existence cannot be probed
+- The `getOrderStatus` tool plus prompt rules: ask for the order number
+  (ORD-YYYYMMDD-000000), never ask for NIC or phone, relay stage only. Search
+  misses now retry once with the English synonym (CBC → Full Blood Count) before
+  giving up — the gap the first live test found
+- 15 new tests across both services, including the byte-identical-refusal and
+  phone-shape properties on the core side
+
 ## Phase 2b — landed
 
 The text agent itself: Gemini with the catalogue as tools.

@@ -45,16 +45,34 @@ public class AgentOrchestrator {
 
             Hard rules, no exceptions:
             - Prices, package contents, savings, preparation instructions and turnaround times MUST \
-            come from the tools. Never invent, estimate, round or convert them. If a tool finds no \
-            match, say so and suggest calling the laboratory.
+            come from the tools. Never invent, estimate, round or convert them. If a search finds no \
+            match, retry it once with the standard English name or common synonym (CBC -> Full Blood \
+            Count) before saying you could not find it.
             - NEVER provide test results, report values, reference ranges, diagnoses or medical \
-            advice of any kind. If asked about a report or a result, say that report delivery over \
-            WhatsApp is coming soon and reports are currently issued at the laboratory desk.
+            advice of any kind. Whether a report is READY may be answered via getOrderStatus; the \
+            content of a report may not. Report content is issued at the laboratory desk.
             - Keep replies short and WhatsApp-friendly: a few lines, no tables, no markdown \
             headings, at most one emoji.
             - Prices are Sri Lankan Rupees; write them like "Rs. 1,500".
             - For anything outside laboratory services, politely say you can only help with \
-            laboratory matters.""";
+            laboratory matters.
+
+            Report status flow: you need the laboratory order number, printed on the receipt and \
+            the request form (format ORD-YYYYMMDD-000000). Ask for it if the patient has not given \
+            it. Then call getOrderStatus with exactly that number. The system verifies ownership \
+            automatically using the WhatsApp number this message came from — NEVER ask for an NIC, \
+            phone number or any other identifier. If the tool returns found=false, say the order \
+            could not be verified for this WhatsApp number and suggest calling the laboratory — do \
+            not reveal whether the order number exists. When found, relay the stage and progress \
+            counts in plain words.
+
+            Menu selections arrive as plain text. "Test prices" -> ask which test. "Health \
+            packages" -> call listPackages. "Report status" -> ask for the order number. "Test \
+            preparation" -> ask which test, then use searchTests and relay its preparation fields. \
+            "Contact us" -> give the laboratory contact details.
+
+            Laboratory contact: Durdans Laboratory, 3 Alfred Place, Colombo 03. Phone: 0115 410 000. \
+            Open daily 7:00 am - 8:00 pm.""";
 
     private static final int MAX_REPLY_CHARS = 3500;
 
@@ -65,10 +83,12 @@ public class AgentOrchestrator {
     private final ObjectMapper mapper;
 
     /**
+     * @param requesterWaId the WhatsApp sender, threaded into the possession-checked
+     * tools server-side; the model has no parameter through which to supply or spoof it
      * @return the agent's answer, or empty when the model produced nothing usable —
      * the caller decides what a patient hears in that case, not this class
      */
-    public Optional<String> reply(UUID conversationId) {
+    public Optional<String> reply(UUID conversationId, String requesterWaId) {
         ArrayNode contents = historyAsContents(conversationId);
         if (contents.isEmpty()) {
             return Optional.empty();
@@ -81,7 +101,7 @@ public class AgentOrchestrator {
                 return textOf(content);
             }
             contents.add(content);
-            contents.add(toolResponses(calls));
+            contents.add(toolResponses(calls, requesterWaId));
         }
         // The model kept asking for tools past the cap. Answering with a half-built
         // context risks an ungrounded number, so no answer is the safer answer.
@@ -154,6 +174,19 @@ public class AgentOrchestrator {
         getProps.putObject("locale").put("type", "string");
         getParams.putArray("required").add("packageCode");
 
+        // Deliberately no phone/identity parameter: ownership is checked against the
+        // WhatsApp sender, which the orchestrator injects and the model cannot reach.
+        ObjectNode status = declarations.addObject();
+        status.put("name", "getOrderStatus");
+        status.put("description", "Progress of one laboratory order: stage (RECEIVED, PROCESSING, "
+                + "REPORT_READY, CANCELLED), how many tests are completed, and whether the report is "
+                + "ready. Returns found=false when the order cannot be verified for this patient.");
+        ObjectNode statusParams = status.putObject("parameters");
+        statusParams.put("type", "object");
+        statusParams.putObject("properties").putObject("orderNo").put("type", "string")
+                .put("description", "The order number from the receipt, e.g. ORD-20260820-000123");
+        statusParams.putArray("required").add("orderNo");
+
         return declarations;
     }
 
@@ -167,14 +200,14 @@ public class AgentOrchestrator {
         return calls;
     }
 
-    private ObjectNode toolResponses(List<JsonNode> calls) {
+    private ObjectNode toolResponses(List<JsonNode> calls, String requesterWaId) {
         ObjectNode turn = mapper.createObjectNode();
         turn.put("role", "user");
         ArrayNode parts = turn.putArray("parts");
         for (JsonNode call : calls) {
             String name = call.path("name").asText();
             JsonNode args = call.path("args");
-            String resultJson = dispatch(name, args);
+            String resultJson = dispatch(name, args, requesterWaId);
 
             ObjectNode response = parts.addObject().putObject("functionResponse");
             response.put("name", name);
@@ -188,11 +221,12 @@ public class AgentOrchestrator {
         return turn;
     }
 
-    private String dispatch(String name, JsonNode args) {
+    private String dispatch(String name, JsonNode args, String requesterWaId) {
         return switch (name) {
             case "searchTests" -> catalog.searchTests(args.path("query").asText(null), localeOf(args));
             case "listPackages" -> catalog.listPackages(localeOf(args));
             case "getPackage" -> catalog.getPackage(args.path("packageCode").asText(""), localeOf(args));
+            case "getOrderStatus" -> catalog.getOrderStatus(args.path("orderNo").asText(""), requesterWaId);
             default -> "{\"error\":\"unknown tool\"}";
         };
     }
