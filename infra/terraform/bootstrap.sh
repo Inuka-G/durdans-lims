@@ -100,6 +100,7 @@ META_VERIFY_TOKEN=${META_VERIFY_TOKEN}
 META_PHONE_NUMBER_ID=${META_PHONE_NUMBER_ID}
 META_WABA_ID=${META_WABA_ID}
 META_ACCESS_TOKEN=${META_ACCESS_TOKEN}
+META_SECRET=${META_SECRET}
 ENVEOF
 chmod 600 .env
 
@@ -362,6 +363,63 @@ docker compose up -d kc-db keycloak kafka caddy
 # and answers the ACME challenge for wa.<domain>, so the certificate is issued and
 # the hostname simply 502s until the first deploy lands.
 /opt/lims/deploy-service.sh whatsapp "${WHATSAPP_TAG}" || true
+
+# Re-read the Meta credentials from Secrets Manager into .env and restart the agent.
+#
+# WHY: Terraform creates that secret empty on purpose and an operator fills it in
+# afterwards, but .env is only written here, at boot. Without this, filling the secret
+# appears to do nothing, and the only way to pick it up would be to replace the
+# instance - which costs the Keycloak database. One command is a better answer than
+# that. It is also how a rotated app secret gets applied.
+cat >/opt/lims/refresh-meta.sh <<'REFRESH'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+cd /opt/lims
+
+region="$(sed -n 's/^AWS_REGION=//p' .env | tail -n 1)"
+secret="$(sed -n 's/^META_SECRET=//p' .env | tail -n 1)"
+if [[ -z "${secret}" ]]; then
+  echo "META_SECRET is not recorded in .env; nothing to refresh from" >&2
+  exit 1
+fi
+
+json="$(aws secretsmanager get-secret-value --region "${region}" \
+          --secret-id "${secret}" --query SecretString --output text)"
+
+# Passed through the environment rather than a pipe: `python3 <<` already uses
+# stdin for the program itself.
+META_JSON="${json}" python3 <<'PY'
+import io, json, os, re
+
+data = json.loads(os.environ["META_JSON"])
+fields = {
+    "META_APP_ID": "app_id",
+    "META_APP_SECRET": "app_secret",
+    "META_VERIFY_TOKEN": "verify_token",
+    "META_PHONE_NUMBER_ID": "phone_number_id",
+    "META_WABA_ID": "waba_id",
+    "META_ACCESS_TOKEN": "access_token",
+}
+
+env = io.open(".env", encoding="utf-8").read()
+for key, field in fields.items():
+    line = key + "=" + str(data.get(field, ""))
+    pattern = "^" + re.escape(key) + "=.*$"
+    if re.search(pattern, env, re.M):
+        # A lambda, not a replacement string: a backslash in a secret would
+        # otherwise be read as an escape and silently corrupt the value.
+        env = re.sub(pattern, lambda _m: line, env, count=1, flags=re.M)
+    else:
+        env = env.rstrip("\n") + "\n" + line + "\n"
+
+io.open(".env", "w", encoding="utf-8").write(env)
+print("refreshed 6 META_ values in .env")
+PY
+
+docker compose up -d --no-deps whatsapp
+echo "whatsapp restarted against the refreshed credentials"
+REFRESH
+chmod 700 /opt/lims/refresh-meta.sh
 
 # Keycloak uses its own Postgres volume on this cost-optimized host. Back it up
 # off-host every night so an EC2/EBS loss does not also remove the identity DB.

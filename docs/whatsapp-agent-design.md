@@ -104,8 +104,12 @@ because the chatbot's image has not been published yet.
    missing policy to hand-write.
 2. Fill in the `durdans-lims/meta` secret — it is created empty on purpose and the
    service rejects every webhook while the app secret is blank.
-3. Merge to `main` so `whatsapp-service-release.yml` builds, pushes and rolls out.
-4. Point Meta's callback URL at `https://wa.<domain>/webhook/whatsapp`.
+3. On the host, run `/opt/lims/refresh-meta.sh`. `.env` is written at boot, so filling
+   the secret in AWS does nothing on its own; this re-reads it and restarts the agent.
+   It is also how a rotated app secret gets applied, without replacing the instance and
+   losing the Keycloak database with it.
+4. Merge to `main` so `whatsapp-service-release.yml` builds, pushes and rolls out.
+5. Point Meta's callback URL at `https://wa.<domain>/webhook/whatsapp`.
 
 Between steps 1 and 3 the hostname exists and holds a valid certificate — Caddy answers
 the ACME challenge whether or not the service behind it is running — and returns 502.
