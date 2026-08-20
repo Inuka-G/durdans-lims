@@ -174,6 +174,13 @@
         "clientRole": false,
         "containerId": "c7bc07be-dc8a-468c-a39a-739e6130793b",
         "attributes": {}
+      },
+      {
+        "name": "AGENT_READONLY",
+        "description": "Read-only catalogue access for the WhatsApp agent service account. Grants /api/v1/agent/** and nothing else.",
+        "composite": false,
+        "clientRole": false,
+        "containerId": "c7bc07be-dc8a-468c-a39a-739e6130793b"
       }
     ],
     "client": {
@@ -805,6 +812,14 @@
           "COL-1"
         ]
       }
+    },
+    {
+      "username": "service-account-lims-agent",
+      "enabled": true,
+      "serviceAccountClientId": "lims-agent",
+      "realmRoles": [
+        "AGENT_READONLY"
+      ]
     }
   ],
   "scopeMappings": [
@@ -1242,6 +1257,22 @@
         "offline_access",
         "microprofile-jwt"
       ]
+    },
+    {
+      "clientId": "lims-agent",
+      "name": "LIMS WhatsApp Agent",
+      "description": "Service account used by lims-whatsapp-service to read the catalogue. No user ever logs in as this client. The client secret is NOT stored here and is not in git: Keycloak generates one on import, and it is read from the admin console (Clients > lims-agent > Credentials) into KEYCLOAK_AGENT_CLIENT_SECRET. See docs/whatsapp-agent-design.md.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "bearerOnly": false,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "redirectUris": [],
+      "webOrigins": [],
+      "attributes": {}
     }
   ],
   "clientScopes": [

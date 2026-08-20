@@ -24,6 +24,7 @@ import com.uom.lims.repository.OrderItemRepository;
 import com.uom.lims.repository.OrderRepository;
 import com.uom.lims.repository.SampleRepository;
 import com.uom.lims.repository.TestCatalogRepository;
+import com.uom.lims.repository.TestPackageRepository;
 import com.uom.lims.repository.TestParameterRepository;
 import com.uom.lims.repository.TestResultAmendmentRepository;
 import com.uom.lims.repository.TestResultRepository;
@@ -60,6 +61,7 @@ public class ClinicalPathTestFixtures {
     private final CriticalValueNotificationRepository criticalNotificationRepository;
     private final CriticalValueEscalationAttemptRepository escalationAttemptRepository;
     private final com.uom.lims.qc.QcResultRepository qcResultRepository;
+    private final TestPackageRepository testPackageRepository;
 
     public ClinicalPathTestFixtures(BranchRepository branchRepository,
                                     PatientRepository patientRepository,
@@ -72,7 +74,8 @@ public class ClinicalPathTestFixtures {
                                     TestResultAmendmentRepository amendmentRepository,
                                     CriticalValueNotificationRepository criticalNotificationRepository,
                                     CriticalValueEscalationAttemptRepository escalationAttemptRepository,
-            com.uom.lims.qc.QcResultRepository qcResultRepository) {
+            com.uom.lims.qc.QcResultRepository qcResultRepository,
+                                    TestPackageRepository testPackageRepository) {
         this.branchRepository = branchRepository;
         this.patientRepository = patientRepository;
         this.testCatalogRepository = testCatalogRepository;
@@ -85,6 +88,7 @@ public class ClinicalPathTestFixtures {
         this.criticalNotificationRepository = criticalNotificationRepository;
         this.escalationAttemptRepository = escalationAttemptRepository;
         this.qcResultRepository = qcResultRepository;
+        this.testPackageRepository = testPackageRepository;
     }
 
     /** Deletes seeded data in child→parent FK order. Never touches audit_log (append-only, H3). */
@@ -98,6 +102,11 @@ public class ClinicalPathTestFixtures {
         orderItemRepository.deleteAll();
         orderRepository.deleteAll();
         testParameterRepository.deleteAll();
+        // Packages reference catalogue tests, and the Liquibase seed creates some. The
+        // FK is doing its job — production soft-deletes catalogue entries and never hits
+        // this — but a test that wipes the catalogue has to clear the packages first.
+        // orphanRemoval on TestPackageEntity takes the item rows with them.
+        testPackageRepository.deleteAll();
         testCatalogRepository.deleteAll();
         patientRepository.deleteAll();
         branchRepository.deleteAll();
