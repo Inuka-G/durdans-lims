@@ -1,6 +1,7 @@
 package com.uom.lims.whatsapp;
 
 import com.uom.lims.whatsapp.config.MetaProperties;
+import com.uom.lims.whatsapp.reply.AutoReplyProperties;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -13,7 +14,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
  * defect here cannot reach a specimen record.
  */
 @SpringBootApplication
-@EnableConfigurationProperties(MetaProperties.class)
+@EnableConfigurationProperties({MetaProperties.class, AutoReplyProperties.class})
 public class WhatsAppServiceApplication {
 
     public static void main(String[] args) {

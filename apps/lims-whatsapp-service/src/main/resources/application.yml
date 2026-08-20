@@ -78,6 +78,15 @@ app:
     graph-base-url: ${META_GRAPH_BASE_URL:https://graph.facebook.com}
     graph-version: ${META_GRAPH_VERSION:v26.0}
 
+  auto-reply:
+    # First-touch acknowledgement: one greeting per conversation per cooldown, only
+    # inside the 24-hour window. The agent proper (phase 2) replaces this; until then
+    # a patient who messages the lab hears something other than silence.
+    enabled: ${AUTO_REPLY_ENABLED:true}
+    cooldown: ${AUTO_REPLY_COOLDOWN:PT1H}
+    # Empty means the built-in bilingual default in AutoReplyProperties.
+    greeting: ${AUTO_REPLY_GREETING:}
+
 logging:
   level:
     com.uom.lims.whatsapp: INFO

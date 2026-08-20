@@ -87,6 +87,23 @@ public record WebhookPayload(String object, List<Entry> entry) {
             String id,
             String status,
             String timestamp,
-            @JsonProperty("recipient_id") String recipientId) {
+            @JsonProperty("recipient_id") String recipientId,
+            List<Error> errors) {
+    }
+
+    /**
+     * Attached to a {@code failed} status. The code is what support articles index on
+     * (131047 = window expired, 131026 = undeliverable), so it is worth persisting.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Error(
+            Integer code,
+            String title,
+            String message,
+            @JsonProperty("error_data") ErrorData errorData) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record ErrorData(String details) {
     }
 }
