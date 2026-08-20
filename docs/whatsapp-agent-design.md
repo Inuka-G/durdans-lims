@@ -159,6 +159,28 @@ A caveat on `nip.io`: the hostname contains the IP address, so changing the Elas
 changes the webhook URL. Meta's callback URL is awkward to change — re-verification has
 a window where deliveries fail — so a real domain is worth having before launch.
 
+## Phase 2d — landed
+
+What the first hour of live use asked for.
+
+- Taps now carry their machine id into the reply pipeline (`list_reply.id`, kept out
+  of the persisted body, which stays human text for the agent's history). A
+  `MenuRouter` answers known ids deterministically: "Test prices" opens a live list
+  of catalogue tests with prices in the row descriptions, "Health packages" a list
+  of packages with the saving, a test row answers price/turnaround/fasting/prep
+  formatted bilingually, a package row its contents and saving — all without a
+  model call, which is also the after-October-2026 billing posture
+- Sub-menus reply without the greeting cooldown: the claim would swallow navigation
+  sent seconds after the menu that invited it. Taps are rate-limited by thumbs
+- Everything the router cannot claim — typed text, unknown ids, empty lookups, an
+  unreachable catalogue — falls through to the agent unchanged
+- The language rule the first session exposed: menu row titles are English, and a
+  tap was being read as an English utterance. The prompt now treats menu selections
+  as taps rather than language signals, follows the patient's own typed language,
+  and defaults to Sinhala when there is nothing typed to go by
+- The deterministic tier needs only the core credentials, so a missing Gemini key
+  degrades the bot to menus, not to silence
+
 ## Phase 2c — landed
 
 Structure for the conversation, and the first patient-scoped read.

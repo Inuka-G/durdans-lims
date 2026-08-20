@@ -83,7 +83,8 @@ public class InboundMessageWriter {
         // message is durable. Replying is their problem; storing was ours.
         events.publishEvent(new InboundMessageStoredEvent(
                 entity.getId(), conversation.getId(), message.from(),
-                entity.getBody(), entity.getMessageType()));
+                entity.getBody(), entity.getMessageType(),
+                InboundWebhookService.extractInteractiveId(message)));
 
         log.info("Stored inbound {} message from {} {}",
                 entity.getMessageType(),

@@ -70,6 +70,7 @@ public class AutoResponder {
     private final MetaProperties meta;
     private final AgentProperties agentProperties;
     private final AgentOrchestrator agent;
+    private final MenuRouter menuRouter;
     private final OutboundMessageService outbound;
 
     @Async(AsyncConfig.REPLY_EXECUTOR)
@@ -82,6 +83,11 @@ public class AutoResponder {
         }
         if (Greetings.isBareGreeting(event.body())) {
             sendMenu(event);
+            return;
+        }
+        // Taps carry a machine id and get deterministic answers; anything the router
+        // does not claim — typed text, unknown ids, empty lookups — reaches the agent.
+        if (menuRouter.route(event)) {
             return;
         }
         if (agentProperties.isConfigured() && event.body() != null && !event.body().isBlank()) {
