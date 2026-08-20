@@ -1,7 +1,9 @@
 'use client';
 
+import { Ban, CheckCircle2 } from 'lucide-react';
 import { ReceptionSample } from '@/mock/reception.mock';
-import { TUBE_COLOR_MAP, formatStatusLabel, SAMPLE_STATUS_COLORS } from '@/constants/sample-lifecycle';
+import Button from '@/components/ui/Button';
+import StatusBadge from '@/components/shared/StatusBadge';
 
 interface AccessioningRowProps {
     sample: ReceptionSample;
@@ -11,34 +13,34 @@ interface AccessioningRowProps {
 
 export default function AccessioningRow({ sample, onVerify, onReject }: AccessioningRowProps) {
     return (
-        <tr className="border-b border-slate-50 last:border-0 hover:bg-slate-50/50 transition-colors">
-            <td className="px-5 py-3 font-semibold text-primary font-mono">{sample.sampleId}</td>
-            <td className="px-4 py-3">
-                <p className="font-medium text-slate-700">{sample.patient.name}</p>
-                <p className="text-xs text-slate-400">{sample.patient.pid} • {sample.patient.age}Y {sample.patient.gender}</p>
-                {sample.patient.wardRoom && <p className="text-xs text-primary mt-0.5">{sample.patient.wardRoom}</p>}
+        <tr className="border-b border-edge transition-colors last:border-0 hover:bg-surface-hover">
+            <td className="py-2 pl-4 pr-3 font-mono text-xs font-semibold text-primary-strong">{sample.sampleId}</td>
+            <td className="px-3 py-2">
+                <p className="truncate font-medium text-fg">{sample.patient.name}</p>
+                <p className="truncate text-xs text-fg-muted">
+                    {sample.patient.pid} · {sample.patient.age}Y {sample.patient.gender}
+                </p>
+                {sample.patient.wardRoom && <p className="mt-0.5 truncate text-xs text-primary-strong">{sample.patient.wardRoom}</p>}
             </td>
-            <td className="px-4 py-3 text-slate-700">{sample.testType}</td>
-            <td className="px-4 py-3 text-slate-500">{sample.collectionTime}</td>
-            <td className="px-4 py-3">
-                <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold ${SAMPLE_STATUS_COLORS[sample.status] ?? 'bg-slate-100 text-slate-600'}`}>
-                    {formatStatusLabel(sample.status)}
-                </span>
+            <td className="truncate px-3 py-2 text-fg-secondary">{sample.testType}</td>
+            <td className="px-3 py-2 tabular-nums text-fg-muted">{sample.collectionTime}</td>
+            <td className="px-3 py-2">
+                <StatusBadge status={sample.status} />
             </td>
-            <td className="px-4 py-3 text-right">
-                <div className="flex justify-end gap-2">
-                    <button
-                        onClick={() => onVerify(sample.id)}
-                        className="px-3 py-1.5 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 transition-colors"
-                    >
-                        <span className="material-icons text-sm mr-1 align-middle">verified</span>Verify
-                    </button>
-                    <button
+            <td className="py-2 pl-2 pr-3 text-right">
+                <div className="flex justify-end gap-1.5">
+                    <Button variant="primary" size="sm" icon={CheckCircle2} onClick={() => onVerify(sample.id)}>
+                        Verify
+                    </Button>
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        icon={Ban}
                         onClick={() => onReject(sample.id)}
-                        className="px-3 py-1.5 border border-red-200 text-red-600 text-xs font-bold rounded-lg hover:bg-red-50 transition-colors"
+                        className="text-status-danger-fg hover:bg-status-danger-bg hover:text-status-danger-fg"
                     >
                         Reject
-                    </button>
+                    </Button>
                 </div>
             </td>
         </tr>

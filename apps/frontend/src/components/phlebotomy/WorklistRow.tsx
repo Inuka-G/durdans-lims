@@ -1,7 +1,11 @@
 'use client';
 
+import { Ban, Play } from 'lucide-react';
 import { PhlebSample } from '@/mock/phlebotomy.mock';
-import { PRIORITY_COLORS, TUBE_COLOR_MAP, formatStatusLabel } from '@/constants/sample-lifecycle';
+import Button from '@/components/ui/Button';
+import StatusChip from '@/components/ui/StatusChip';
+import PriorityBadge from '@/components/shared/PriorityBadge';
+import TubeIndicator from '@/components/shared/TubeIndicator';
 
 interface WorklistRowProps {
     sample: PhlebSample;
@@ -11,58 +15,59 @@ interface WorklistRowProps {
 
 export default function WorklistRow({ sample, onStartCollection, onReject }: WorklistRowProps) {
     const waitColor =
-        sample.waitTimeMinutes > 30 ? 'text-red-600' :
-        sample.waitTimeMinutes > 15 ? 'text-amber-600' :
-        'text-slate-600';
+        sample.waitTimeMinutes > 30 ? 'text-status-danger-fg' :
+        sample.waitTimeMinutes > 15 ? 'text-status-pending-fg' :
+        'text-fg-secondary';
+    const waitNote =
+        sample.waitTimeMinutes > 30 ? 'Waiting over 30 minutes' :
+        sample.waitTimeMinutes > 15 ? 'Waiting over 15 minutes' :
+        undefined;
 
     return (
-        <tr className="border-b border-slate-50 last:border-0 hover:bg-slate-50/50 transition-colors">
-            <td className="px-5 py-3">
-                <p className="font-semibold text-slate-700">{sample.patient.name}</p>
-                <p className="text-xs text-slate-400">{sample.patient.pid} • {sample.patient.age}Y {sample.patient.gender}</p>
-                {sample.patient.wardRoom && <p className="text-xs text-primary mt-0.5">{sample.patient.wardRoom}</p>}
+        <tr className="border-b border-edge transition-colors last:border-0 hover:bg-surface-hover">
+            <td className="py-2 pl-4 pr-3">
+                <p className="truncate font-medium text-fg">{sample.patient.name}</p>
+                <p className="truncate text-xs text-fg-muted">
+                    {sample.patient.pid} · {sample.patient.age}Y {sample.patient.gender}
+                </p>
+                {sample.patient.wardRoom && <p className="mt-0.5 truncate text-xs text-primary-strong">{sample.patient.wardRoom}</p>}
             </td>
-            <td className="px-4 py-3">
-                <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold ${PRIORITY_COLORS[sample.priority] ?? 'bg-slate-100 text-slate-600'}`}>
-                    {sample.priority}
+            <td className="px-3 py-2">
+                <PriorityBadge priority={sample.priority} />
+            </td>
+            <td className="px-3 py-2">
+                <p className="truncate font-medium text-fg-secondary">{sample.testType}</p>
+                <div className="mt-1 flex flex-wrap gap-1">
+                    {sample.testCodes.map((c) => (
+                        <StatusChip key={c} tone="neutral" size="sm">
+                            {c}
+                        </StatusChip>
+                    ))}
+                </div>
+            </td>
+            <td className="px-3 py-2">
+                <TubeIndicator tubes={sample.tubeTypes} />
+            </td>
+            <td className="px-3 py-2">
+                <span className={`font-semibold tabular-nums ${waitColor}`} title={waitNote}>
+                    {sample.waitTimeMinutes} min
+                    {waitNote && <span className="sr-only"> — {waitNote}</span>}
                 </span>
             </td>
-            <td className="px-4 py-3">
-                <p className="text-slate-700 font-medium">{sample.testType}</p>
-                <div className="flex gap-1 mt-1 flex-wrap">
-                    {sample.testCodes.map((c) => (
-                        <span key={c} className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">{c}</span>
-                    ))}
-                </div>
-            </td>
-            <td className="px-4 py-3">
-                <div className="flex gap-1">
-                    {sample.tubeTypes.map((t) => (
-                        <div
-                            key={t}
-                            className={`w-4 h-4 rounded-full ${TUBE_COLOR_MAP[t] ?? 'bg-slate-400'} border border-white shadow-sm`}
-                            title={formatStatusLabel(t)}
-                        />
-                    ))}
-                </div>
-            </td>
-            <td className="px-4 py-3">
-                <span className={`text-sm font-semibold ${waitColor}`}>{sample.waitTimeMinutes} min</span>
-            </td>
-            <td className="px-4 py-3 text-right">
-                <div className="flex justify-end gap-2">
-                    <button
-                        onClick={() => onStartCollection(sample.id)}
-                        className="px-3 py-1.5 bg-primary text-white text-xs font-bold rounded-lg hover:bg-primary/90 transition-colors"
-                    >
-                        <span className="material-icons text-sm mr-1 align-middle">play_arrow</span>Collect
-                    </button>
-                    <button
+            <td className="py-2 pl-2 pr-3 text-right">
+                <div className="flex justify-end gap-1.5">
+                    <Button variant="primary" size="sm" icon={Play} onClick={() => onStartCollection(sample.id)}>
+                        Collect
+                    </Button>
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        icon={Ban}
                         onClick={() => onReject(sample.id)}
-                        className="px-3 py-1.5 border border-red-200 text-red-600 text-xs font-bold rounded-lg hover:bg-red-50 transition-colors"
+                        className="text-status-danger-fg hover:bg-status-danger-bg hover:text-status-danger-fg"
                     >
-                        <span className="material-icons text-sm mr-1 align-middle">cancel</span>Reject
-                    </button>
+                        Reject
+                    </Button>
                 </div>
             </td>
         </tr>

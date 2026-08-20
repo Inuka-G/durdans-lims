@@ -1,17 +1,50 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
+import {
+    Activity,
+    AlertTriangle,
+    CheckCircle2,
+    ClipboardList,
+    Clock,
+    Eye,
+    Plus,
+    RefreshCw,
+    SearchX,
+    X,
+} from 'lucide-react';
 import type { TestOrder } from '@/types/orders-billing';
-import { formatCurrency, getOrderStatusColor, formatDate } from '@/constants/orders-billing';
+import { formatCurrency } from '@/constants/orders-billing';
 import { getOrders } from '@/lib/api';
+import Button from '@/components/ui/Button';
+import PageHeader from '@/components/ui/PageHeader';
+import { InputField } from '@/components/ui/Field';
+import SectionCard from '@/components/ui/SectionCard';
+import EmptyState from '@/components/ui/EmptyState';
+import SegmentedControl from '@/components/ui/SegmentedControl';
+import Pagination from '@/components/ui/Pagination';
+import StatCard from '@/components/shared/StatCard';
+import StatusBadge from '@/components/shared/StatusBadge';
+import { formatRegistered } from '@/components/patient-dashboard/dashboard-data';
 
 type StatusFilter = 'ALL' | 'PENDING' | 'IN_PROGRESS' | 'COMPLETED';
 const PAGE_SIZE = 5;
+const SKELETON_ROWS = 5;
+
+const STATUS_OPTIONS: { value: StatusFilter; label: string }[] = [
+    { value: 'ALL', label: 'All' },
+    { value: 'PENDING', label: 'Pending' },
+    { value: 'IN_PROGRESS', label: 'In progress' },
+    { value: 'COMPLETED', label: 'Completed' },
+];
+
+function toDate(value?: string | null): Date | null {
+    if (!value) return null;
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? null : d;
+}
 
 export default function AllOrdersPage() {
-    const router = useRouter();
-
     // ── Data State ─────────────────────────────────────────────────────────────
     const [orders, setOrders] = useState<TestOrder[]>([]);
     const [loading, setLoading] = useState(true);
@@ -76,199 +109,231 @@ export default function AllOrdersPage() {
 
     const handleSearch = (v: string) => { setSearchQuery(v); setCurrentPage(1); };
     const handleStatus = (v: StatusFilter) => { setStatusFilter(v); setCurrentPage(1); };
-
-    // ── Loading State ──────────────────────────────────────────────────────────
-    if (loading) {
-        return (
-            <div className="flex flex-col items-center justify-center py-24 gap-4">
-                <span className="material-icons text-5xl text-slate-300 animate-spin">progress_activity</span>
-                <p className="text-sm text-slate-400 font-medium">Loading orders...</p>
-            </div>
-        );
-    }
-
-    // ── Error State ────────────────────────────────────────────────────────────
-    if (error) {
-        return (
-            <div className="flex flex-col items-center justify-center py-24 gap-4">
-                <span className="material-icons text-5xl text-red-300">error_outline</span>
-                <h2 className="text-xl font-bold text-slate-700">Failed to Load Orders</h2>
-                <p className="text-sm text-red-400">{error}</p>
-                <button
-                    onClick={() => window.location.reload()}
-                    className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-primary border border-primary/30 rounded-xl hover:bg-primary/5 transition-colors"
-                >
-                    <span className="material-icons text-base">refresh</span>
-                    Try Again
-                </button>
-            </div>
-        );
-    }
+    const hasFilters = Boolean(searchQuery) || statusFilter !== 'ALL';
+    const clearFilters = () => { setSearchQuery(''); setStatusFilter('ALL'); setCurrentPage(1); };
 
     return (
-        <div>
-            {/* Header */}
-            <div className="flex items-center justify-between mb-6">
-                <div>
-                    <h1 className="text-2xl font-bold text-slate-800">All Test Orders</h1>
-                    <p className="text-sm text-slate-500 mt-1">View and manage all laboratory test orders</p>
+        <div className="mx-auto max-w-[1400px]">
+            <PageHeader
+                title="Orders"
+                crumbs={[
+                    { label: 'Dashboard', href: '/dashboard' },
+                    { label: 'Orders & billing', href: '/orders-billing' },
+                    { label: 'Orders' },
+                ]}
+                meta={
+                    <>
+                        <ClipboardList className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                        <span>All laboratory test orders</span>
+                        {!loading && !error && (
+                            <>
+                                <span aria-hidden="true">·</span>
+                                <span className="tabular-nums">
+                                    {orders.length.toLocaleString()} {orders.length === 1 ? 'order' : 'orders'}
+                                </span>
+                            </>
+                        )}
+                    </>
+                }
+                actions={
+                    <Button variant="primary" icon={Plus} href="/orders-billing/create-order">
+                        Create order
+                    </Button>
+                }
+            />
+
+            {/* Screen-reader status for async changes */}
+            <p role="status" aria-live="polite" className="sr-only">
+                {loading
+                    ? 'Loading orders'
+                    : error
+                      ? 'Orders failed to load'
+                      : `Orders loaded. Showing ${paginated.length} of ${filtered.length} orders${
+                            totalPages > 1 ? `, page ${currentPage} of ${totalPages}` : ''
+                        }.`}
+            </p>
+
+            {/* Stat tiles */}
+            <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <StatCard label="Total orders" value={error ? '—' : stats.total} icon={ClipboardList} color="blue" loading={loading} />
+                <StatCard label="Pending" value={error ? '—' : stats.pending} icon={Clock} color="orange" loading={loading} />
+                <StatCard label="In progress" value={error ? '—' : stats.inProgress} icon={Activity} color="orange" loading={loading} />
+                <StatCard label="Completed" value={error ? '—' : stats.completed} icon={CheckCircle2} color="emerald" loading={loading} />
+            </div>
+
+            <SectionCard title="Orders" count={!loading && !error ? filtered.length : undefined} flush>
+                {/* Filter toolbar */}
+                <div className="flex flex-wrap items-center gap-2 border-b border-edge bg-surface-muted px-3 py-2">
+                    <InputField
+                        label="Search orders"
+                        hideLabel
+                        type="search"
+                        value={searchQuery}
+                        onChange={(e) => handleSearch(e.target.value)}
+                        placeholder="Search order ID, patient name or patient ID"
+                        autoComplete="off"
+                        className="min-w-[200px] flex-1"
+                    />
+                    <SegmentedControl<StatusFilter>
+                        ariaLabel="Filter by status"
+                        value={statusFilter}
+                        onChange={handleStatus}
+                        options={STATUS_OPTIONS}
+                    />
+                    {hasFilters && (
+                        <Button variant="ghost" icon={X} onClick={clearFilters}>
+                            Clear filters
+                        </Button>
+                    )}
                 </div>
-                <button
-                    onClick={() => router.push('/orders-billing/create-order')}
-                    className="flex items-center gap-2 px-5 py-2.5 bg-primary text-white rounded-xl font-semibold text-sm hover:bg-primary/90 transition-colors shadow-sm"
-                >
-                    <span className="material-icons text-lg">add</span>
-                    Create New Order
-                </button>
-            </div>
 
-            {/* Stat Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-6">
-                {[
-                    { label: 'Total Orders', value: stats.total, icon: 'science', color: 'blue' },
-                    { label: 'Pending', value: stats.pending, icon: 'schedule', color: 'amber' },
-                    { label: 'In Progress', value: stats.inProgress, icon: 'autorenew', color: 'orange' },
-                    { label: 'Completed', value: stats.completed, icon: 'check_circle', color: 'emerald' },
-                ].map((s) => (
-                    <div key={s.label} className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-5">
-                        <div className="flex items-center gap-3 mb-2">
-                            <div className={`w-10 h-10 rounded-xl bg-${s.color}-100 flex items-center justify-center`}>
-                                <span className={`material-icons text-${s.color}-600`}>{s.icon}</span>
-                            </div>
-                        </div>
-                        <p className="text-2xl font-bold text-slate-800">{s.value}</p>
-                        <p className="text-xs text-slate-500">{s.label}</p>
-                    </div>
-                ))}
-            </div>
-
-            {/* Filters */}
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 p-4 mb-6">
-                <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
-                    <div className="relative flex-1">
-                        <span className="material-icons absolute left-3 top-1/2 -translate-y-1/2 text-lg text-slate-400">search</span>
-                        <input
-                            type="text"
-                            placeholder="Search by Order ID, Patient Name, Patient ID..."
-                            className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-                            value={searchQuery}
-                            onChange={(e) => handleSearch(e.target.value)}
+                {/* States live outside the table so they centre on small screens */}
+                {loading ? (
+                    <ul aria-hidden="true" className="divide-y divide-edge">
+                        {Array.from({ length: SKELETON_ROWS }).map((_, i) => (
+                            <li key={i} className="flex items-center gap-3 px-4 py-2.5">
+                                <span className="h-3 w-24 shrink-0 rounded bg-skeleton" />
+                                <span className="hidden h-3 w-20 shrink-0 rounded bg-skeleton md:block" />
+                                <span className="h-4 w-32 shrink-0 rounded bg-skeleton" />
+                                <span className="h-3 w-24 rounded bg-skeleton" />
+                                <span className="hidden h-3 w-1/4 rounded bg-skeleton lg:block" />
+                                <span className="ml-auto h-3 w-20 rounded bg-skeleton" />
+                                <span className="h-4 w-16 rounded bg-skeleton" />
+                            </li>
+                        ))}
+                    </ul>
+                ) : error ? (
+                    <EmptyState
+                        icon={AlertTriangle}
+                        title="Couldn't load orders"
+                        description={error}
+                        action={
+                            <Button size="sm" icon={RefreshCw} onClick={() => window.location.reload()}>
+                                Retry
+                            </Button>
+                        }
+                    />
+                ) : paginated.length === 0 ? (
+                    orders.length === 0 ? (
+                        <EmptyState
+                            icon={ClipboardList}
+                            title="No orders yet"
+                            description="Orders appear here as soon as they are created."
+                            action={
+                                <Button size="sm" icon={Plus} href="/orders-billing/create-order">
+                                    Create order
+                                </Button>
+                            }
                         />
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <span className="material-icons text-lg text-slate-400">filter_list</span>
-                        <select
-                            className="border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-                            value={statusFilter}
-                            onChange={(e) => handleStatus(e.target.value as StatusFilter)}
-                        >
-                            <option value="ALL">All Statuses</option>
-                            <option value="PENDING">Pending</option>
-                            <option value="IN_PROGRESS">In Progress</option>
-                            <option value="COMPLETED">Completed</option>
-                        </select>
-                    </div>
-                </div>
-            </div>
-
-            {/* Table */}
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200/60 mb-6">
-                <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                        <thead>
-                            <tr className="text-left text-xs font-bold text-slate-400 uppercase tracking-wider">
-                                <th className="px-5 py-3 border-b border-slate-100 bg-slate-50/50">Order ID</th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Patient ID</th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Patient</th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Date</th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Tests</th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Total</th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">Status</th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50 text-right">Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {paginated.length === 0 ? (
-                                <tr>
-                                    <td colSpan={8} className="text-center py-12 text-slate-400">
-                                        {orders.length === 0
-                                            ? 'No orders available.'
-                                            : 'No orders found matching your search.'}
-                                    </td>
+                    ) : (
+                        <EmptyState
+                            icon={SearchX}
+                            title="No orders match"
+                            description="Try a different search term or status."
+                            action={
+                                <Button size="sm" icon={X} onClick={clearFilters}>
+                                    Clear filters
+                                </Button>
+                            }
+                        />
+                    )
+                ) : (
+                    <div className="overflow-x-auto">
+                        <table className="w-full min-w-[760px] table-fixed text-left text-[13px] md:min-w-[860px] lg:min-w-[1060px]">
+                            <caption className="sr-only">Test orders</caption>
+                            <thead>
+                                <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
+                                    <th scope="col" className="w-32 py-2 pl-4 pr-3 font-medium">
+                                        Order ID
+                                    </th>
+                                    <th scope="col" className="hidden w-32 px-3 py-2 font-medium md:table-cell">
+                                        Patient ID
+                                    </th>
+                                    <th scope="col" className="px-3 py-2 font-medium">
+                                        Patient
+                                    </th>
+                                    <th scope="col" className="w-32 px-3 py-2 font-medium">
+                                        Date
+                                    </th>
+                                    <th scope="col" className="hidden w-48 px-3 py-2 font-medium lg:table-cell">
+                                        Tests
+                                    </th>
+                                    <th scope="col" className="w-32 px-3 py-2 text-right font-medium">
+                                        Total
+                                    </th>
+                                    <th scope="col" className="w-32 px-3 py-2 font-medium">
+                                        Status
+                                    </th>
+                                    <th scope="col" className="w-12 py-2 pl-2 pr-3">
+                                        <span className="sr-only">Actions</span>
+                                    </th>
                                 </tr>
-                            ) : (
-                                paginated.map((order) => (
-                                    <tr key={order.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/50 transition-colors">
-                                        <td className="px-5 py-3 font-semibold text-primary">{order.orderId}</td>
-                                        <td className="px-4 py-3 text-slate-500">{order.patientId}</td>
-                                        <td className="px-4 py-3">
-                                            <p className="font-medium text-slate-700">{order.patientName}</p>
-                                            <p className="text-xs text-slate-400">{order.patientAge}Y • {order.patientGender}</p>
-                                        </td>
-                                        <td className="px-4 py-3 text-slate-500">{formatDate(order.orderDate)}</td>
-                                        <td className="px-4 py-3 text-slate-500 max-w-[200px] truncate">
-                                            {(order.tests ?? []).map(t => t.testName).join(', ')}
-                                        </td>
-                                        <td className="px-4 py-3 font-semibold text-slate-700">{formatCurrency(order.totalAmount)}</td>
-                                        <td className="px-4 py-3">
-                                            <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold ${getOrderStatusColor(order.status)}`}>
-                                                {order.status.replace('_', ' ')}
-                                            </span>
-                                        </td>
-                                        <td className="px-4 py-3 text-right">
-                                            <button
-                                                onClick={() => router.push(`/orders-billing/orders/${order.id}`)}
-                                                className="p-1.5 rounded-lg hover:bg-slate-100 transition-colors"
-                                                title="View Order"
-                                            >
-                                                <span className="material-icons text-lg text-primary">visibility</span>
-                                            </button>
-                                        </td>
-                                    </tr>
-                                ))
-                            )}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+                            </thead>
+                            <tbody className="divide-y divide-edge whitespace-nowrap">
+                                {paginated.map((order) => {
+                                    const testNames = (order.tests ?? []).map(t => t.testName).join(', ');
+                                    const orderDate = toDate(order.orderDate);
+                                    return (
+                                        <tr key={order.id} className="transition-colors hover:bg-surface-hover">
+                                            <td className="truncate py-2 pl-4 pr-3 font-mono text-xs font-medium text-primary-strong" title={order.orderId || undefined}>
+                                                {order.orderId}
+                                            </td>
+                                            <td className="hidden truncate px-3 py-2 font-mono text-xs text-fg-muted md:table-cell" title={order.patientId || undefined}>
+                                                {order.patientId || '—'}
+                                            </td>
+                                            <td className="min-w-0 px-3 py-2">
+                                                <p className="truncate font-medium text-fg" title={order.patientName || undefined}>{order.patientName || '—'}</p>
+                                                <p className="truncate text-xs text-fg-muted">
+                                                    {order.patientAge != null ? `${order.patientAge}y` : '—'}
+                                                    <span aria-hidden="true"> · </span>
+                                                    {order.patientGender || '—'}
+                                                </p>
+                                            </td>
+                                            <td className="px-3 py-2 tabular-nums text-fg-secondary">
+                                                {orderDate ? (
+                                                    <time dateTime={orderDate.toISOString()}>{formatRegistered(orderDate)}</time>
+                                                ) : (
+                                                    <span className="text-fg-faint">—</span>
+                                                )}
+                                            </td>
+                                            <td className="hidden truncate px-3 py-2 text-fg-muted lg:table-cell" title={testNames || undefined}>
+                                                {testNames || <span className="text-fg-faint">—</span>}
+                                            </td>
+                                            <td className="px-3 py-2 text-right font-medium tabular-nums text-fg">
+                                                {formatCurrency(order.totalAmount)}
+                                            </td>
+                                            <td className="px-3 py-2">
+                                                <StatusBadge status={order.status} />
+                                            </td>
+                                            <td className="py-2 pl-2 pr-3 text-right">
+                                                <Button
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    icon={Eye}
+                                                    href={`/orders-billing/orders/${order.id}`}
+                                                    aria-label={`View order ${order.orderId}`}
+                                                />
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
 
-            {/* Pagination */}
-            <div className="flex items-center justify-between text-sm text-slate-500">
-                <p>
-                    Showing {filtered.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1} to{' '}
-                    {Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length} entries
-                </p>
-                <div className="flex items-center gap-2">
-                    <button
-                        disabled={currentPage === 1}
-                        onClick={() => setCurrentPage((p) => p - 1)}
-                        className="flex items-center gap-1 px-3 py-1.5 border border-slate-200 rounded-lg text-sm font-medium hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                    >
-                        <span className="material-icons text-base">chevron_left</span>
-                        Previous
-                    </button>
-                    {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-                        <button
-                            key={page}
-                            onClick={() => setCurrentPage(page)}
-                            className={`w-8 h-8 rounded-lg text-sm font-bold transition-colors ${currentPage === page
-                                ? 'bg-primary text-white shadow-sm'
-                                : 'border border-slate-200 hover:bg-slate-50 text-slate-600'
-                                }`}
-                        >
-                            {page}
-                        </button>
-                    ))}
-                    <button
-                        disabled={currentPage === totalPages}
-                        onClick={() => setCurrentPage((p) => p + 1)}
-                        className="flex items-center gap-1 px-3 py-1.5 border border-slate-200 rounded-lg text-sm font-medium hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                    >
-                        Next
-                        <span className="material-icons text-base">chevron_right</span>
-                    </button>
-                </div>
-            </div>
+                {/* Footer: paging */}
+                {!loading && !error && filtered.length > 0 && (
+                    <Pagination
+                        currentPage={currentPage}
+                        totalPages={totalPages}
+                        totalItems={filtered.length}
+                        pageSize={PAGE_SIZE}
+                        onPageChange={setCurrentPage}
+                        itemLabel="orders"
+                    />
+                )}
+            </SectionCard>
         </div>
     );
 }

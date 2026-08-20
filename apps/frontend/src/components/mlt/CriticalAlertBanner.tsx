@@ -1,6 +1,6 @@
 'use client';
 
-import { cn } from '@/lib/utils';
+import { TriangleAlert } from 'lucide-react';
 
 interface CriticalAlertBannerProps {
     parameterName: string;
@@ -10,15 +10,15 @@ interface CriticalAlertBannerProps {
 
 export default function CriticalAlertBanner({ parameterName, value, unit }: CriticalAlertBannerProps) {
     return (
-        <div className={cn(
-            'flex items-start gap-3 px-4 py-3 rounded-xl border',
-            'bg-red-50 border-red-200'
-        )}>
-            <span className="material-icons text-red-600 text-lg mt-0.5 flex-shrink-0">warning</span>
-            <div>
-                <p className="text-sm font-bold text-red-700">Critical Value: {parameterName}</p>
-                <p className="text-xs text-red-600 mt-0.5">
-                    Reported value: <span className="font-bold">{value} {unit}</span> — Physician notification required.
+        <div
+            role="alert"
+            className="flex items-start gap-3 rounded-lg border border-status-danger-edge bg-status-danger-bg px-4 py-3"
+        >
+            <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-status-danger-fg" aria-hidden="true" />
+            <div className="min-w-0">
+                <p className="text-sm font-semibold text-status-danger-fg">Critical value: {parameterName}</p>
+                <p className="mt-0.5 text-xs text-status-danger-fg">
+                    Reported value <span className="font-semibold tabular-nums">{value} {unit}</span> — physician notification required.
                 </p>
             </div>
         </div>

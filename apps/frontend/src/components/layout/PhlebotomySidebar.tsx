@@ -1,51 +1,21 @@
 "use client";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
 
-const navItems = [
-    { name: "Sample Worklist", icon: "assignment", href: "/phlebotomy/worklist", iconColor: "text-blue-600", iconBg: "bg-blue-100" },
-    { name: "Collection History", icon: "history", href: "/phlebotomy/collection-history", iconColor: "text-emerald-600", iconBg: "bg-emerald-100" },
-    { name: "Label Print", icon: "print", href: "/phlebotomy/label-print", iconColor: "text-violet-600", iconBg: "bg-violet-100" },
-    { name: "Supplies Inventory", icon: "inventory_2", href: "/phlebotomy/supplies", iconColor: "text-amber-600", iconBg: "bg-amber-100" },
+import { ClipboardList, History, Package, Printer } from "lucide-react";
+import ModuleSidebar, { type SidebarGroup } from "@/components/ui/ModuleSidebar";
+
+/** Phlebotomy module navigation. */
+const GROUPS: SidebarGroup[] = [
+    {
+        label: "Phlebotomy",
+        items: [
+            { name: "Sample worklist", icon: ClipboardList, href: "/phlebotomy/worklist" },
+            { name: "Collection history", icon: History, href: "/phlebotomy/collection-history" },
+            { name: "Label print", icon: Printer, href: "/phlebotomy/label-print" },
+            { name: "Supplies inventory", icon: Package, href: "/phlebotomy/supplies" },
+        ],
+    },
 ];
 
 export default function PhlebotomySidebar() {
-    const pathname = usePathname();
-    const isActive = (href: string) => pathname === href || pathname.startsWith(href + "/");
-
-    return (
-        <aside className="w-64 bg-white border-r border-slate-200/80 fixed h-[calc(100vh-64px)] overflow-y-auto hidden lg:flex flex-col">
-            <div className="flex-1 p-5">
-                <p className="text-[11px] font-extrabold text-slate-400 uppercase tracking-[0.15em] mb-3 px-1">
-                    Phlebotomy
-                </p>
-                <nav className="space-y-1">
-                    {navItems.map((item) => {
-                        const active = isActive(item.href);
-                        return (
-                            <Link key={item.href} href={item.href}
-                                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group relative ${active ? "bg-primary/8 border-l-[3px] border-primary pl-[9px]" : "border-l-[3px] border-transparent hover:bg-slate-50 hover:shadow-sm"}`}>
-                                <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 transition-transform duration-200 group-hover:scale-105 ${active ? "bg-primary text-white shadow-md shadow-primary/25" : `${item.iconBg} ${item.iconColor}`}`}>
-                                    <span className="material-icons text-lg">{item.icon}</span>
-                                </div>
-                                <span className={`text-[15px] transition-colors ${active ? "font-bold text-primary" : "font-semibold text-slate-600 group-hover:text-slate-900"}`}>{item.name}</span>
-                            </Link>
-                        );
-                    })}
-                </nav>
-            </div>
-            <div className="p-5 pt-0">
-                <div className="rounded-2xl bg-gradient-to-br from-primary to-blue-600 p-4 text-white shadow-lg shadow-primary/20">
-                    <div className="flex items-center gap-2 mb-1.5">
-                        <span className="material-icons text-lg opacity-90">support_agent</span>
-                        <p className="text-sm font-bold">Need Help?</p>
-                    </div>
-                    <p className="text-[12px] text-blue-100 leading-relaxed mb-3">Reach out to our support team for assistance.</p>
-                    <a href="mailto:support@durdans.com" className="inline-flex items-center gap-1.5 bg-white/20 hover:bg-white/30 backdrop-blur-sm text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-all">
-                        <span className="material-icons text-sm">chat</span>Contact Support
-                    </a>
-                </div>
-            </div>
-        </aside>
-    );
+    return <ModuleSidebar ariaLabel="Phlebotomy navigation" groups={GROUPS} />;
 }

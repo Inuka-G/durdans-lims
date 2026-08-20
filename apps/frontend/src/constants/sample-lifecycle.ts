@@ -1,36 +1,11 @@
 import type {
-    Priority, SampleStatus, Sample, AccessioningLogEntry, QCRun, Instrument, TestResult,
+    SampleStatus, Sample, AccessioningLogEntry, QCRun, Instrument, TestResult,
     BarcodeSearchResult, PendingVerificationSample, InstrumentBatch,
     ValidationSample, DispatchReport, DeliveryRecord, FailedDelivery
 } from '@/types/sample-lifecycle';
 
 // ==========================================
 // STATUS / PRIORITY COLORS
-// ==========================================
-
-export const PRIORITY_COLORS: Record<Priority, string> = {
-    URGENT: 'bg-orange-100 text-orange-700',
-    NORMAL: 'bg-blue-100 text-blue-700',
-    STAT: 'bg-red-100 text-red-700',
-};
-
-export const SAMPLE_STATUS_COLORS: Record<string, string> = {
-    PENDING_COLLECTION: 'bg-slate-100 text-slate-600',
-    RECOLLECTION_REQUIRED: 'bg-orange-100 text-orange-700',
-    COLLECTED: 'bg-blue-100 text-blue-700',
-    IN_TRANSIT: 'bg-cyan-100 text-cyan-700',
-    RECEIVED_AT_LAB: 'bg-indigo-100 text-indigo-700',
-    QUALITY_CHECK: 'bg-amber-100 text-amber-700',
-    ACCEPTED: 'bg-emerald-100 text-emerald-700',
-    REJECTED: 'bg-red-100 text-red-700',
-    IN_TESTING: 'bg-violet-100 text-violet-700',
-    RESULT_ENTERED: 'bg-purple-100 text-purple-700',
-    SENT_FOR_VERIFICATION: 'bg-sky-100 text-sky-700',
-    VERIFIED: 'bg-teal-100 text-teal-700',
-    AUTHORIZED: 'bg-green-100 text-green-700',
-    DISPATCHED: 'bg-emerald-100 text-emerald-700',
-};
-
 export const TUBE_COLOR_MAP: Record<string, string> = {
     EDTA_PURPLE: 'bg-purple-500',
     EDTA_LAVENDER: 'bg-purple-300',
@@ -39,27 +14,7 @@ export const TUBE_COLOR_MAP: Record<string, string> = {
     CITRATE_BLUE: 'bg-blue-400',
     HEPARIN_GREEN: 'bg-green-500',
     URINE_YELLOW: 'bg-yellow-300',
-    OTHER: 'bg-gray-400',
-};
-
-export const FLAG_COLORS: Record<string, string> = {
-    NORMAL: 'bg-emerald-100 text-emerald-700',
-    LOW: 'bg-blue-100 text-blue-700',
-    HIGH: 'bg-amber-100 text-amber-700',
-    CRITICAL_LOW: 'bg-red-100 text-red-700',
-    CRITICAL_HIGH: 'bg-red-100 text-red-700',
-};
-
-export const INSTRUMENT_STATUS_CONFIG = {
-    online: { label: 'ONLINE', dot: 'bg-green-500', badge: 'bg-green-100 text-green-700' },
-    offline: { label: 'OFFLINE', dot: 'bg-red-500', badge: 'bg-red-100 text-red-700' },
-    busy: { label: 'BUSY', dot: 'bg-amber-500', badge: 'bg-amber-100 text-amber-700' },
-};
-
-export const QC_STATUS_CONFIG = {
-    PASS: { label: 'PASS', className: 'bg-emerald-100 text-emerald-700' },
-    FAIL: { label: 'FAIL', className: 'bg-red-100 text-red-700' },
-    WARN: { label: 'WARN', className: 'bg-amber-100 text-amber-700' },
+    OTHER: 'bg-fg-faint',
 };
 
 export function formatStatusLabel(s: SampleStatus | string): string {

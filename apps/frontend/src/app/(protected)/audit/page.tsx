@@ -1,72 +1,136 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { getAuditLogs, AuditLog, AuditLogPage } from "@/lib/api";
+import { Fragment, useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import {
+    AlertTriangle,
+    Camera,
+    ChevronDown,
+    ChevronLeft,
+    ChevronRight,
+    File,
+    FileText,
+    History,
+    RefreshCw,
+    Search,
+    ShieldCheck,
+    User,
+    X,
+    type LucideIcon,
+} from "lucide-react";
+import { getAuditLogs, type AuditLog, type AuditLogPage } from "@/lib/api";
+import { cn } from "@/lib/utils";
+import Button from "@/components/ui/Button";
+import PageHeader from "@/components/ui/PageHeader";
+import { InputField, SelectField } from "@/components/ui/Field";
+import SectionCard from "@/components/ui/SectionCard";
+import EmptyState from "@/components/ui/EmptyState";
+import { formatAuditTime } from "@/components/patient-dashboard/dashboard-data";
 
-// --- Action badge colors ---
-const ACTION_COLORS: Record<string, { bg: string; text: string }> = {
-    REGISTER_PATIENT: { bg: "bg-emerald-50", text: "text-emerald-700" },
-    UPDATE_PROFILE: { bg: "bg-blue-50", text: "text-blue-700" },
-    UPDATE_PROFILE_PHOTO: { bg: "bg-sky-50", text: "text-sky-700" },
-    UPLOAD_DOCUMENT: { bg: "bg-teal-50", text: "text-teal-700" },
-    DELETE_DOCUMENT: { bg: "bg-red-50", text: "text-red-700" },
-    VERIFY_EMAIL: { bg: "bg-violet-50", text: "text-violet-700" },
-    VERIFY_PHONE: { bg: "bg-indigo-50", text: "text-indigo-700" },
-    SEND_OTP: { bg: "bg-amber-50", text: "text-amber-700" },
-    SEND_EMAIL_VERIFICATION: { bg: "bg-purple-50", text: "text-purple-700" },
-    CREATE: { bg: "bg-green-50", text: "text-green-700" },
-    UPDATE: { bg: "bg-blue-50", text: "text-blue-700" },
-    DELETE: { bg: "bg-red-50", text: "text-red-700" },
-};
+const PAGE_SIZE = 15;
+const SKELETON_ROWS = 8;
 
-function getActionColor(action: string) {
-    return ACTION_COLORS[action?.toUpperCase()] || { bg: "bg-slate-50", text: "text-slate-600" };
+const ACTION_OPTIONS = [
+    "REGISTER_PATIENT",
+    "UPDATE_PROFILE",
+    "UPDATE_PROFILE_PHOTO",
+    "UPLOAD_DOCUMENT",
+    "DELETE_DOCUMENT",
+    "VERIFY_EMAIL",
+    "VERIFY_PHONE",
+    "SEND_OTP",
+    "SEND_EMAIL_VERIFICATION",
+];
+
+const ENTITY_OPTIONS = ["PATIENT", "PATIENT_DOCUMENT"];
+
+/* ------------------------------------------------------------------ */
+/*  Helpers                                                            */
+/* ------------------------------------------------------------------ */
+
+/** Words that stay upper-case when humanising enum-style labels. */
+const ACRONYMS = new Set(["otp", "ip", "id", "nic"]);
+
+/** "REGISTER_PATIENT" → "Register patient", "SEND_OTP" → "Send OTP" */
+function formatLabel(value?: string | null): string {
+    if (!value) return "—";
+    const words = value.toLowerCase().split("_").filter(Boolean);
+    if (words.length === 0) return "—";
+    return words
+        .map((w, i) => (ACRONYMS.has(w) ? w.toUpperCase() : i === 0 ? w.charAt(0).toUpperCase() + w.slice(1) : w))
+        .join(" ");
 }
 
-// --- Entity type icons ---
-function getEntityIcon(entityType: string) {
+function getEntityIcon(entityType?: string): LucideIcon {
     const type = entityType?.toUpperCase();
-    if (type === "PATIENT") return "person";
-    if (type === "PATIENT_DOCUMENT") return "description";
-    if (type === "VERIFICATION") return "verified";
-    if (type === "PROFILE_PHOTO") return "photo_camera";
-    return "article";
+    if (type === "PATIENT") return User;
+    if (type === "PATIENT_DOCUMENT") return FileText;
+    if (type === "VERIFICATION") return ShieldCheck;
+    if (type === "PROFILE_PHOTO") return Camera;
+    return File;
 }
+
+/** Full, unambiguous timestamp for tooltips and the expanded panel. */
+function formatFullTimestamp(ts: string): string {
+    const d = new Date(ts);
+    if (Number.isNaN(d.getTime())) return ts || "—";
+    return d.toLocaleString("en-GB", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+    });
+}
+
+function parseDetails(details?: string): Record<string, unknown> | null {
+    if (!details) return null;
+    try {
+        const parsed = JSON.parse(details);
+        return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
+    } catch {
+        return null;
+    }
+}
+
+function detailValue(value: unknown): string {
+    if (value === null || value === undefined) return "—";
+    if (typeof value === "string") return value;
+    try {
+        return JSON.stringify(value);
+    } catch {
+        return String(value);
+    }
+}
+
+/** One-line summary for the table cell: "patientName: Jane · field: phone". */
+function summariseDetails(details?: string): string {
+    if (!details) return "";
+    const parsed = parseDetails(details);
+    if (!parsed) return details;
+    return Object.entries(parsed)
+        .map(([k, v]) => `${k}: ${detailValue(v)}`)
+        .join(" · ");
+}
+
+/* ------------------------------------------------------------------ */
+/*  Page                                                               */
+/* ------------------------------------------------------------------ */
 
 export default function AuditLogsPage() {
     const [data, setData] = useState<AuditLogPage | null>(null);
     const [loading, setLoading] = useState(true);
+    const [loadError, setLoadError] = useState<string | null>(null);
     const [page, setPage] = useState(0);
     const [search, setSearch] = useState("");
     const [actionFilter, setActionFilter] = useState("");
     const [entityTypeFilter, setEntityTypeFilter] = useState("");
-    const pageSize = 15;
+    const [reloadKey, setReloadKey] = useState(0);
+    const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
-    const fetchLogs = useCallback(async () => {
-        setLoading(true);
-        try {
-            const params: Record<string, unknown> = {
-                page,
-                size: pageSize,
-            };
-            if (search.trim()) params.search = search.trim();
-            if (actionFilter) params.action = actionFilter;
-            if (entityTypeFilter) params.entityType = entityTypeFilter;
-
-            const result = await getAuditLogs(params);
-            setData(result);
-        } catch (err) {
-            console.error("Failed to load audit logs:", err);
-        } finally {
-            setLoading(false);
-        }
-    }, [page, search, actionFilter, entityTypeFilter]);
-
-    useEffect(() => {
-        fetchLogs();
-    }, [fetchLogs]);
-
-    // Debounce search
+    // Debounced search input → committed search term
     const [searchInput, setSearchInput] = useState("");
     useEffect(() => {
         const timer = setTimeout(() => {
@@ -76,284 +140,425 @@ export default function AuditLogsPage() {
         return () => clearTimeout(timer);
     }, [searchInput]);
 
-    const formatTimestamp = (ts: string) => {
-        try {
-            const d = new Date(ts);
-            return d.toLocaleString(undefined, {
-                month: "short",
-                day: "numeric",
-                year: "numeric",
-                hour: "2-digit",
-                minute: "2-digit",
+    // Fetch whenever paging / filters change. Stale responses are ignored so a
+    // slow earlier request can't overwrite a newer one.
+    useEffect(() => {
+        let active = true;
+        setLoading(true);
+        setLoadError(null);
+
+        const params: Record<string, unknown> = { page, size: PAGE_SIZE };
+        if (search.trim()) params.search = search.trim();
+        if (actionFilter) params.action = actionFilter;
+        if (entityTypeFilter) params.entityType = entityTypeFilter;
+
+        getAuditLogs(params)
+            .then((result) => {
+                if (!active) return;
+                setData(result);
+                setExpanded({});
+            })
+            .catch((err) => {
+                console.error("Failed to load audit logs:", err);
+                if (active) setLoadError("Couldn't load the audit log. Check your connection and retry.");
+            })
+            .finally(() => {
+                if (active) setLoading(false);
             });
-        } catch {
-            return ts;
-        }
+
+        return () => {
+            active = false;
+        };
+    }, [page, search, actionFilter, entityTypeFilter, reloadKey]);
+
+    const retry = useCallback(() => setReloadKey((k) => k + 1), []);
+
+    const hasFilters = Boolean(searchInput || actionFilter || entityTypeFilter);
+
+    const clearFilters = () => {
+        setSearchInput("");
+        setSearch("");
+        setActionFilter("");
+        setEntityTypeFilter("");
+        setPage(0);
     };
 
-    const actionOptions = [
-        "REGISTER_PATIENT", "UPDATE_PROFILE", "UPDATE_PROFILE_PHOTO",
-        "UPLOAD_DOCUMENT", "DELETE_DOCUMENT",
-        "VERIFY_EMAIL", "VERIFY_PHONE", "SEND_OTP", "SEND_EMAIL_VERIFICATION",
-    ];
+    const toggleRow = (id: string) => setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
 
-    const entityOptions = ["PATIENT", "PATIENT_DOCUMENT"];
+    const rows = data?.content ?? [];
+    const total = data?.totalElements ?? null;
+    // The footer stays mounted while a new page loads (keyed off the last known
+    // page) so the pager keeps focus and the card height doesn't jump.
+    const showFooter = data !== null && !loadError && (loading || rows.length > 0);
+
+    const goToPreviousPage = () => {
+        if (loading) return;
+        setPage((p) => Math.max(0, p - 1));
+    };
+    const goToNextPage = () => {
+        if (loading) return;
+        setPage((p) => p + 1);
+    };
 
     return (
-        <div className="max-w-[1400px] mx-auto">
-            {/* Header */}
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6">
-                <div>
-                    <h1 className="text-2xl font-bold text-slate-900 font-outfit">
-                        Audit Logs
-                    </h1>
-                    <p className="text-base text-slate-500 mt-0.5">
-                        Track all system activities and changes across the platform.
-                    </p>
-                </div>
+        <div className="mx-auto max-w-[1400px]">
+            <PageHeader
+                title="Audit log"
+                crumbs={[{ label: "Dashboard", href: "/dashboard" }, { label: "Audit log" }]}
+                meta={
+                    <>
+                        <History className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                        <span>Patient module activity</span>
+                        {total !== null && (
+                            <>
+                                <span aria-hidden="true">·</span>
+                                <span className="tabular-nums">
+                                    {total.toLocaleString()} {total === 1 ? "entry" : "entries"}
+                                </span>
+                            </>
+                        )}
+                    </>
+                }
+                actions={
+                    <Button icon={RefreshCw} onClick={retry} loading={loading && data !== null}>
+                        Refresh
+                    </Button>
+                }
+            />
 
-                {/* Stats Badge */}
-                {data && (
-                    <div className="flex items-center gap-2">
-                        <div className="bg-primary/10 text-primary px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2">
-                            <span className="material-icons text-lg">analytics</span>
-                            {data.totalElements.toLocaleString()} Total Entries
-                        </div>
-                    </div>
-                )}
-            </div>
+            {/* Screen-reader status for async changes */}
+            <p role="status" aria-live="polite" className="sr-only">
+                {loading
+                    ? "Loading audit log"
+                    : loadError
+                      ? "Audit log failed to load"
+                      : `Audit log loaded. Showing ${rows.length} of ${total ?? rows.length} entries${
+                            data && data.totalPages > 1 ? `, page ${data.page + 1} of ${data.totalPages}` : ""
+                        }.`}
+            </p>
 
-            {/* Filter Bar */}
-            <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm p-4 mb-6">
-                <div className="flex flex-wrap items-center gap-3">
-                    {/* Search */}
-                    <div className="relative flex-1 min-w-[200px]">
-                        <span className="material-icons absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">
-                            search
-                        </span>
-                        <input
-                            type="text"
-                            placeholder="Search by patient code, user, action..."
-                            value={searchInput}
-                            onChange={(e) => setSearchInput(e.target.value)}
-                            className="w-full pl-10 pr-4 py-2.5 text-sm font-medium border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-                        />
-                    </div>
-
-                    {/* Action Filter */}
-                    <select
+            <SectionCard title="Entries" count={total !== null ? total.toLocaleString() : undefined} flush>
+                {/* Filter toolbar */}
+                <div className="flex flex-wrap items-center gap-2 border-b border-edge bg-surface-muted px-3 py-2">
+                    <InputField
+                        label="Search audit log"
+                        hideLabel
+                        type="search"
+                        value={searchInput}
+                        onChange={(e) => setSearchInput(e.target.value)}
+                        placeholder="Search patient code, user or action"
+                        autoComplete="off"
+                        className="min-w-[200px] flex-1"
+                    />
+                    <SelectField
+                        label="Action"
+                        hideLabel
                         value={actionFilter}
                         onChange={(e) => {
                             setActionFilter(e.target.value);
                             setPage(0);
                         }}
-                        className="px-4 py-2.5 text-sm font-semibold border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-slate-700 min-w-[150px]"
+                        className="w-full sm:w-48"
                     >
-                        <option value="">All Actions</option>
-                        {actionOptions.map((a) => (
+                        <option value="">All actions</option>
+                        {ACTION_OPTIONS.map((a) => (
                             <option key={a} value={a}>
-                                {a.replaceAll("_", " ")}
+                                {formatLabel(a)}
                             </option>
                         ))}
-                    </select>
-
-                    {/* Entity Type Filter */}
-                    <select
+                    </SelectField>
+                    <SelectField
+                        label="Entity type"
+                        hideLabel
                         value={entityTypeFilter}
                         onChange={(e) => {
                             setEntityTypeFilter(e.target.value);
                             setPage(0);
                         }}
-                        className="px-4 py-2.5 text-sm font-semibold border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-slate-700 min-w-[160px]"
+                        className="w-full sm:w-44"
                     >
-                        <option value="">All Entities</option>
-                        {entityOptions.map((e) => (
+                        <option value="">All entity types</option>
+                        {ENTITY_OPTIONS.map((e) => (
                             <option key={e} value={e}>
-                                {e.replaceAll("_", " ")}
+                                {formatLabel(e)}
                             </option>
                         ))}
-                    </select>
-
-                    {/* Clear Filters */}
-                    {(searchInput || actionFilter || entityTypeFilter) && (
-                        <button
-                            onClick={() => {
-                                setSearchInput("");
-                                setSearch("");
-                                setActionFilter("");
-                                setEntityTypeFilter("");
-                                setPage(0);
-                            }}
-                            className="flex items-center gap-1 px-3 py-2.5 text-sm font-semibold text-slate-500 hover:text-red-500 rounded-xl hover:bg-red-50 transition-all"
-                        >
-                            <span className="material-icons text-sm">close</span>
-                            Clear
-                        </button>
+                    </SelectField>
+                    {hasFilters && (
+                        <Button variant="ghost" icon={X} onClick={clearFilters}>
+                            Clear filters
+                        </Button>
                     )}
                 </div>
-            </div>
 
-            {/* Table */}
-            <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm overflow-hidden">
-                <div className="overflow-x-auto">
-                    <table className="w-full text-left">
-                        <thead className="text-slate-500 text-[11px] font-bold uppercase tracking-wider">
-                            <tr>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">
-                                    Timestamp
-                                </th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">
-                                    Action
-                                </th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">
-                                    Entity
-                                </th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50 hidden md:table-cell">
-                                    Patient Code
-                                </th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50 hidden lg:table-cell">
-                                    Performed By
-                                </th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50 hidden lg:table-cell">
-                                    Branch
-                                </th>
-                                <th className="px-4 py-3 border-b border-slate-100 bg-slate-50/50 hidden xl:table-cell">
-                                    IP Address
-                                </th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-50">
-                            {loading ? (
-                                <tr>
-                                    <td colSpan={7} className="px-4 py-16 text-center text-slate-500">
-                                        <div className="flex flex-col items-center gap-3">
-                                            <span className="material-icons animate-spin text-primary text-3xl">
-                                                sync
-                                            </span>
-                                            <span className="text-sm font-medium">
-                                                Loading audit logs...
-                                            </span>
-                                        </div>
-                                    </td>
+                {/* States live outside the table so they centre on small screens */}
+                {loading ? (
+                    <ul aria-hidden="true" className="divide-y divide-edge">
+                        {Array.from({ length: SKELETON_ROWS }).map((_, i) => (
+                            <li key={i} className="flex items-center gap-3 px-4 py-2.5">
+                                <span className="h-3 w-20 shrink-0 rounded bg-skeleton" />
+                                <span className="h-4 w-28 shrink-0 rounded bg-skeleton" />
+                                <span className="hidden h-3 w-24 rounded bg-skeleton md:block" />
+                                <span className="h-3 w-24 rounded bg-skeleton" />
+                                <span className="hidden h-3 w-28 rounded bg-skeleton lg:block" />
+                                <span className="hidden h-3 w-12 rounded bg-skeleton lg:block" />
+                                <span className="ml-auto h-3 w-1/4 rounded bg-skeleton" />
+                            </li>
+                        ))}
+                    </ul>
+                ) : loadError ? (
+                    <EmptyState
+                        icon={AlertTriangle}
+                        title="Audit log unavailable"
+                        description={loadError}
+                        action={
+                            <Button size="sm" icon={RefreshCw} onClick={retry}>
+                                Retry
+                            </Button>
+                        }
+                    />
+                ) : rows.length === 0 ? (
+                    hasFilters ? (
+                        <EmptyState
+                            icon={Search}
+                            title="No entries match"
+                            description="Try a different search term, action or entity type."
+                            action={
+                                <Button size="sm" icon={X} onClick={clearFilters}>
+                                    Clear filters
+                                </Button>
+                            }
+                        />
+                    ) : (
+                        <EmptyState
+                            icon={History}
+                            title="No audit entries yet"
+                            description="Registrations, edits, uploads and verifications will be recorded here."
+                        />
+                    )
+                ) : (
+                    <div className="overflow-x-auto">
+                        {/* table-fixed column budget — the sum of the fixed widths at each band
+                            plus a >=160px floor for the auto-width Details column must stay
+                            within min-w, or Details collapses to 0px:
+                              base 488 + 160 =  648  <=  760
+                              md   632 + 160 =  792  <=  800
+                              lg   872 + 160 = 1032  <= 1040
+                              xl  1000 + 160 = 1160  <= 1170  */}
+                        <table className="w-full min-w-[760px] table-fixed text-left text-[13px] md:min-w-[800px] lg:min-w-[1040px] xl:min-w-[1170px]">
+                            <caption className="sr-only">Audit log entries</caption>
+                            <thead>
+                                <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
+                                    <th scope="col" className="w-36 py-2 pl-4 pr-3 font-medium">
+                                        Time
+                                    </th>
+                                    <th scope="col" className="w-44 px-3 py-2 font-medium">
+                                        Action
+                                    </th>
+                                    <th scope="col" className="hidden w-36 px-3 py-2 font-medium md:table-cell">
+                                        Entity
+                                    </th>
+                                    <th scope="col" className="w-32 px-3 py-2 font-medium">
+                                        Subject
+                                    </th>
+                                    <th scope="col" className="hidden w-36 px-3 py-2 font-medium lg:table-cell">
+                                        Performed by
+                                    </th>
+                                    <th scope="col" className="hidden w-24 px-3 py-2 font-medium lg:table-cell">
+                                        Branch
+                                    </th>
+                                    <th scope="col" className="px-3 py-2 font-medium">
+                                        Details
+                                    </th>
+                                    <th scope="col" className="hidden w-32 px-3 py-2 font-medium xl:table-cell">
+                                        IP address
+                                    </th>
+                                    <th scope="col" className="w-10 py-2 pl-2 pr-3">
+                                        <span className="sr-only">Expand</span>
+                                    </th>
                                 </tr>
-                            ) : !data || data.content.length === 0 ? (
-                                <tr>
-                                    <td colSpan={7} className="px-4 py-16 text-center text-slate-500">
-                                        <div className="flex flex-col items-center gap-3">
-                                            <span className="material-icons text-4xl text-slate-200">
-                                                event_note
-                                            </span>
-                                            <span className="text-sm font-medium">
-                                                No audit logs found.
-                                            </span>
-                                            <span className="text-xs text-slate-400">
-                                                Try adjusting your filters or search query.
-                                            </span>
-                                        </div>
-                                    </td>
-                                </tr>
-                            ) : (
-                                data.content.map((log: AuditLog) => {
-                                    const actionColor = getActionColor(log.action);
+                            </thead>
+                            <tbody className="divide-y divide-edge whitespace-nowrap">
+                                {rows.map((log: AuditLog, index) => {
+                                    const rowId = log.id || `${log.action}-${log.timestamp}-${index}`;
+                                    const open = Boolean(expanded[rowId]);
+                                    const panelId = `audit-details-${index}`;
+                                    const EntityIcon = getEntityIcon(log.entityType);
+                                    const summary = summariseDetails(log.details);
+                                    const parsed = parseDetails(log.details);
+                                    const fullTime = formatFullTimestamp(log.timestamp);
                                     return (
-                                        <tr
-                                            key={log.id}
-                                            className="hover:bg-slate-50/70 transition-colors"
-                                        >
-                                            {/* Timestamp */}
-                                            <td className="px-4 py-3">
-                                                <span className="text-sm font-semibold text-slate-700 whitespace-nowrap">
-                                                    {formatTimestamp(log.timestamp)}
-                                                </span>
-                                            </td>
-                                            {/* Action */}
-                                            <td className="px-4 py-3">
-                                                <span
-                                                    className={`inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold uppercase rounded-full tracking-wider ${actionColor.bg} ${actionColor.text}`}
-                                                >
-                                                    {log.action.replaceAll("_", " ")}
-                                                </span>
-                                            </td>
-                                            {/* Entity */}
-                                            <td className="px-4 py-3">
-                                                <div className="flex items-center gap-2">
-                                                    <span className="material-icons text-slate-400 text-lg">
-                                                        {getEntityIcon(log.entityType)}
+                                        <Fragment key={rowId}>
+                                            <tr className={cn("transition-colors hover:bg-surface-hover", open && "bg-surface-muted")}>
+                                                {/* Time */}
+                                                <td className="py-2 pl-4 pr-3 tabular-nums text-fg-secondary">
+                                                    <time dateTime={log.timestamp} title={fullTime}>
+                                                        {formatAuditTime(log.timestamp)}
+                                                    </time>
+                                                </td>
+                                                {/* Action */}
+                                                <td className="px-3 py-2">
+                                                    <span
+                                                        title={formatLabel(log.action)}
+                                                        className="inline-block max-w-full truncate rounded bg-surface-muted px-2 py-0.5 align-middle text-[11px] font-medium text-fg-secondary ring-1 ring-inset ring-edge"
+                                                    >
+                                                        {formatLabel(log.action)}
                                                     </span>
-                                                    <span className="text-sm font-semibold text-slate-600">
-                                                        {log.entityType?.replaceAll("_", " ") || "—"}
+                                                </td>
+                                                {/* Entity */}
+                                                <td className="hidden px-3 py-2 text-fg-secondary md:table-cell">
+                                                    <span className="flex min-w-0 items-center gap-1.5">
+                                                        <EntityIcon className="h-4 w-4 shrink-0 text-fg-faint" aria-hidden="true" />
+                                                        <span className="truncate" title={formatLabel(log.entityType)}>
+                                                            {formatLabel(log.entityType)}
+                                                        </span>
                                                     </span>
-                                                </div>
-                                            </td>
-                                            {/* Patient Code */}
-                                            <td className="px-4 py-3 hidden md:table-cell">
-                                                {log.patientCode ? (
-                                                    <span className="text-sm font-mono font-semibold text-primary">
-                                                        {log.patientCode}
-                                                    </span>
-                                                ) : (
-                                                    <span className="text-sm text-slate-300">—</span>
-                                                )}
-                                            </td>
-                                            {/* Performed By */}
-                                            <td className="px-4 py-3 hidden lg:table-cell">
-                                                <div className="flex items-center gap-2">
-                                                    <div className="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center text-[9px] font-bold text-slate-600 uppercase flex-shrink-0">
-                                                        {log.performedBy?.[0] || "?"}
-                                                    </div>
-                                                    <span className="text-sm font-semibold text-slate-700">
-                                                        {log.performedBy || "—"}
-                                                    </span>
-                                                </div>
-                                            </td>
-                                            {/* Branch */}
-                                            <td className="px-4 py-3 hidden lg:table-cell">
-                                                <span className="text-sm font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
+                                                </td>
+                                                {/* Subject */}
+                                                <td className="px-3 py-2 font-mono text-xs">
+                                                    {log.patientCode ? (
+                                                        <Link
+                                                            href={`/patients/${log.patientCode}`}
+                                                            title={`Open patient ${log.patientCode}`}
+                                                            className="inline-block max-w-full truncate rounded align-middle font-medium text-primary-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-surface"
+                                                        >
+                                                            {log.patientCode}
+                                                        </Link>
+                                                    ) : log.entityId ? (
+                                                        <span className="inline-block max-w-full truncate align-middle text-fg-muted" title={log.entityId}>
+                                                            {log.entityId}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-fg-faint">—</span>
+                                                    )}
+                                                </td>
+                                                {/* Performed by */}
+                                                <td className="hidden truncate px-3 py-2 text-fg-secondary lg:table-cell" title={log.performedBy || undefined}>
+                                                    {log.performedBy || "—"}
+                                                </td>
+                                                {/* Branch */}
+                                                <td className="hidden truncate px-3 py-2 text-fg-secondary lg:table-cell" title={log.branchCode || undefined}>
                                                     {log.branchCode || "—"}
-                                                </span>
-                                            </td>
-                                            {/* IP */}
-                                            <td className="px-4 py-3 hidden xl:table-cell">
-                                                <span className="text-xs font-mono text-slate-400">
+                                                </td>
+                                                {/* Details */}
+                                                <td className="truncate px-3 py-2 text-fg-muted" title={summary || undefined}>
+                                                    {summary || <span className="text-fg-faint">—</span>}
+                                                </td>
+                                                {/* IP */}
+                                                <td
+                                                    className="hidden truncate px-3 py-2 font-mono text-xs text-fg-muted xl:table-cell"
+                                                    title={log.ipAddress || undefined}
+                                                >
                                                     {log.ipAddress || "—"}
-                                                </span>
-                                            </td>
-                                        </tr>
+                                                </td>
+                                                {/* Expand */}
+                                                <td className="py-2 pl-2 pr-3 text-right">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => toggleRow(rowId)}
+                                                        aria-expanded={open}
+                                                        aria-controls={open ? panelId : undefined}
+                                                        aria-label={open ? "Hide entry details" : "Show entry details"}
+                                                        className="inline-flex h-7 w-7 items-center justify-center rounded text-fg-faint transition-colors hover:bg-surface-hover hover:text-fg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                                                    >
+                                                        <ChevronDown
+                                                            className={cn("h-4 w-4 transition-transform", open && "rotate-180")}
+                                                            aria-hidden="true"
+                                                        />
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                            {open && (
+                                                <tr id={panelId} className="bg-surface-muted">
+                                                    <td colSpan={9} className="whitespace-normal py-3 pl-4 pr-3">
+                                                        <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-1 text-xs">
+                                                            <dt className="text-fg-muted">Time</dt>
+                                                            <dd className="tabular-nums text-fg">{fullTime}</dd>
+                                                            <dt className="text-fg-muted">Performed by</dt>
+                                                            <dd className="break-words text-fg">{log.performedBy || "—"}</dd>
+                                                            <dt className="text-fg-muted">Branch</dt>
+                                                            <dd className="text-fg">{log.branchCode || "—"}</dd>
+                                                            <dt className="text-fg-muted">Entity</dt>
+                                                            <dd className="text-fg">{formatLabel(log.entityType)}</dd>
+                                                            {log.entityId && (
+                                                                <>
+                                                                    <dt className="text-fg-muted">Entity id</dt>
+                                                                    <dd className="break-all font-mono text-fg">{log.entityId}</dd>
+                                                                </>
+                                                            )}
+                                                            <dt className="text-fg-muted">IP address</dt>
+                                                            <dd className="font-mono text-fg">{log.ipAddress || "—"}</dd>
+                                                            {parsed ? (
+                                                                Object.entries(parsed).map(([key, value]) => (
+                                                                    <Fragment key={key}>
+                                                                        <dt className="break-words text-fg-muted">{key}</dt>
+                                                                        <dd className="break-words text-fg">{detailValue(value)}</dd>
+                                                                    </Fragment>
+                                                                ))
+                                                            ) : log.details ? (
+                                                                <>
+                                                                    <dt className="text-fg-muted">Details</dt>
+                                                                    <dd>
+                                                                        <pre className="whitespace-pre-wrap break-words font-mono text-xs text-fg">
+                                                                            {log.details}
+                                                                        </pre>
+                                                                    </dd>
+                                                                </>
+                                                            ) : null}
+                                                        </dl>
+                                                    </td>
+                                                </tr>
+                                            )}
+                                        </Fragment>
                                     );
-                                })
-                            )}
-                        </tbody>
-                    </table>
-                </div>
-
-                {/* Pagination */}
-                {data && data.totalPages > 1 && (
-                    <div className="px-4 py-3 border-t border-slate-100 flex items-center justify-between text-sm font-medium text-slate-500">
-                        <span>
-                            Page {data.page + 1} of {data.totalPages} •{" "}
-                            <span className="text-slate-400">
-                                {data.totalElements.toLocaleString()} total
-                            </span>
-                        </span>
-                        <div className="flex gap-1.5">
-                            <button
-                                onClick={() => setPage((p) => Math.max(0, p - 1))}
-                                disabled={data.page === 0}
-                                className="px-3 py-1.5 rounded-lg border border-slate-200 text-sm font-semibold hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-                            >
-                                Previous
-                            </button>
-                            <button
-                                onClick={() => setPage((p) => p + 1)}
-                                disabled={data.last}
-                                className="px-3 py-1.5 rounded-lg border border-slate-200 text-sm font-semibold hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-                            >
-                                Next
-                            </button>
-                        </div>
+                                })}
+                            </tbody>
+                        </table>
                     </div>
                 )}
-            </div>
+
+                {/* Footer: paging */}
+                {showFooter && data && (
+                    <div
+                        aria-busy={loading || undefined}
+                        className="flex flex-wrap items-center justify-between gap-2 border-t border-edge px-4 py-2 text-xs text-fg-muted"
+                    >
+                        <span className="tabular-nums">
+                            Page {data.page + 1} of {Math.max(1, data.totalPages)}
+                            <span aria-hidden="true"> · </span>
+                            {data.totalElements.toLocaleString()} {data.totalElements === 1 ? "entry" : "entries"}
+                        </span>
+                        {data.totalPages > 1 && (
+                            <nav aria-label="Audit log pagination" className="flex items-center gap-1">
+                                {/* While loading we use aria-disabled (not disabled) so the
+                                    focused button is not blurred mid-page-change. */}
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    icon={ChevronLeft}
+                                    onClick={goToPreviousPage}
+                                    disabled={data.page === 0}
+                                    aria-disabled={loading || undefined}
+                                    className="aria-disabled:pointer-events-none aria-disabled:opacity-50"
+                                >
+                                    Previous
+                                </Button>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={goToNextPage}
+                                    disabled={data.last}
+                                    aria-disabled={loading || undefined}
+                                    className="aria-disabled:pointer-events-none aria-disabled:opacity-50"
+                                >
+                                    Next
+                                    <ChevronRight aria-hidden="true" />
+                                </Button>
+                            </nav>
+                        )}
+                    </div>
+                )}
+            </SectionCard>
         </div>
     );
 }

@@ -2,11 +2,37 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { PRIORITY_COLORS, QC_STATUS_CONFIG, formatStatusLabel } from '@/constants/sample-lifecycle';
+import {
+    AlertTriangle,
+    ChevronDown,
+    ClipboardCheck,
+    Clock,
+    RefreshCw,
+    Search,
+    ShieldCheck,
+    Undo2,
+    X
+} from 'lucide-react';
+import { formatStatusLabel } from '@/constants/sample-lifecycle';
 import { getPendingVerificationResults, type TestResultSummary } from '@/lib/api';
 import { formatDisplayId } from '@/lib/format-id';
+import { cn } from '@/lib/utils';
+import Button from '@/components/ui/Button';
+import PageHeader from '@/components/ui/PageHeader';
+import SectionCard from '@/components/ui/SectionCard';
+import EmptyState from '@/components/ui/EmptyState';
+import SegmentedControl from '@/components/ui/SegmentedControl';
+import StatusChip, { type ChipTone } from '@/components/ui/StatusChip';
+import Pagination from '@/components/ui/Pagination';
+import { InputField } from '@/components/ui/Field';
+import StatCard from '@/components/shared/StatCard';
+import PriorityBadge from '@/components/shared/PriorityBadge';
+import { formatAuditTime } from '@/components/patient-dashboard/dashboard-data';
 
 const PAGE_SIZE = 10;
+const SKELETON_ROWS = 6;
+
+type StatusFilter = 'ALL' | 'PENDING' | 'RETURNED_TO_SUPERVISOR' | 'CRITICAL';
 
 /** Any non-normal analyte flag needs supervisor attention. */
 const hasCriticalTriage = (result: TestResultSummary) => {
@@ -17,30 +43,59 @@ const hasCriticalTriage = (result: TestResultSummary) => {
     return Boolean(flag && flag !== 'NORMAL');
 };
 
-const RESULT_FLAG_CONFIG: Record<string, { label: string; className: string }> = {
-    NORMAL: { label: 'NORMAL', className: 'bg-slate-100 text-slate-600' },
-    LOW: { label: 'LOW', className: 'bg-amber-100 text-amber-700' },
-    HIGH: { label: 'HIGH', className: 'bg-amber-100 text-amber-700' },
-    CRITICAL_LOW: { label: 'CRITICAL LOW', className: 'bg-red-100 text-red-700' },
-    CRITICAL_HIGH: { label: 'CRITICAL HIGH', className: 'bg-red-100 text-red-700' }
+const RESULT_FLAG_CONFIG: Record<string, { label: string; tone: ChipTone }> = {
+    NORMAL: { label: 'NORMAL', tone: 'neutral' },
+    LOW: { label: 'LOW', tone: 'pending' },
+    HIGH: { label: 'HIGH', tone: 'pending' },
+    CRITICAL_LOW: { label: 'CRITICAL LOW', tone: 'danger' },
+    CRITICAL_HIGH: { label: 'CRITICAL HIGH', tone: 'danger' }
 };
 
-const getResultFlagBadge = (flag?: string | null, hasCriticalFinding?: boolean | null) => {
+const getResultFlagBadge = (
+    flag?: string | null,
+    hasCriticalFinding?: boolean | null
+): { label: string; tone: ChipTone } => {
     if (hasCriticalFinding && (!flag || flag.toUpperCase() === 'NORMAL')) {
         return RESULT_FLAG_CONFIG.CRITICAL_HIGH;
     }
 
     if (!flag) {
-        return { label: '-', className: 'bg-slate-100 text-slate-600' };
+        return { label: '—', tone: 'neutral' };
     }
 
-    return RESULT_FLAG_CONFIG[flag.toUpperCase()] ?? {
-        label: formatStatusLabel(flag),
-        className: 'bg-slate-100 text-slate-600'
-    };
+    return (
+        RESULT_FLAG_CONFIG[flag.toUpperCase()] ?? {
+            label: formatStatusLabel(flag),
+            tone: 'neutral'
+        }
+    );
 };
 
-const formatTimestamp = (value?: string | null) => {
+const QC_TONE: Record<string, ChipTone> = {
+    PASS: 'success',
+    FAIL: 'danger',
+    WARN: 'pending'
+};
+
+const getQcStatusConfig = (qcStatus?: string | null): { label: string; tone: ChipTone } => {
+    if (!qcStatus) {
+        return { label: '?', tone: 'neutral' };
+    }
+
+    const normalizedStatus = qcStatus.toUpperCase();
+
+    if (normalizedStatus in QC_TONE) {
+        return { label: normalizedStatus, tone: QC_TONE[normalizedStatus] };
+    }
+
+    return { label: qcStatus, tone: 'neutral' };
+};
+
+/** Relative "Updated" text for the row meta line; `—` when no timestamp is known. */
+const formatUpdated = (value?: string | null) => (value ? formatAuditTime(value) : '—');
+
+/** Full, unambiguous timestamp for tooltips and the expanded panel. */
+const formatFullTimestamp = (value?: string | null) => {
     if (!value) {
         return '—';
     }
@@ -50,65 +105,36 @@ const formatTimestamp = (value?: string | null) => {
         return value;
     }
 
-    return parsed.toLocaleString('en-LK', {
-        year: 'numeric',
-        month: 'short',
+    return parsed.toLocaleString('en-GB', {
         day: '2-digit',
+        month: 'short',
+        year: 'numeric',
         hour: '2-digit',
-        minute: '2-digit'
+        minute: '2-digit',
+        hour12: false
     });
 };
 
 const getVerificationLabel = (status?: string | null) => {
     if (status === 'RETURNED_FOR_RECHECK') {
-        return 'Returned to Supervisor';
+        return 'Returned to supervisor';
     }
 
-    return 'Pending Verification';
+    return 'Pending verification';
 };
 
-const getStatusBadgeClassName = (status?: string | null) => {
-    if (status === 'RETURNED_FOR_RECHECK') {
-        return 'bg-orange-100 text-orange-700';
-    }
+const getVerificationTone = (status?: string | null): ChipTone =>
+    status === 'RETURNED_FOR_RECHECK' ? 'pending' : 'info';
 
-    return 'bg-sky-100 text-sky-700';
-};
-
-const getQcStatusConfig = (qcStatus?: string | null) => {
-    if (!qcStatus) {
-        return { label: '?', className: 'bg-slate-100 text-slate-700' };
-    }
-
-    const normalizedStatus = qcStatus.toUpperCase();
-
-    if (normalizedStatus in QC_STATUS_CONFIG) {
-        const config = QC_STATUS_CONFIG[normalizedStatus as keyof typeof QC_STATUS_CONFIG];
-        return { label: config.label, className: config.className };
-    }
-
-    return { label: qcStatus, className: 'bg-slate-100 text-slate-700' };
-};
-
-const getSpecimenPriorityBadge = (priorityLevel?: string | null) => {
-    if (!priorityLevel) {
-        return { label: '—', className: 'bg-slate-100 text-slate-600' };
-    }
-
-    const key = priorityLevel.toUpperCase() as keyof typeof PRIORITY_COLORS;
-
-    return {
-        label: formatStatusLabel(priorityLevel),
-        className: PRIORITY_COLORS[key] ?? 'bg-slate-100 text-slate-600'
-    };
-};
+const CHECKBOX_CLASS =
+    'h-4 w-4 shrink-0 rounded border-edge-strong accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-50';
 
 export default function PendingVerificationPage() {
     const router = useRouter();
     const pathname = usePathname();
     const [results, setResults] = useState<TestResultSummary[]>([]);
     const [searchQuery, setSearchQuery] = useState('');
-    const [statusFilter, setStatusFilter] = useState('ALL');
+    const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [expandedReason, setExpandedReason] = useState<string | null>(null);
     const [currentPage, setCurrentPage] = useState(1);
@@ -133,7 +159,7 @@ export default function PendingVerificationPage() {
             setExpandedReason(null);
         } catch (loadError) {
             console.error('Failed to load pending verification results', loadError);
-            setError('Failed to load pending verification results. Please try again.');
+            setError("Couldn't load pending verification results. Check your connection and retry.");
             setResults([]);
             setTotalElements(0);
             setTotalPages(1);
@@ -206,445 +232,441 @@ export default function PendingVerificationPage() {
         router.push(`/verification/review/${resultId}`);
     };
 
+    const handlePageChange = (page: number) => {
+        if (loading) {
+            return;
+        }
+        if (page > currentPage && isLastPage) {
+            return;
+        }
+        setCurrentPage(Math.min(Math.max(page, 1), totalPages));
+    };
+
+    const filterOptions: { value: StatusFilter; label: string; count: number }[] = [
+        { value: 'ALL', label: 'All', count: results.length },
+        { value: 'PENDING', label: 'Pending', count: totalPending },
+        { value: 'RETURNED_TO_SUPERVISOR', label: 'Returned', count: returnedToSupervisorCount },
+        { value: 'CRITICAL', label: 'Critical', count: criticalPending }
+    ];
+
+    const showFooter = !error && (loading || results.length > 0);
+
     return (
-        <div className="min-h-screen bg-slate-50">
-            <div className="mx-auto max-w-7xl px-6 py-8">
-                <div className="mb-8">
-                    <div>
-                        <p className="text-sm font-semibold uppercase tracking-[0.24em] text-sky-700">
-                            Technical Verification
-                        </p>
-                        <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-900">
-                            Verification Dashboard
-                        </h1>
-                    </div>
+        <div className="mx-auto max-w-[1400px]">
+            <PageHeader
+                title="Pending verification"
+                crumbs={[
+                    { label: 'Dashboard', href: '/dashboard' },
+                    { label: 'Verification', href: '/verification' },
+                    { label: 'Pending' }
+                ]}
+                meta={
+                    <>
+                        <ShieldCheck className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                        <span>Technical verification</span>
+                        <span aria-hidden="true">·</span>
+                        <span className="tabular-nums">
+                            {totalElements.toLocaleString()} {totalElements === 1 ? 'result' : 'results'} awaiting review
+                        </span>
+                    </>
+                }
+                actions={
+                    <Button
+                        icon={RefreshCw}
+                        onClick={() => {
+                            void loadPendingResults();
+                        }}
+                        loading={loading && results.length > 0}
+                    >
+                        Refresh
+                    </Button>
+                }
+            />
+
+            {/* Screen-reader status for async changes */}
+            <p role="status" aria-live="polite" className="sr-only">
+                {loading
+                    ? 'Loading pending verification results'
+                    : error
+                      ? 'Pending verification results failed to load'
+                      : `Showing ${filteredResults.length} of ${results.length} results on page ${currentPage} of ${totalPages}.${selectedIds.length > 0 ? ` ${selectedIds.length} selected.` : ''}`}
+            </p>
+
+            {/* Stat row — counts reflect the results on the current page */}
+            <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <StatCard
+                    label="Pending verification"
+                    value={totalPending}
+                    icon={Clock}
+                    color="blue"
+                    sub="On this page"
+                    loading={loading}
+                />
+                <StatCard
+                    label="Returned to supervisor"
+                    value={returnedToSupervisorCount}
+                    icon={Undo2}
+                    color="orange"
+                    sub="On this page"
+                    loading={loading}
+                />
+                <StatCard
+                    label="Critical cases"
+                    value={criticalPending}
+                    icon={AlertTriangle}
+                    color="red"
+                    sub="On this page"
+                    loading={loading}
+                />
+            </div>
+
+            <SectionCard title="Results" count={totalElements.toLocaleString()} flush>
+                {/* Filter toolbar */}
+                <div className="flex flex-wrap items-center gap-2 border-b border-edge bg-surface-muted px-3 py-2">
+                    <SegmentedControl<StatusFilter>
+                        ariaLabel="Filter results by status"
+                        value={statusFilter}
+                        onChange={(next) => {
+                            setStatusFilter(next);
+                            setSelectedIds([]);
+                        }}
+                        options={filterOptions}
+                    />
+                    <InputField
+                        label="Search pending results"
+                        hideLabel
+                        type="search"
+                        value={searchQuery}
+                        onChange={(event) => setSearchQuery(event.target.value)}
+                        placeholder="Search patient, code, test, result ID or technician"
+                        autoComplete="off"
+                        className="min-w-[220px] flex-1"
+                    />
+                    {selectedIds.length > 0 && (
+                        <div className="flex items-center gap-1 text-xs text-fg-secondary">
+                            <span className="tabular-nums">
+                                {selectedIds.length} selected
+                            </span>
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                icon={X}
+                                onClick={() => setSelectedIds([])}
+                            >
+                                Clear selection
+                            </Button>
+                        </div>
+                    )}
                 </div>
 
-                <div className="mb-8 grid gap-4 md:grid-cols-3">
-                    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                        <div className="flex items-start justify-between gap-4">
-                            <div>
-                                <p className="text-sm font-medium text-slate-500">Pending Verification</p>
-                                <p className="mt-3 text-3xl font-bold text-slate-900">{totalPending}</p>
-                            </div>
-                            <DashboardCardIcon tone="sky">
-                                <svg viewBox="0 0 24 24" className="h-5 w-5 fill-none stroke-current" strokeWidth="1.8">
-                                    <path d="M9 3h6" strokeLinecap="round" />
-                                    <path d="M12 8v5l3 2" strokeLinecap="round" strokeLinejoin="round" />
-                                    <circle cx="12" cy="13" r="8" />
-                                </svg>
-                            </DashboardCardIcon>
-                        </div>
-                    </div>
-
-                    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                        <div className="flex items-start justify-between gap-4">
-                            <div>
-                                <p className="text-sm font-medium text-slate-500">Returned to Supervisor</p>
-                                <p className="mt-3 text-3xl font-bold text-slate-900">{returnedToSupervisorCount}</p>
-                            </div>
-                            <DashboardCardIcon tone="amber">
-                                <svg viewBox="0 0 24 24" className="h-5 w-5 fill-none stroke-current" strokeWidth="1.8">
-                                    <path d="M10 8 6 12l4 4" strokeLinecap="round" strokeLinejoin="round" />
-                                    <path d="M6 12h8a4 4 0 1 1 0 8h-1" strokeLinecap="round" strokeLinejoin="round" />
-                                    <path d="M14 4a4 4 0 0 1 4 4v1" strokeLinecap="round" />
-                                </svg>
-                            </DashboardCardIcon>
-                        </div>
-                    </div>
-
-                    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                        <div className="flex items-start justify-between gap-4">
-                            <div>
-                                <p className="text-sm font-medium text-slate-500">Critical Cases</p>
-                                <p className="mt-3 text-3xl font-bold text-slate-900">{criticalPending}</p>
-                            </div>
-                            <DashboardCardIcon tone="rose">
-                                <svg viewBox="0 0 24 24" className="h-5 w-5 fill-none stroke-current" strokeWidth="1.8">
-                                    <path d="M12 4 4 18h16L12 4Z" strokeLinecap="round" strokeLinejoin="round" />
-                                    <path d="M12 9v4" strokeLinecap="round" />
-                                    <circle cx="12" cy="16" r=".8" fill="currentColor" stroke="none" />
-                                </svg>
-                            </DashboardCardIcon>
-                        </div>
-                    </div>
-                </div>
-
-                <div className="mb-6 flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:flex-row lg:items-center lg:justify-between">
-                    <div className="flex flex-wrap gap-2">
-                        {[
-                            { key: 'ALL', label: 'All', count: results.length },
-                            { key: 'PENDING', label: 'Pending', count: totalPending },
-                            {
-                                key: 'RETURNED_TO_SUPERVISOR',
-                                label: 'Returned to Supervisor',
-                                count: returnedToSupervisorCount
-                            },
-                            {
-                                key: 'CRITICAL',
-                                label: 'Critical Cases',
-                                count: criticalPending
-                            }
-                        ].map((filter) => {
-                            const isActive = statusFilter === filter.key;
-
-                            return (
-                                <button
-                                    key={filter.key}
-                                    type="button"
+                {/* States live outside the table so they centre on small screens */}
+                {loading ? (
+                    <ul aria-hidden="true" className="divide-y divide-edge">
+                        {Array.from({ length: SKELETON_ROWS }).map((_, index) => (
+                            <li key={index} className="flex items-center gap-3 px-4 py-2.5">
+                                <span className="h-4 w-4 shrink-0 rounded bg-skeleton" />
+                                <span className="h-4 w-24 shrink-0 rounded bg-skeleton" />
+                                <span className="h-3 w-32 shrink-0 rounded bg-skeleton" />
+                                <span className="hidden h-3 w-28 rounded bg-skeleton md:block" />
+                                <span className="hidden h-3 w-24 rounded bg-skeleton lg:block" />
+                                <span className="h-4 w-12 rounded-full bg-skeleton" />
+                                <span className="h-4 w-16 rounded-full bg-skeleton" />
+                                <span className="hidden h-4 w-14 rounded-full bg-skeleton md:block" />
+                                <span className="ml-auto h-7 w-16 rounded bg-skeleton" />
+                            </li>
+                        ))}
+                    </ul>
+                ) : error ? (
+                    <EmptyState
+                        icon={AlertTriangle}
+                        title="Pending results unavailable"
+                        description={error}
+                        action={
+                            <Button
+                                size="sm"
+                                icon={RefreshCw}
+                                onClick={() => {
+                                    void loadPendingResults();
+                                }}
+                            >
+                                Retry
+                            </Button>
+                        }
+                    />
+                ) : filteredResults.length === 0 ? (
+                    isFiltering ? (
+                        <EmptyState
+                            icon={Search}
+                            title="No cases match"
+                            description="Try a different search term or status filter."
+                            action={
+                                <Button
+                                    size="sm"
+                                    icon={X}
                                     onClick={() => {
-                                        setStatusFilter(filter.key);
+                                        setSearchQuery('');
+                                        setStatusFilter('ALL');
                                         setSelectedIds([]);
                                     }}
-                                    className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
-                                        isActive
-                                            ? 'bg-sky-600 text-white shadow-sm'
-                                            : 'bg-sky-50 text-sky-800 hover:bg-sky-100'
-                                    }`}
                                 >
-                                    {filter.label}
-                                    <span
-                                        className={`ml-2 rounded-full px-2 py-0.5 text-xs ${
-                                            isActive ? 'bg-white/20 text-white' : 'bg-white text-sky-700'
-                                        }`}
-                                    >
-                                        {filter.count}
-                                    </span>
-                                </button>
-                            );
-                        })}
-                    </div>
-
-                    <div className="w-full max-w-md">
-                        <input
-                            type="text"
-                            value={searchQuery}
-                            onChange={(event) => setSearchQuery(event.target.value)}
-                            placeholder="Search by patient name, patient code, test, result ID, or technician"
-                            className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-sky-400 focus:bg-white"
+                                    Clear filters
+                                </Button>
+                            }
                         />
-                    </div>
-                </div>
-
-                <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                    ) : (
+                        <EmptyState
+                            icon={ClipboardCheck}
+                            title="No cases waiting for review"
+                            description="Newly entered, returned or critical cases will appear here automatically."
+                        />
+                    )
+                ) : (
                     <div className="overflow-x-auto">
-                        <table className="min-w-full divide-y divide-slate-200">
-                            <thead className="bg-slate-50">
-                                <tr>
-                                    <th className="px-4 py-3 text-left">
+                        <table className="w-full min-w-[960px] table-fixed text-left text-[13px]">
+                            <caption className="sr-only">Results pending technical verification</caption>
+                            <thead>
+                                <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
+                                    <th scope="col" className="w-10 py-2 pl-4 pr-2">
                                         <input
                                             type="checkbox"
                                             checked={allVisibleSelected}
                                             onChange={handleToggleSelectAll}
                                             disabled={filteredResults.length === 0}
-                                            className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-500"
+                                            aria-label="Select all visible results"
+                                            className={CHECKBOX_CLASS}
                                         />
                                     </th>
-                                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                    <th scope="col" className="w-[12%] px-3 py-2 font-medium">
                                         Result ID
                                     </th>
-                                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                    <th scope="col" className="w-[13%] px-3 py-2 font-medium">
                                         Patient
                                     </th>
-                                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                        Test Type
+                                    <th scope="col" className="w-[11%] px-3 py-2 font-medium">
+                                        Test type
                                     </th>
-                                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                        MLT Name
+                                    <th scope="col" className="hidden w-[9%] px-3 py-2 font-medium lg:table-cell">
+                                        MLT
                                     </th>
-                                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                        QC Status
+                                    <th scope="col" className="w-[7%] px-3 py-2 font-medium">
+                                        QC
                                     </th>
-                                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                        Result Flag
+                                    <th scope="col" className="w-[12%] px-3 py-2 font-medium">
+                                        Flag
                                     </th>
-                                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                        Priority Level
+                                    <th scope="col" className="w-[8%] px-3 py-2 font-medium">
+                                        Priority
                                     </th>
-                                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                    <th scope="col" className="w-[13%] px-3 py-2 font-medium">
                                         Status
                                     </th>
-                                    <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                        Actions
+                                    <th scope="col" className="w-[10%] py-2 pl-2 pr-3 text-right font-medium">
+                                        <span className="sr-only">Actions</span>
                                     </th>
                                 </tr>
                             </thead>
 
-                            <tbody className="divide-y divide-slate-100 bg-white">
-                                {loading ? (
-                                    <tr>
-                                        <td colSpan={10} className="px-6 py-14 text-center">
-                                            <div className="mx-auto flex max-w-md flex-col items-center gap-3">
-                                                <div className="h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-slate-800" />
-                                                <p className="text-sm font-medium text-slate-700">
-                                                    Loading pending verification results...
-                                                </p>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ) : error ? (
-                                    <tr>
-                                        <td colSpan={10} className="px-6 py-14 text-center">
-                                            <div className="mx-auto flex max-w-lg flex-col items-center gap-3">
-                                                <p className="text-base font-semibold text-slate-900">{error}</p>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        void loadPendingResults();
-                                                    }}
-                                                    className="rounded-xl bg-sky-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-700"
-                                                >
-                                                    Retry
-                                                </button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ) : filteredResults.length === 0 ? (
-                                    <tr>
-                                        <td colSpan={10} className="px-6 py-14 text-center">
-                                            <div className="mx-auto max-w-md">
-                                                <p className="text-base font-semibold text-slate-900">
-                                                    {isFiltering
-                                                        ? 'No cases match the current search or filter'
-                                                        : 'No cases are currently waiting for supervisor review'}
-                                                </p>
-                                                <p className="mt-2 text-sm text-slate-500">
-                                                    {isFiltering
-                                                        ? 'Try changing the search term or filter to see more results.'
-                                                        : 'Newly entered, returned, or critical cases will appear here automatically.'}
-                                                </p>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ) : (
-                                    filteredResults.map((result) => {
-                                        const isReturned = result.status === 'RETURNED_FOR_RECHECK';
-                                        const isExpanded = expandedReason === result.resultId;
-                                        const hasCritical = hasCriticalTriage(result);
+                            <tbody className="divide-y divide-edge whitespace-nowrap">
+                                {filteredResults.map((result) => {
+                                    const isReturned = result.status === 'RETURNED_FOR_RECHECK';
+                                    const isExpanded = expandedReason === result.resultId;
+                                    const hasCritical = hasCriticalTriage(result);
+                                    const isSelected = selectedIds.includes(result.resultId);
+                                    const displayId = formatDisplayId(result.resultId, 'RES');
+                                    const qcStatus = getQcStatusConfig(result.qcStatus);
+                                    const flag = getResultFlagBadge(result.flag, result.hasCriticalFinding);
+                                    const mltName = result.mltName || result.technicianName || '';
+                                    const panelId = `return-reason-${result.resultId}`;
+                                    const fullUpdated = formatFullTimestamp(result.updatedAt);
 
-                                        return (
-                                            <React.Fragment key={result.resultId}>
-                                                <tr
-                                                    className={`cursor-pointer transition hover:bg-slate-50 ${hasCritical ? 'bg-red-50/40' : ''}`}
-                                                    onClick={(event) => {
-                                                        const target = event.target as HTMLElement;
-                                                        if (target.closest('button, a, input, label')) {
-                                                            return;
-                                                        }
-                                                        handleReview(result.resultId);
-                                                    }}
-                                                >
-                                                    <td className="px-4 py-4 align-top">
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={selectedIds.includes(result.resultId)}
-                                                            onChange={() => handleToggleSelectOne(result.resultId)}
-                                                            className="mt-1 h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-500"
-                                                        />
-                                                    </td>
+                                    return (
+                                        <React.Fragment key={result.resultId}>
+                                            <tr
+                                                className={cn(
+                                                    'group cursor-pointer transition-colors hover:bg-surface-hover',
+                                                    hasCritical && 'bg-status-danger-bg',
+                                                    isSelected && !hasCritical && 'bg-primary-soft'
+                                                )}
+                                                onClick={(event) => {
+                                                    const target = event.target as HTMLElement;
+                                                    if (target.closest('button, a, input, label')) {
+                                                        return;
+                                                    }
+                                                    handleReview(result.resultId);
+                                                }}
+                                            >
+                                                <td className="py-2 pl-4 pr-2">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={isSelected}
+                                                        onChange={() => handleToggleSelectOne(result.resultId)}
+                                                        aria-label={`Select ${displayId}`}
+                                                        className={CHECKBOX_CLASS}
+                                                    />
+                                                </td>
 
-                                                    <td className="px-4 py-4 align-top">
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleReview(result.resultId)}
-                                                            className="text-left text-sm font-semibold text-slate-900 transition hover:text-sky-700"
-                                                            title={result.resultId}
-                                                        >
-                                                            {formatDisplayId(result.resultId, 'RES')}
-                                                        </button>
-                                                        <p className="mt-1 text-xs text-slate-500">
-                                                            Updated {formatTimestamp(result.updatedAt)}
-                                                        </p>
-                                                    </td>
-
-                                                    <td className="px-4 py-4 align-top">
-                                                        <p className="text-sm font-semibold text-slate-900">
-                                                            {result.patientName || 'Unknown patient'}
-                                                        </p>
-                                                        {result.patientCode && (
-                                                            <p className="mt-0.5 font-mono text-xs text-slate-500">
-                                                                {result.patientCode}
-                                                            </p>
+                                                <td className="px-3 py-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleReview(result.resultId)}
+                                                        title={result.resultId}
+                                                        className="flex max-w-full items-center gap-1.5 rounded text-left font-medium text-fg transition-colors hover:text-primary-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-surface"
+                                                    >
+                                                        {hasCritical && (
+                                                            <>
+                                                                <AlertTriangle
+                                                                    className="h-3.5 w-3.5 shrink-0 text-status-danger-fg"
+                                                                    aria-hidden="true"
+                                                                />
+                                                                <span className="sr-only">Critical: </span>
+                                                            </>
                                                         )}
-                                                    </td>
+                                                        <span className="truncate">{displayId}</span>
+                                                    </button>
+                                                    <p className="mt-0.5 truncate text-xs text-fg-muted">
+                                                        Updated{' '}
+                                                        <time dateTime={result.updatedAt ?? undefined} title={fullUpdated}>
+                                                            {formatUpdated(result.updatedAt)}
+                                                        </time>
+                                                    </p>
+                                                </td>
 
-                                                    <td className="px-4 py-4 align-top">
-                                                        <p className="text-sm font-medium text-slate-700">
-                                                            {result.testType || '-'}
+                                                <td className="px-3 py-2">
+                                                    <p className="truncate font-medium text-fg" title={result.patientName || undefined}>
+                                                        {result.patientName || 'Unknown patient'}
+                                                    </p>
+                                                    {result.patientCode && (
+                                                        <p className="mt-0.5 truncate font-mono text-xs text-fg-muted">
+                                                            {result.patientCode}
                                                         </p>
-                                                    </td>
+                                                    )}
+                                                </td>
 
-                                                    <td className="px-4 py-4 align-top">
-                                                        <p className="text-sm text-slate-700">
-                                                            {result.mltName || result.technicianName || '-'}
-                                                        </p>
-                                                    </td>
+                                                <td className="truncate px-3 py-2 text-fg-secondary" title={result.testType || undefined}>
+                                                    {result.testType || <span className="text-fg-faint">—</span>}
+                                                </td>
 
-                                                    <td className="px-4 py-4 align-top">
-                                                        {(() => {
-                                                            const qcStatus = getQcStatusConfig(result.qcStatus);
-                                                            return (
-                                                                <span
-                                                                    className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${qcStatus.className}`}
-                                                                >
-                                                                    {qcStatus.label}
-                                                                </span>
-                                                            );
-                                                        })()}
-                                                    </td>
+                                                <td
+                                                    className="hidden truncate px-3 py-2 text-fg-secondary lg:table-cell"
+                                                    title={mltName || undefined}
+                                                >
+                                                    {mltName || <span className="text-fg-faint">—</span>}
+                                                </td>
 
-                                                    <td className="px-4 py-4 align-top">
-                                                        {(() => {
-                                                            const flag = getResultFlagBadge(
-                                                                result.flag,
-                                                                result.hasCriticalFinding
-                                                            );
-                                                            return (
-                                                                <span
-                                                                    className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${flag.className}`}
-                                                                >
-                                                                    {flag.label}
-                                                                </span>
-                                                            );
-                                                        })()}
-                                                    </td>
+                                                <td className="px-3 py-2">
+                                                    <StatusChip tone={qcStatus.tone} size="sm" title={qcStatus.label} className="font-semibold tracking-wide">
+                                                        {qcStatus.label}
+                                                    </StatusChip>
+                                                </td>
 
-                                                    <td className="px-4 py-4 align-top">
-                                                        {(() => {
-                                                            const priority = getSpecimenPriorityBadge(result.priorityLevel);
-                                                            return (
-                                                                <span
-                                                                    className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${priority.className}`}
-                                                                >
-                                                                    {priority.label}
-                                                                </span>
-                                                            );
-                                                        })()}
-                                                    </td>
+                                                <td className="px-3 py-2">
+                                                    <StatusChip tone={flag.tone} size="sm" title={flag.label} className="font-semibold tracking-wide">
+                                                        {flag.label}
+                                                    </StatusChip>
+                                                </td>
 
-                                                    <td className="px-4 py-4 align-top">
-                                                        <span
-                                                            className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${getStatusBadgeClassName(result.status)}`}
-                                                        >
-                                                            {getVerificationLabel(result.status)}
-                                                        </span>
-                                                    </td>
+                                                <td className="px-3 py-2">
+                                                    <PriorityBadge priority={result.priorityLevel ?? ''} />
+                                                </td>
 
-                                                    <td className="px-4 py-4 align-top text-right">
-                                                        <div className="flex justify-end gap-2">
-                                                            {isReturned && (
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() =>
-                                                                        setExpandedReason((previous) =>
-                                                                            previous === result.resultId
-                                                                                ? null
-                                                                                : result.resultId
-                                                                        )
-                                                                    }
-                                                                    className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
-                                                                >
-                                                                    {isExpanded ? 'Hide Info' : 'View Info'}
-                                                                </button>
-                                                            )}
+                                                <td className="px-3 py-2">
+                                                    <StatusChip
+                                                        tone={getVerificationTone(result.status)}
+                                                        dot
+                                                        title={getVerificationLabel(result.status)}
+                                                    >
+                                                        {getVerificationLabel(result.status)}
+                                                    </StatusChip>
+                                                </td>
 
+                                                <td className="py-2 pl-2 pr-3 text-right">
+                                                    <div className="flex items-center justify-end gap-1">
+                                                        {isReturned && (
                                                             <button
                                                                 type="button"
-                                                                onClick={() => handleReview(result.resultId)}
-                                                                className="rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-sky-700"
+                                                                onClick={() =>
+                                                                    setExpandedReason((previous) =>
+                                                                        previous === result.resultId
+                                                                            ? null
+                                                                            : result.resultId
+                                                                    )
+                                                                }
+                                                                aria-expanded={isExpanded}
+                                                                aria-controls={isExpanded ? panelId : undefined}
+                                                                aria-label={
+                                                                    isExpanded
+                                                                        ? `Hide return reason for ${displayId}`
+                                                                        : `Show return reason for ${displayId}`
+                                                                }
+                                                                className="inline-flex h-7 w-7 items-center justify-center rounded text-fg-faint transition-colors hover:bg-surface-hover hover:text-fg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                                                             >
-                                                                Review
+                                                                <ChevronDown
+                                                                    className={cn('h-4 w-4 transition-transform', isExpanded && 'rotate-180')}
+                                                                    aria-hidden="true"
+                                                                />
                                                             </button>
+                                                        )}
+
+                                                        <Button
+                                                            size="sm"
+                                                            onClick={() => handleReview(result.resultId)}
+                                                            aria-label={`Review ${displayId}`}
+                                                        >
+                                                            Review
+                                                        </Button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+
+                                            {isReturned && isExpanded && (
+                                                <tr id={panelId} className="bg-surface-muted">
+                                                    <td colSpan={10} className="whitespace-normal py-3 pl-4 pr-3">
+                                                        <div className="rounded-md border border-status-pending-edge bg-status-pending-bg px-3 py-2.5">
+                                                            <p className="text-xs font-semibold text-status-pending-fg">
+                                                                {getVerificationLabel(result.status)}
+                                                                {result.pathologistName && (
+                                                                    <span className="font-normal"> · Returned by {result.pathologistName}</span>
+                                                                )}
+                                                            </p>
+                                                            <p className="mt-1 break-words text-[13px] text-fg">
+                                                                {result.returnReason || 'No return reason provided.'}
+                                                            </p>
+                                                            <p className="mt-1.5 text-xs text-fg-muted">
+                                                                Last updated{' '}
+                                                                <time dateTime={result.updatedAt ?? undefined} className="tabular-nums">
+                                                                    {fullUpdated}
+                                                                </time>
+                                                            </p>
                                                         </div>
                                                     </td>
                                                 </tr>
-
-                                                {isReturned && isExpanded && (
-                                                    <tr className="bg-amber-50/60">
-                                                        <td colSpan={10} className="px-6 py-4">
-                                                            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-                                                                <p className="text-sm font-semibold text-amber-900">
-                                                                    {getVerificationLabel(result.status)}
-                                                                </p>
-                                                                {result.pathologistName && (
-                                                                    <p className="mt-1 text-xs font-medium text-amber-700">
-                                                                        Returned by: {result.pathologistName}
-                                                                    </p>
-                                                                )}
-                                                                <p className="mt-1 text-sm text-amber-800">
-                                                                    {result.returnReason || 'No return reason provided.'}
-                                                                </p>
-                                                                <p className="mt-2 text-xs text-amber-700">
-                                                                    Last updated: {formatTimestamp(result.updatedAt)}
-                                                                </p>
-                                                            </div>
-                                                        </td>
-                                                    </tr>
-                                                )}
-                                            </React.Fragment>
-                                        );
-                                    })
-                                )}
+                                            )}
+                                        </React.Fragment>
+                                    );
+                                })}
                             </tbody>
                         </table>
                     </div>
+                )}
 
-                    <div className="flex flex-col gap-3 border-t border-slate-200 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
-                        <p className="text-sm text-slate-500">
-                            Showing {totalElements === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1} to{' '}
-                            {Math.min(currentPage * PAGE_SIZE, totalElements)} of {totalElements} results
-                        </p>
-
-                        <div className="flex items-center gap-2">
-                            <button
-                                type="button"
-                                onClick={() => setCurrentPage((previous) => Math.max(previous - 1, 1))}
-                                disabled={currentPage === 1 || loading}
-                                className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                                Previous
-                            </button>
-                            <span className="px-2 text-sm font-medium text-slate-600">
-                                Page {currentPage} of {totalPages}
-                            </span>
-                            <button
-                                type="button"
-                                onClick={() =>
-                                    setCurrentPage((previous) =>
-                                        previous < totalPages ? previous + 1 : previous
-                                    )
-                                }
-                                disabled={loading || currentPage >= totalPages || isLastPage}
-                                className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                                Next
-                            </button>
-                        </div>
+                {/* Footer: paging — stays mounted while a new page loads */}
+                {showFooter && (
+                    <div
+                        inert={loading || undefined}
+                        aria-busy={loading || undefined}
+                        className={cn(loading && 'pointer-events-none opacity-60')}
+                    >
+                        <Pagination
+                            currentPage={currentPage}
+                            totalPages={totalPages}
+                            totalItems={totalElements}
+                            pageSize={PAGE_SIZE}
+                            onPageChange={handlePageChange}
+                            itemLabel="results"
+                        />
                     </div>
-                </div>
-            </div>
+                )}
+            </SectionCard>
         </div>
     );
 }
-
-const DashboardCardIcon = ({
-    tone,
-    children
-}: {
-    tone: 'sky' | 'amber' | 'rose';
-    children: React.ReactNode;
-}) => {
-    const toneClasses = {
-        sky: 'bg-sky-100 text-sky-700',
-        amber: 'bg-amber-100 text-amber-700',
-        rose: 'bg-rose-100 text-rose-700'
-    };
-
-    return (
-        <span
-            className={`inline-flex h-11 w-11 items-center justify-center rounded-2xl ${toneClasses[tone]}`}
-        >
-            {children}
-        </span>
-    );
-};

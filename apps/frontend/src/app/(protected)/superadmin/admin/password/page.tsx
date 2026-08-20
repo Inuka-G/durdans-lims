@@ -1,7 +1,36 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState, type ReactNode } from "react";
+import { Info, KeyRound } from "lucide-react";
 import DemoDataBanner from "@/components/shared/DemoDataBanner";
+import PageHeader from "@/components/ui/PageHeader";
+import SectionCard from "@/components/ui/SectionCard";
+import StatusChip from "@/components/ui/StatusChip";
+import Button from "@/components/ui/Button";
+import { InputField } from "@/components/ui/Field";
+
+const CHECKBOX_CLASS =
+    "h-4 w-4 shrink-0 rounded border-edge-strong accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-surface";
+
+/** Small section heading inside a card body. */
+function SubHeading({ children }: { children: ReactNode }) {
+    return <h3 className="mb-3 text-xs font-semibold text-fg-secondary">{children}</h3>;
+}
+
+/** Labelled checkbox row for a character-composition rule. */
+function RuleCheckbox({ label, checked, onChange }: { label: string; checked: boolean; onChange: (next: boolean) => void }) {
+    const id = useId();
+    return (
+        <label htmlFor={id} className="flex cursor-pointer items-center gap-3 text-sm text-fg">
+            <input id={id} type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className={CHECKBOX_CLASS} />
+            {label}
+        </label>
+    );
+}
+
+// Static demo score shown in the strength ring (SVG circumference for r=56).
+const STRENGTH_SCORE = 77;
+const RING_CIRCUMFERENCE = 351.85;
 
 export default function PasswordPolicyPage() {
     const [pwdConfig, setPwdConfig] = useState({
@@ -25,188 +54,160 @@ export default function PasswordPolicyPage() {
         }, 1200);
     };
 
+    const ringOffset = RING_CIRCUMFERENCE * (1 - STRENGTH_SCORE / 100);
+
     return (
-        <div className="max-w-[1400px] mx-auto w-full font-sans text-slate-900 min-h-[calc(100vh-136px)] pt-2 pb-10 flex flex-col">
+        <div className="mx-auto w-full max-w-6xl">
             <DemoDataBanner note="Demo screen — this password policy is a placeholder and is not applied to the identity provider." />
 
-            {/* Breadcrumb & Header */}
-            <div className="mb-8">
-                <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 mb-2">
-                    <span className="hover:text-slate-800 cursor-pointer transition-colors">Admin Area</span>
-                    <span className="text-[10px] opacity-50">/</span>
-                    <span className="text-slate-800 font-bold">Password Policy</span>
-                </div>
-                <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">Global Password Policy</h1>
-                <p className="text-sm font-medium text-slate-500 mt-1 pb-4">Define character complexity rules and lifecycle constraints enforced across all hospital branches.</p>
-            </div>
+            <PageHeader
+                crumbs={[{ label: "Super admin", href: "/superadmin" }, { label: "Password policy" }]}
+                title="Global password policy"
+                meta={<span>Character complexity rules and lifecycle constraints enforced across all hospital branches.</span>}
+            />
 
-            <div className="grid grid-cols-1 xl:grid-cols-[1fr_340px] gap-8">
-
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_340px]">
                 {/* Main Configuration Area */}
-                <div className="bg-white border text-sm border-slate-200 shadow-sm rounded-2xl flex flex-col overflow-hidden">
-
-                    {/* Header bar of the card */}
-                    <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-                        <div className="flex items-center gap-3">
-                            <span className="material-icons text-slate-400 text-[20px]">password</span>
-                            <h2 className="text-[15px] font-extrabold text-slate-800">Password Complexity Rules</h2>
+                <SectionCard
+                    title="Password complexity rules"
+                    actions={
+                        <StatusChip tone="success" dot>
+                            Active ruleset
+                        </StatusChip>
+                    }
+                >
+                    <div className="flex flex-col gap-6">
+                        {/* Base Requirements */}
+                        <div>
+                            <SubHeading>Base requirements</SubHeading>
+                            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                                <InputField
+                                    label="Minimum password length"
+                                    type="number"
+                                    min="8"
+                                    max="64"
+                                    inputMode="numeric"
+                                    hint="Industry standard is 12 or more."
+                                    value={pwdConfig.minLength}
+                                    onChange={(e) => setPwdConfig({ ...pwdConfig, minLength: Number(e.target.value) })}
+                                />
+                            </div>
                         </div>
-                        <span className="px-2.5 py-1 rounded-md bg-emerald-50 border border-emerald-100 text-emerald-600 text-[10px] font-bold uppercase tracking-widest">
-                            Active Ruleset
-                        </span>
-                    </div>
 
-                    <div className="p-6">
-                        <div className="flex flex-col gap-8">
-
-                            {/* Base Requirements */}
-                            <div>
-                                <h3 className="text-[12px] font-extrabold text-slate-500 uppercase tracking-widest mb-4">Base Requirements</h3>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div className="flex flex-col gap-2">
-                                        <label className="text-[13px] font-bold text-slate-700">Minimum Password Length</label>
-                                        <input
-                                            type="number"
-                                            min="8" max="64"
-                                            className="w-full bg-slate-50 border border-slate-200 text-slate-800 font-bold py-2.5 px-3.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all max-w-[120px]"
-                                            value={pwdConfig.minLength}
-                                            onChange={(e) => setPwdConfig({ ...pwdConfig, minLength: Number(e.target.value) })}
-                                        />
-                                        <p className="text-[11px] font-semibold text-slate-400">Industry standard is 12 or more.</p>
-                                    </div>
-                                </div>
+                        {/* Character Requirements */}
+                        <fieldset>
+                            <legend className="mb-3 text-xs font-semibold text-fg-secondary">Character composition</legend>
+                            <div className="flex flex-col gap-3">
+                                <RuleCheckbox
+                                    label="Require uppercase letters (A–Z)"
+                                    checked={pwdConfig.requireUppercase}
+                                    onChange={(next) => setPwdConfig({ ...pwdConfig, requireUppercase: next })}
+                                />
+                                <RuleCheckbox
+                                    label="Require lowercase letters (a–z)"
+                                    checked={pwdConfig.requireLowercase}
+                                    onChange={(next) => setPwdConfig({ ...pwdConfig, requireLowercase: next })}
+                                />
+                                <RuleCheckbox
+                                    label="Require numbers (0–9)"
+                                    checked={pwdConfig.requireNumbers}
+                                    onChange={(next) => setPwdConfig({ ...pwdConfig, requireNumbers: next })}
+                                />
+                                <RuleCheckbox
+                                    label="Require special characters (!@#$%)"
+                                    checked={pwdConfig.requireSpecial}
+                                    onChange={(next) => setPwdConfig({ ...pwdConfig, requireSpecial: next })}
+                                />
                             </div>
+                        </fieldset>
 
-                            {/* Character Requirements */}
-                            <div>
-                                <h3 className="text-[12px] font-extrabold text-slate-500 uppercase tracking-widest mb-4">Character Composition</h3>
-                                <div className="flex flex-col gap-4">
-                                    <label className="flex items-center gap-3 cursor-pointer group">
-                                        <input type="checkbox" className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
-                                            checked={pwdConfig.requireUppercase}
-                                            onChange={(e) => setPwdConfig({ ...pwdConfig, requireUppercase: e.target.checked })}
-                                        />
-                                        <span className="text-[14px] font-bold text-slate-700 group-hover:text-slate-900 transition-colors">Require Uppercase Letters (A-Z)</span>
-                                    </label>
-                                    <label className="flex items-center gap-3 cursor-pointer group">
-                                        <input type="checkbox" className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
-                                            checked={pwdConfig.requireLowercase}
-                                            onChange={(e) => setPwdConfig({ ...pwdConfig, requireLowercase: e.target.checked })}
-                                        />
-                                        <span className="text-[14px] font-bold text-slate-700 group-hover:text-slate-900 transition-colors">Require Lowercase Letters (a-z)</span>
-                                    </label>
-                                    <label className="flex items-center gap-3 cursor-pointer group">
-                                        <input type="checkbox" className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
-                                            checked={pwdConfig.requireNumbers}
-                                            onChange={(e) => setPwdConfig({ ...pwdConfig, requireNumbers: e.target.checked })}
-                                        />
-                                        <span className="text-[14px] font-bold text-slate-700 group-hover:text-slate-900 transition-colors">Require Numbers (0-9)</span>
-                                    </label>
-                                    <label className="flex items-center gap-3 cursor-pointer group">
-                                        <input type="checkbox" className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
-                                            checked={pwdConfig.requireSpecial}
-                                            onChange={(e) => setPwdConfig({ ...pwdConfig, requireSpecial: e.target.checked })}
-                                        />
-                                        <span className="text-[14px] font-bold text-slate-700 group-hover:text-slate-900 transition-colors">Require Special Characters (!@#$%)</span>
-                                    </label>
-                                </div>
+                        {/* Lifecycle */}
+                        <div>
+                            <SubHeading>Lifecycle and history</SubHeading>
+                            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                                <InputField
+                                    label="Password expiration (days)"
+                                    type="number"
+                                    min="0"
+                                    max="365"
+                                    inputMode="numeric"
+                                    hint="Set 0 to disable automatic expiration."
+                                    value={pwdConfig.expiryDays}
+                                    onChange={(e) => setPwdConfig({ ...pwdConfig, expiryDays: Number(e.target.value) })}
+                                />
+                                <InputField
+                                    label="Prevent reuse limit (passwords)"
+                                    type="number"
+                                    min="0"
+                                    max="24"
+                                    inputMode="numeric"
+                                    hint="Number of previous passwords remembered."
+                                    value={pwdConfig.historyCount}
+                                    onChange={(e) => setPwdConfig({ ...pwdConfig, historyCount: Number(e.target.value) })}
+                                />
                             </div>
-
-                            {/* Lifecycle */}
-                            <div>
-                                <h3 className="text-[12px] font-extrabold text-slate-500 uppercase tracking-widest mb-4">Lifecycle & History</h3>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                                    <div className="flex flex-col gap-2">
-                                        <label className="text-[13px] font-bold text-slate-700">Password Expiration (Days)</label>
-                                        <input
-                                            type="number"
-                                            min="0" max="365"
-                                            className="w-full bg-slate-50 border border-slate-200 text-slate-800 font-bold py-2.5 px-3.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-                                            value={pwdConfig.expiryDays}
-                                            onChange={(e) => setPwdConfig({ ...pwdConfig, expiryDays: Number(e.target.value) })}
-                                        />
-                                        <p className="text-[11px] font-semibold text-slate-400">Set 0 to disable automatic expiration.</p>
-                                    </div>
-                                    <div className="flex flex-col gap-2">
-                                        <label className="text-[13px] font-bold text-slate-700">Prevent Reuse Limit</label>
-                                        <div className="relative">
-                                            <input
-                                                type="number"
-                                                min="0" max="24"
-                                                className="w-full bg-slate-50 border border-slate-200 text-slate-800 font-bold py-2.5 px-3.5 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-right pr-20"
-                                                value={pwdConfig.historyCount}
-                                                onChange={(e) => setPwdConfig({ ...pwdConfig, historyCount: Number(e.target.value) })}
-                                            />
-                                            <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[12px] font-bold text-slate-400 pointer-events-none">passwords</span>
-                                        </div>
-                                        <p className="text-[11px] font-semibold text-slate-400">Number of previous passwords remembered.</p>
-                                    </div>
-                                </div>
-                            </div>
-
                         </div>
                     </div>
-
-                    {/* Footer Actions */}
-                    <div className="mt-auto border-t border-slate-100 bg-slate-50/50 p-6 flex justify-end">
-                        <button
-                            onClick={handleSave}
-                            disabled={isSaving}
-                            className={`flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-3 rounded-xl transition-all shadow-sm ${isSaving ? 'opacity-70 scale-95 pointer-events-none' : 'active:scale-95 shadow-blue-500/30'}`}
-                        >
-                            {isSaving ? (
-                                <>
-                                    <span className="material-icons text-[18px] animate-spin">sync</span>
-                                    Applying Policies...
-                                </>
-                            ) : (
-                                <>
-                                    <span className="material-icons text-[18px]">verified</span>
-                                    Save Configuration
-                                </>
-                            )}
-                        </button>
-                    </div>
-
-                </div>
+                </SectionCard>
 
                 {/* Right Sidebar - Contextual Info */}
-                <div className="flex flex-col gap-6">
-
+                <div className="flex flex-col gap-4">
                     {/* Security Score */}
-                    <div className="bg-white border text-sm border-slate-200 shadow-sm rounded-2xl p-6 relative overflow-hidden">
-                        <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-50 rounded-bl-full -z-0"></div>
-                        <h3 className="text-[12px] font-extrabold text-slate-500 uppercase tracking-widest mb-6 relative z-10">Password Strength</h3>
-
-                        <div className="flex items-center justify-center relative z-10 mb-2">
-                            <svg className="w-32 h-32 transform -rotate-90">
-                                <circle cx="64" cy="64" r="56" fill="transparent" stroke="#f1f5f9" strokeWidth="12" />
-                                <circle cx="64" cy="64" r="56" fill="transparent" stroke="#10b981" strokeWidth="12" strokeDasharray="351.85" strokeDashoffset="80.22" strokeLinecap="round" />
-                            </svg>
-                            <div className="absolute flex flex-col items-center justify-center">
-                                <span className="text-3xl font-black text-slate-800">77<span className="text-lg text-slate-400">%</span></span>
+                    <SectionCard title="Password strength">
+                        <div className="flex flex-col items-center">
+                            <div
+                                role="img"
+                                aria-label={`Password strength score ${STRENGTH_SCORE} percent`}
+                                className="relative flex h-32 w-32 items-center justify-center"
+                            >
+                                <svg viewBox="0 0 128 128" className="h-32 w-32 -rotate-90" aria-hidden="true">
+                                    <circle cx="64" cy="64" r="56" fill="transparent" stroke="var(--surface-hover)" strokeWidth="12" />
+                                    <circle
+                                        cx="64"
+                                        cy="64"
+                                        r="56"
+                                        fill="transparent"
+                                        stroke="var(--color-status-verified)"
+                                        strokeWidth="12"
+                                        strokeDasharray={RING_CIRCUMFERENCE}
+                                        strokeDashoffset={ringOffset}
+                                        strokeLinecap="round"
+                                    />
+                                </svg>
+                                <span className="absolute text-3xl font-semibold tabular-nums text-fg">
+                                    {STRENGTH_SCORE}
+                                    <span className="text-lg text-fg-muted">%</span>
+                                </span>
                             </div>
+                            <StatusChip tone="success" dot className="mt-4">
+                                Adequate protection
+                            </StatusChip>
                         </div>
-                        <p className="text-center text-[12px] font-bold text-emerald-600 mt-4 relative z-10 bg-emerald-50 py-1.5 rounded-lg">Adequate Protection</p>
-                    </div>
+                    </SectionCard>
 
                     {/* Information Box */}
-                    <div className="bg-blue-50/50 border border-blue-100 p-5 rounded-2xl">
-                        <div className="flex items-start gap-3">
-                            <span className="material-icons text-blue-500 text-[20px]">info</span>
-                            <div className="flex flex-col gap-2">
-                                <span className="text-[13px] font-bold text-blue-900">Policy Synchronization</span>
-                                <p className="text-[12px] font-medium text-blue-800/80 leading-relaxed">
-                                    Changes to password policies do not invalidate existing session tokens, but will be enforced the next time a user changes their password.
-                                </p>
-                            </div>
+                    <div role="note" className="flex items-start gap-3 rounded-lg border border-edge bg-primary-soft p-4">
+                        <Info className="mt-0.5 h-5 w-5 shrink-0 text-primary-strong" aria-hidden="true" />
+                        <div className="min-w-0">
+                            <p className="text-[13px] font-semibold text-fg">Policy synchronisation</p>
+                            <p className="mt-1 text-xs leading-relaxed text-fg-secondary">
+                                Changes to password policies do not invalidate existing session tokens, but will be enforced the next time a
+                                user changes their password.
+                            </p>
                         </div>
                     </div>
-
                 </div>
-
             </div>
 
+            {/* Footer Actions */}
+            <div className="sticky bottom-0 z-10 mt-4 flex items-center justify-between gap-3 border-t border-edge bg-canvas py-3">
+                <div role="status" aria-live="polite" className="min-w-0 text-xs text-fg-muted">
+                    {isSaving && <span className="font-medium text-fg-secondary">Applying policies…</span>}
+                </div>
+                <Button variant="primary" icon={KeyRound} loading={isSaving} onClick={handleSave}>
+                    {isSaving ? "Applying policies…" : "Save configuration"}
+                </Button>
+            </div>
         </div>
     );
 }
