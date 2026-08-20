@@ -1,0 +1,129 @@
+name: Voice Gateway Release
+
+# Mirrors whatsapp-service-release.yml deliberately, minus the JVM build: the
+# gateway is a Python image, so the docker build IS the build. Same Trivy gate,
+# same ECR push, same SSM rollout, same variable gating.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/lims-voice-gateway/**"
+      - ".github/workflows/voice-gateway-release.yml"
+  # An infra- or docs-only merge to main matches none of the paths above, so it
+  # cuts no release even when the service has never shipped. Trigger this
+  # workflow manually (Run workflow) in that case.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # OIDC -> AWS
+  security-events: write # Trivy SARIF upload
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+  AWS_INSTANCE_ID: ${{ vars.AWS_INSTANCE_ID }}
+  ECR_REPO: durdans-lims/voice-gateway
+
+defaults:
+  run:
+    working-directory: apps/lims-voice-gateway
+
+jobs:
+  build-scan-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The image build compiles nothing, so at least prove the sources parse
+      # before spending minutes on pip resolution inside docker.
+      - name: Syntax-check the gateway
+        run: python3 -m py_compile app/*.py
+
+      - name: Build image
+        run: docker build -t lims-voice-gateway:${{ github.sha }} .
+
+      - name: Trivy gate (fail on HIGH/CRITICAL)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: lims-voice-gateway:${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+
+      - name: Trivy SARIF report
+        if: always()
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: lims-voice-gateway:${{ github.sha }}
+          format: sarif
+          output: trivy-voice.sarif
+          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+          exit-code: "0"
+          ignore-unfixed: true
+
+      - name: Upload Trivy SARIF
+        if: always()
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-voice.sarif
+          category: trivy-voice
+
+      - name: Configure AWS credentials (OIDC)
+        if: ${{ github.ref == 'refs/heads/main' && vars.AWS_DEPLOY_ROLE_ARN != '' && vars.AWS_INSTANCE_ID != '' }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        if: ${{ github.ref == 'refs/heads/main' && vars.AWS_DEPLOY_ROLE_ARN != '' && vars.AWS_INSTANCE_ID != '' }}
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Tag + push to ECR
+        if: ${{ github.ref == 'refs/heads/main' && vars.AWS_DEPLOY_ROLE_ARN != '' && vars.AWS_INSTANCE_ID != '' }}
+        run: |
+          REG=${{ steps.ecr.outputs.registry }}
+          docker tag lims-voice-gateway:${{ github.sha }} $REG/$ECR_REPO:${{ github.sha }}
+          docker tag lims-voice-gateway:${{ github.sha }} $REG/$ECR_REPO:latest
+          docker push $REG/$ECR_REPO:${{ github.sha }}
+          docker push $REG/$ECR_REPO:latest
+
+      - name: Deploy to host (SSM — pull + restart)
+        if: ${{ github.ref == 'refs/heads/main' && vars.AWS_DEPLOY_ROLE_ARN != '' && vars.AWS_INSTANCE_ID != '' }}
+        run: |
+          PARAMS=$(jq -nc --arg command "/opt/lims/deploy-service.sh voice $GITHUB_SHA" '{commands:[$command]}')
+          COMMAND_ID=$(aws ssm send-command \
+            --region "$AWS_REGION" \
+            --document-name "AWS-RunShellScript" \
+            --instance-ids "$AWS_INSTANCE_ID" \
+            --comment "deploy voice ${{ github.sha }}" \
+            --parameters "$PARAMS" \
+            --query 'Command.CommandId' \
+            --output text)
+
+          if ! aws ssm wait command-executed \
+            --region "$AWS_REGION" \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$AWS_INSTANCE_ID"; then
+            aws ssm get-command-invocation \
+              --region "$AWS_REGION" \
+              --command-id "$COMMAND_ID" \
+              --instance-id "$AWS_INSTANCE_ID" \
+              --query '{Status:Status,Output:StandardOutputContent,Error:StandardErrorContent}' || true
+            exit 1
+          fi
+
+          aws ssm get-command-invocation \
+            --region "$AWS_REGION" \
+            --command-id "$COMMAND_ID" \
+            --instance-id "$AWS_INSTANCE_ID" \
+            --query 'StandardOutputContent' \
+            --output text

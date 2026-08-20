@@ -33,6 +33,19 @@ resource "aws_security_group" "ec2" {
     }
   }
 
+  # WebRTC media for the voice gateway. WhatsApp calls negotiate ICE against
+  # Meta's media relays, and aiortc binds ephemeral UDP ports for SRTP — there is
+  # no fixed port to pin, so the high UDP range opens. This admits no TCP service
+  # and every application port below stays closed; the exposure is UDP packets to
+  # ports where, outside an active call, nothing is listening.
+  ingress {
+    description = "WebRTC media (SRTP/ICE) for WhatsApp calling"
+    from_port   = 1024
+    to_port     = 65535
+    protocol    = "udp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
   # Optional SSH, only if a CIDR is supplied. Default path is SSM Session Manager.
   dynamic "ingress" {
     for_each = var.ssh_ingress_cidr == "" ? [] : [var.ssh_ingress_cidr]
