@@ -357,6 +357,11 @@ COMPOSE
 docker compose up -d kc-db keycloak kafka caddy
 /opt/lims/deploy-service.sh app "${APP_TAG}" || true
 /opt/lims/deploy-service.sh frontend "${FRONTEND_TAG}" || true
+# Same `|| true` as the others, and it matters more here: the lab must not fail to
+# boot because the chatbot's image has not been published yet. Caddy still comes up
+# and answers the ACME challenge for wa.<domain>, so the certificate is issued and
+# the hostname simply 502s until the first deploy lands.
+/opt/lims/deploy-service.sh whatsapp "${WHATSAPP_TAG}" || true
 
 # Keycloak uses its own Postgres volume on this cost-optimized host. Back it up
 # off-host every night so an EC2/EBS loss does not also remove the identity DB.
