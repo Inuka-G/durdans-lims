@@ -21,11 +21,21 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-                // No browser ever calls this service. CORS is not configured because
-                // there is no origin to allow, and CSRF does not apply to a
-                // signature-authenticated, cookie-less endpoint.
+                // No browser ever calls this service, so there is no origin to allow.
                 .cors(AbstractHttpConfigurer::disable)
-                .csrf(AbstractHttpConfigurer::disable)
+
+                // CSRF stays ON, with the webhook exempted by path rather than the
+                // protection switched off globally.
+                //
+                // A cross-site forgery needs the victim's browser to supply ambient
+                // credentials. This endpoint has none: sessions are stateless, no cookie
+                // is ever set, and the only thing that authenticates a request is an
+                // HMAC over the raw body that an attacker cannot compute. So the
+                // exemption is genuinely safe — but exempting one path is not the same
+                // as disabling the feature. Whoever adds the next endpoint to this
+                // service gets CSRF protection by default instead of inheriting a
+                // service-wide opt-out they would have to notice and undo.
+                .csrf(csrf -> csrf.ignoringRequestMatchers("/webhook/whatsapp"))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         // Meta's callback. Authenticated by X-Hub-Signature-256, not by
