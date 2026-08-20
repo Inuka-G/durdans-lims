@@ -1,0 +1,75 @@
+server:
+  port: 11010
+  error:
+    # Same posture as lims-core-service: nothing about the internals reaches a
+    # caller. The webhook is on the public internet, so this matters more here.
+    include-stacktrace: never
+    include-message: never
+    include-binding-errors: never
+
+management:
+  # Actuator lives on a separate internal port that is never published. Meta only
+  # ever reaches 11010, and 11010 serves nothing but the webhook.
+  server:
+    port: 11011
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  tracing:
+    sampling:
+      probability: 1.0
+
+spring:
+  application:
+    name: lims-whatsapp-service
+
+  datasource:
+    # A SEPARATE database from durdans_lims_db, on the same Postgres instance, with
+    # its own user. This is not tidiness: it is the mechanism that makes "a bug in the
+    # agent cannot corrupt a specimen record" true rather than aspirational. The agent
+    # reaches clinical data only through lims-core-service's HTTP API, under a Keycloak
+    # service account with read-only scopes.
+    url: ${WA_DB_URL:jdbc:postgresql://localhost:5434/durdans_wa_db}
+    username: ${WA_DB_USERNAME:postgres}
+    password: ${WA_DB_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    open-in-view: false
+    show-sql: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+  liquibase:
+    enabled: true
+    change-log: classpath:/liquibase/master.xml
+
+app:
+  meta:
+    # Meta credentials. NEVER commit real values — supply them through the
+    # environment or AWS Secrets Manager, exactly as lims-core-service does for
+    # SMTP and SMS. An empty app-secret makes the service reject every webhook
+    # rather than accept unverified ones; see MetaSignatureVerifier.
+    app-id: ${META_APP_ID:}
+    app-secret: ${META_APP_SECRET:}
+    # The value Meta echoes back during webhook subscription. Ours to choose, but
+    # it must be high-entropy: it is the only thing standing between an attacker
+    # and hijacking the callback registration.
+    verify-token: ${META_VERIFY_TOKEN:}
+    phone-number-id: ${META_PHONE_NUMBER_ID:}
+    business-account-id: ${META_WABA_ID:}
+    access-token: ${META_ACCESS_TOKEN:}
+    graph-base-url: ${META_GRAPH_BASE_URL:https://graph.facebook.com}
+    graph-version: ${META_GRAPH_VERSION:v24.0}
+
+logging:
+  level:
+    com.uom.lims.whatsapp: INFO

@@ -1,0 +1,10 @@
+# Copy to application-local.yml (git-ignored) for local development.
+# Values here are examples, not credentials.
+app:
+  meta:
+    app-id: "000000000000000"
+    app-secret: "replace-me"
+    verify-token: "replace-me-with-32-random-bytes"
+    phone-number-id: "000000000000000"
+    business-account-id: "000000000000000"
+    access-token: "replace-me"

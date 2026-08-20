@@ -50,6 +50,9 @@ services:
       POSTGRES_PASSWORD: ${LIMS_DB_PASSWORD:-postgres}
     volumes:
       - lims_postgres_data:/var/lib/postgresql/data
+      # Creates durdans_wa_db for lims-whatsapp-service. Only runs on a FRESH volume —
+      # see the script header for the one-liner to add it to a running stack.
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
     networks: [lims-net]
     ports:
       - "5434:5432"
@@ -180,6 +183,40 @@ services:
         condition: service_healthy
       keycloak:
         condition: service_started
+      tempo:
+        condition: service_started
+    restart: always
+
+  # ---- WhatsApp agent (Meta webhook ingress + agent core) ----
+  # Runs outside the clinical core on purpose: it carries a public internet ingress and,
+  # from phase 2, an LLM client. It owns its own database and reaches patient data only
+  # through the core service's API. See docs/whatsapp-agent-design.md.
+  whatsapp:
+    build:
+      context: ../apps/lims-whatsapp-service
+      dockerfile: Dockerfile
+    image: durdans-lims/whatsapp-service:local
+    container_name: lims-whatsapp-service
+    networks: [lims-net]
+    ports:
+      - "11010:11010"   # webhook only — 11011 (management) stays on the private network
+    environment:
+      WA_DB_URL: jdbc:postgresql://lims-postgres:5432/durdans_wa_db
+      WA_DB_USERNAME: ${LIMS_DB_USERNAME:-postgres}
+      WA_DB_PASSWORD: ${LIMS_DB_PASSWORD:-postgres}
+      # Meta credentials. Empty by default, and empty means the service rejects every
+      # webhook rather than accepting unverified ones. Set these in infra/.env.
+      META_APP_ID: ${META_APP_ID:-}
+      META_APP_SECRET: ${META_APP_SECRET:-}
+      META_VERIFY_TOKEN: ${META_VERIFY_TOKEN:-}
+      META_PHONE_NUMBER_ID: ${META_PHONE_NUMBER_ID:-}
+      META_WABA_ID: ${META_WABA_ID:-}
+      META_ACCESS_TOKEN: ${META_ACCESS_TOKEN:-}
+      OTLP_ENDPOINT: http://tempo:4318/v1/traces
+      TRACING_SAMPLE_RATE: ${TRACING_SAMPLE_RATE:-1.0}
+    depends_on:
+      lims-postgres:
+        condition: service_healthy
       tempo:
         condition: service_started
     restart: always
