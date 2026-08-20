@@ -12,6 +12,9 @@ on:
     paths:
       - "apps/lims-whatsapp-service/**"
       - ".github/workflows/whatsapp-service-release.yml"
+  # An infra- or docs-only merge to main matches none of the paths above, so it
+  # cuts no release even when the service has never shipped. Trigger this
+  # workflow manually (Run workflow) in that case.
   workflow_dispatch:
 
 permissions:

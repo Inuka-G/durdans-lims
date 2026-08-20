@@ -104,8 +104,12 @@ because the chatbot's image has not been published yet.
    missing policy to hand-write.
 2. Fill in the `durdans-lims/meta` secret — it is created empty on purpose and the
    service rejects every webhook while the app secret is blank.
-3. Merge to `main` so `whatsapp-service-release.yml` builds, pushes and rolls out.
-4. Point Meta's callback URL at `https://wa.<domain>/webhook/whatsapp`.
+3. On the host, run `/opt/lims/refresh-meta.sh`. `.env` is written at boot, so filling
+   the secret in AWS does nothing on its own; this re-reads it and restarts the agent.
+   It is also how a rotated app secret gets applied, without replacing the instance and
+   losing the Keycloak database with it.
+4. Merge to `main` so `whatsapp-service-release.yml` builds, pushes and rolls out.
+5. Point Meta's callback URL at `https://wa.<domain>/webhook/whatsapp`.
 
 Between steps 1 and 3 the hostname exists and holds a valid certificate — Caddy answers
 the ACME challenge whether or not the service behind it is running — and returns 502.
@@ -121,9 +125,35 @@ the ACME challenge whether or not the service behind it is running — and retur
 | Keycloak's database | **Lost** — it is a container volume, and the realm re-imports to its seed state |
 
 The agent gets its own Postgres role and database on the same RDS instance, created
-idempotently by `bootstrap.sh`. Nothing is granted to that role on `durdans_lims_db`,
-which is what makes the isolation something Postgres enforces rather than something the
-design intends.
+idempotently by `provision-wa-db.sh`. Nothing is granted to that role on
+`durdans_lims_db`.
+
+Measured on the live host rather than asserted, because a security claim nobody checked
+is just a comment:
+
+| As `lims_wa` against `durdans_lims_db` | Result |
+|---|---|
+| `SELECT count(*) FROM patient` | permission denied |
+| `SELECT count(*) FROM test_catalog` | permission denied |
+| List tables via `information_schema` | 0 rows — it cannot even see them |
+| `CREATE TABLE ...` | permission denied for schema public |
+| Open a connection, `SELECT 1` | **succeeds** |
+
+That last row is why the wording here is "can reach no clinical data" rather than "can
+only see its own database". Postgres grants `CONNECT` to `PUBLIC` on every database by
+default, so the role can open a session against `durdans_lims_db` — it simply finds
+nothing there. The exposure is a connection slot, not data.
+
+Closing even that is one statement, worth running deliberately rather than during an
+incident:
+
+```sql
+REVOKE CONNECT ON DATABASE durdans_lims_db FROM PUBLIC;
+GRANT  CONNECT ON DATABASE durdans_lims_db TO <the app's role>;
+```
+
+The second line is not optional — without it, anything that is not the database owner
+loses access too. Verify the app still connects before considering it done.
 
 A caveat on `nip.io`: the hostname contains the IP address, so changing the Elastic IP
 changes the webhook URL. Meta's callback URL is awkward to change — re-verification has

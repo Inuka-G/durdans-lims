@@ -72,6 +72,22 @@ resource "aws_instance" "lims" {
   user_data                   = local.user_data
   user_data_replace_on_change = true
 
+  # EC2 rejects user_data over 16384 bytes. That is not caught at plan time: the
+  # generated header interpolates resources that may not exist yet, so local.user_data
+  # is unknown until apply — and because a size change also forces replacement,
+  # Terraform destroys the instance first and only then fails to create it. That is
+  # exactly what happened on 2026-08-20, and it took the whole host down.
+  #
+  # The condition deliberately reads only the static file, whose length IS known at
+  # plan time, against a budget that leaves ~1.4 KB for the header. Anything that does
+  # not fit belongs in S3 alongside deploy-service.sh.
+  lifecycle {
+    precondition {
+      condition     = length(file("${path.module}/bootstrap.sh")) <= 15000
+      error_message = "bootstrap.sh is ${length(file("${path.module}/bootstrap.sh"))} bytes; keep it under 15000 so user_data stays inside EC2's 16384 limit. Move the excess into infra/scripts/ and fetch it from S3."
+    }
+  }
+
   root_block_device {
     volume_size = var.ec2_volume_size_gb
     volume_type = "gp3"
