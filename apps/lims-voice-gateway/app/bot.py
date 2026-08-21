@@ -4,7 +4,10 @@ no synthesis hop — the model hears Opus-decoded audio and speaks back.
 
 Carries no business logic. The strongest statement this file makes is the system
 prompt, and even that only tells the model to RELAY tool sentences, never to
-compose a price."""
+compose a price.
+
+Written against pipecat-ai 1.7: GeminiLiveLLMService plus the universal
+LLMContext / LLMContextAggregatorPair (the pair auto-detects a realtime service)."""
 
 import aiohttp
 from loguru import logger
@@ -13,13 +16,19 @@ from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
-from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
-from pipecat.services.gemini_multimodal_live.gemini import GeminiMultimodalLiveLLMService
+from pipecat.processors.aggregators.llm_context import LLMContext
+from pipecat.processors.aggregators.llm_response_universal import LLMContextAggregatorPair
+from pipecat.services.google.gemini_live.llm import GeminiLiveLLMService
 from pipecat.transports.base_transport import TransportParams
 from pipecat.transports.smallwebrtc.transport import SmallWebRTCTransport
 
 from .config import settings
 from .tools import build_tool_handlers, tool_definitions
+
+try:  # 1.x: "run inference on the current context" is an explicit frame.
+    from pipecat.frames.frames import LLMRunFrame
+except ImportError:  # pragma: no cover - older line
+    LLMRunFrame = None
 
 VOICE_PROMPT = """\
 You are the telephone assistant of Durdans Laboratory, a medical laboratory in
@@ -73,17 +82,19 @@ async def run_bot(connection, caller_wa_id: str) -> None:
         }
         if settings.gemini_live_model:
             llm_kwargs["model"] = settings.gemini_live_model
-        llm = GeminiMultimodalLiveLLMService(**llm_kwargs)
+        llm = GeminiLiveLLMService(**llm_kwargs)
 
         for name, handler in build_tool_handlers(tool_session, caller_wa_id).items():
             llm.register_function(name, handler)
 
-        # The context starts with an instruction to greet, so the bot speaks first
-        # — a silent line after the connect tone reads as a dead call.
-        context = OpenAILLMContext(
-            [{"role": "user", "content": "The call has just connected. Greet the caller in Sinhala and ask how you can help."}],
+        # The context opens with an instruction to greet, so the bot speaks first
+        # — a silent line after the connect tone reads as a dead call. The service
+        # runs inference on context initialization by default; the explicit run
+        # frame on connect is belt-and-braces.
+        context = LLMContext(
+            messages=[{"role": "user", "content": "The call has just connected. Greet the caller in Sinhala and ask how you can help."}],
         )
-        context_aggregator = llm.create_context_aggregator(context)
+        context_aggregator = LLMContextAggregatorPair(context)
 
         pipeline = Pipeline([
             transport.input(),
@@ -97,7 +108,10 @@ async def run_bot(connection, caller_wa_id: str) -> None:
 
         @transport.event_handler("on_client_connected")
         async def on_client_connected(_transport, _client):
-            await task.queue_frames([context_aggregator.user().get_context_frame()])
+            if LLMRunFrame is not None:
+                await task.queue_frames([LLMRunFrame()])
+            else:
+                await context_aggregator.user().push_context_frame()
 
         @transport.event_handler("on_client_disconnected")
         async def on_client_disconnected(_transport, _client):
