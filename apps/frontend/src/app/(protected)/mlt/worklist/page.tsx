@@ -329,13 +329,26 @@ export default function MLTWorklistPage() {
                                                 <PriorityBadge priority={sample.priority} />
                                             </td>
                                             <td className="px-3 py-2">
-                                                <StatusChip
-                                                    tone={sampleStatusTone(sample.status)}
-                                                    dot
-                                                    title={humanizeStatus(sample.status || '—')}
-                                                >
-                                                    {humanizeStatus(sample.status || '—')}
-                                                </StatusChip>
+                                                <div className="flex flex-wrap items-center gap-1">
+                                                    <StatusChip
+                                                        tone={sampleStatusTone(sample.status)}
+                                                        dot
+                                                        title={humanizeStatus(sample.status || '—')}
+                                                    >
+                                                        {humanizeStatus(sample.status || '—')}
+                                                    </StatusChip>
+                                                    {/* A case the supervisor sent back is not fresh work: it needs re-entry. */}
+                                                    {sample.returnedToMlt && (
+                                                        <StatusChip
+                                                            tone="danger"
+                                                            dot
+                                                            size="sm"
+                                                            title={sample.returnReason ? `Returned by supervisor: ${sample.returnReason}` : 'Returned by supervisor'}
+                                                        >
+                                                            Returned by supervisor
+                                                        </StatusChip>
+                                                    )}
+                                                </div>
                                             </td>
                                             <td className="py-2 pl-2 pr-3 text-right">
                                                 <Button

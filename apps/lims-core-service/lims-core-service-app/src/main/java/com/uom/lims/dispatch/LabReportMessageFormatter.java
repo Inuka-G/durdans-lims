@@ -2,6 +2,14 @@ package com.uom.lims.dispatch;
 
 import org.springframework.stereotype.Component;
 
+/**
+ * The patient-facing "your report is ready" SMS.
+ *
+ * <p>Laid out in blocks separated by a blank line - heading, who and what, the results,
+ * then the reference and the advice - because this is read on a phone and a wall of text
+ * is where a low haemoglobin gets missed. The gateway carries the line breaks because the
+ * message is posted as a form body; over a query string they were cut at the first one.
+ */
 @Component
 public class LabReportMessageFormatter {
 
@@ -10,15 +18,17 @@ public class LabReportMessageFormatter {
     private static final int MAX_SMS_LENGTH = 459;
 
     public String formatSms(LabReportData report) {
-        StringBuilder message = new StringBuilder("Durdans LIMS - Authorized Lab Report\n")
-                .append("Patient: ")
-                .append(value(report.patientName()))
-                .append("\nTest: ").append(value(report.testPanel()))
-                .append("\nResults:");
+        StringBuilder message = new StringBuilder("Durdans LIMS\n")
+                .append("Authorized Lab Report\n")
+                .append("\n")
+                .append("Patient: ").append(value(report.patientName())).append("\n")
+                .append("Test: ").append(value(report.testPanel())).append("\n")
+                .append("\n")
+                .append("Results:");
 
-        String footer = "\nReport: " + shortReference(report.reportReference())
+        String footer = "\n\nReport: " + shortReference(report.reportReference())
                 + "\nStatus: Clinically authorized"
-                + "\nPlease consult your doctor.";
+                + "\n\nPlease consult your doctor.";
 
         if (report.results().isEmpty()) {
             message.append("\nPlease contact the laboratory for result details.");

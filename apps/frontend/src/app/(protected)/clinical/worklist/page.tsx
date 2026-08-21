@@ -12,25 +12,35 @@ import {
     Stethoscope,
     X,
 } from "lucide-react";
+import { getPendingClinicalResults, TestResultSummary } from "@/lib/api";
+import { displayResultNo } from "@/lib/result-display";
 import {
-    getPendingClinicalResults,
-    TestResultSummary,
-} from "@/lib/api";
-import { formatDisplayId } from "@/lib/format-id";
+    FLAG_FILTER_OPTIONS,
+    PRIORITY_FILTER_OPTIONS,
+    countFilterOptions,
+    isCritical,
+    isFlagged,
+    matchesFlagFilter,
+    matchesPriorityFilter,
+    matchesSearchQuery,
+    pageCount,
+    type FlagFilter,
+    type PriorityFilter,
+} from "@/lib/review-worklist";
 import { cn } from "@/lib/utils";
 import Button from "@/components/ui/Button";
 import PageHeader from "@/components/ui/PageHeader";
 import KpiTile from "@/components/ui/KpiTile";
 import SectionCard from "@/components/ui/SectionCard";
-import SegmentedControl from "@/components/ui/SegmentedControl";
 import EmptyState from "@/components/ui/EmptyState";
 import Pagination from "@/components/ui/Pagination";
 import StatusChip, { humanizeStatus } from "@/components/ui/StatusChip";
-import { InputField } from "@/components/ui/Field";
+import { InputField, SelectField } from "@/components/ui/Field";
 import PriorityBadge from "@/components/shared/PriorityBadge";
 import { formatAuditTime } from "@/components/patient-dashboard/dashboard-data";
 
 const PAGE_SIZE = 10;
+/** Server page size used to load the whole worklist; search and counts cover every page. */
 const FETCH_PAGE_SIZE = 100;
 const SKELETON_ROWS = 6;
 
@@ -67,120 +77,31 @@ const getClinicalStatusBadge = (status?: string | null) => {
     return <StatusChip tone="neutral">{status ? humanizeStatus(status) : "Unknown"}</StatusChip>;
 };
 
-const isFlaggedResult = (flag?: string | null): flag is string =>
-    Boolean(flag) && flag !== "NORMAL";
-
-const isCriticalFlag = (flag?: string | null) =>
-    flag === "CRITICAL_HIGH" || flag === "CRITICAL_LOW";
-
-const getFlagBadge = (flag?: string | null) => {
-    if (!isFlaggedResult(flag)) {
-        return (
-            <StatusChip tone="success" dot>
-                Normal
-            </StatusChip>
-        );
-    }
-
-    if (isCriticalFlag(flag)) {
-        return (
-            <StatusChip tone="danger" dot>
-                {flag === "CRITICAL_HIGH" ? "Critical high" : "Critical low"}
-            </StatusChip>
-        );
-    }
-
-    return (
-        <StatusChip tone="pending" dot>
-            {humanizeStatus(flag)}
-        </StatusChip>
-    );
-};
-
-/* ------------------------------------------------------------------ */
-/*  Filtering — three independent dimensions plus free-text search      */
-/* ------------------------------------------------------------------ */
-
-type FlagFilter = "ALL" | "FLAGGED" | "CRITICAL" | "HIGH" | "LOW" | "NORMAL";
-type PriorityFilter = "ALL" | "STAT" | "URGENT" | "NORMAL";
 type StatusFilter = "ALL" | "PENDING";
 
-type FilterOption<TValue extends string> = {
-    value: TValue;
-    label: string;
-};
-
-const STATUS_OPTIONS: readonly FilterOption<StatusFilter>[] = [
+const STATUS_OPTIONS: ReadonlyArray<{ value: StatusFilter; label: string }> = [
     { value: "ALL", label: "All statuses" },
     { value: "PENDING", label: "Pending review" },
-];
-
-const PRIORITY_OPTIONS: readonly FilterOption<PriorityFilter>[] = [
-    { value: "ALL", label: "All priorities" },
-    { value: "STAT", label: "STAT" },
-    { value: "URGENT", label: "Urgent" },
-    { value: "NORMAL", label: "Normal" },
-];
-
-const FLAG_OPTIONS: readonly FilterOption<FlagFilter>[] = [
-    { value: "ALL", label: "All flags" },
-    { value: "FLAGGED", label: "Flagged" },
-    { value: "CRITICAL", label: "Critical" },
-    { value: "HIGH", label: "High" },
-    { value: "LOW", label: "Low" },
-    { value: "NORMAL", label: "Normal" },
 ];
 
 const matchesStatus = (result: TestResultSummary, filter: StatusFilter) =>
     filter === "ALL" || result.status === "TECHNICALLY_VERIFIED";
 
-const matchesPriority = (result: TestResultSummary, filter: PriorityFilter) =>
-    filter === "ALL" || result.priorityLevel === filter;
+interface FilterCriteria {
+    search: string;
+    status: StatusFilter;
+    priority: PriorityFilter;
+    flag: FlagFilter;
+}
 
-const matchesFlag = (result: TestResultSummary, filter: FlagFilter) => {
-    const resultFlag = result.flag ?? "NORMAL";
-
-    return (
-        filter === "ALL" ||
-        (filter === "NORMAL" && resultFlag === "NORMAL") ||
-        (filter === "FLAGGED" && isFlaggedResult(resultFlag)) ||
-        (filter === "CRITICAL" && isCriticalFlag(resultFlag)) ||
-        (filter === "HIGH" && (resultFlag === "HIGH" || resultFlag === "CRITICAL_HIGH")) ||
-        (filter === "LOW" && (resultFlag === "LOW" || resultFlag === "CRITICAL_LOW"))
+const filterResults = (results: TestResultSummary[], criteria: FilterCriteria) =>
+    results.filter(
+        (result) =>
+            matchesSearchQuery(result, criteria.search) &&
+            matchesStatus(result, criteria.status) &&
+            matchesPriorityFilter(result, criteria.priority) &&
+            matchesFlagFilter(result, criteria.flag)
     );
-};
-
-const matchesSearch = (result: TestResultSummary, query: string) => {
-    if (query.length === 0) {
-        return true;
-    }
-
-    const displayResultId = formatDisplayId(result.resultId, "RES").toLowerCase();
-
-    return (
-        result.resultId.toLowerCase().includes(query) ||
-        displayResultId.includes(query) ||
-        (result.patientName ?? "").toLowerCase().includes(query) ||
-        (result.patientCode ?? "").toLowerCase().includes(query) ||
-        (result.testType ?? "").toLowerCase().includes(query) ||
-        (result.technicianName ?? "").toLowerCase().includes(query) ||
-        (result.priorityLevel ?? "").toLowerCase().includes(query)
-    );
-};
-
-const buildFilterOptions = <TValue extends string>(
-    rows: TestResultSummary[],
-    options: readonly FilterOption<TValue>[],
-    matches: (result: TestResultSummary, value: TValue) => boolean
-) =>
-    options.map((option) => ({
-        ...option,
-        count: rows.filter((row) => matches(row, option.value)).length,
-    }));
-
-/* ------------------------------------------------------------------ */
-/*  Page                                                               */
-/* ------------------------------------------------------------------ */
 
 export default function ClinicalWorklistPage() {
     const router = useRouter();
@@ -197,6 +118,8 @@ export default function ClinicalWorklistPage() {
     useEffect(() => {
         let active = true;
 
+        // The worklist is loaded whole (every server page) so the search, the
+        // filter counts and the KPI cards cover every waiting case, not one page.
         const loadPendingClinicalResults = async () => {
             try {
                 setLoading(true);
@@ -246,69 +169,49 @@ export default function ClinicalWorklistPage() {
     const retry = useCallback(() => setReloadKey((key) => key + 1), []);
 
     const pendingCount = results.filter((result) => result.status === "TECHNICALLY_VERIFIED").length;
-    const flaggedCount = results.filter((result) => isFlaggedResult(result.flag)).length;
-    const criticalCount = results.filter((result) => isCriticalFlag(result.flag)).length;
+    const flaggedCount = results.filter((result) => isFlagged(result)).length;
+    const criticalCount = results.filter((result) => isCritical(result)).length;
 
-    const searchedResults = useMemo(() => {
-        const query = search.trim().toLowerCase();
+    const criteria = useMemo<FilterCriteria>(
+        () => ({
+            search: search.trim().toLowerCase(),
+            status: statusFilter,
+            priority: priorityFilter,
+            flag: flagFilter,
+        }),
+        [search, statusFilter, priorityFilter, flagFilter]
+    );
 
-        return results.filter((result) => matchesSearch(result, query));
-    }, [results, search]);
+    const filteredResults = useMemo(() => filterResults(results, criteria), [results, criteria]);
 
-    // Each control counts the rows left by the other two controls, so a number
-    // always previews how many rows picking that option would actually show.
+    // Each dropdown counts the rows left by the search and the other two dropdowns,
+    // so a number always previews how many rows picking that option would show.
     const statusOptions = useMemo(
-        () =>
-            buildFilterOptions(
-                searchedResults.filter(
-                    (result) =>
-                        matchesPriority(result, priorityFilter) && matchesFlag(result, flagFilter)
-                ),
-                STATUS_OPTIONS,
-                matchesStatus
-            ),
-        [flagFilter, priorityFilter, searchedResults]
+        () => countFilterOptions(filterResults(results, { ...criteria, status: "ALL" }), STATUS_OPTIONS, matchesStatus),
+        [results, criteria]
     );
 
     const priorityOptions = useMemo(
         () =>
-            buildFilterOptions(
-                searchedResults.filter(
-                    (result) =>
-                        matchesStatus(result, statusFilter) && matchesFlag(result, flagFilter)
-                ),
-                PRIORITY_OPTIONS,
-                matchesPriority
+            countFilterOptions(
+                filterResults(results, { ...criteria, priority: "ALL" }),
+                PRIORITY_FILTER_OPTIONS,
+                matchesPriorityFilter
             ),
-        [flagFilter, searchedResults, statusFilter]
+        [results, criteria]
     );
 
     const flagOptions = useMemo(
         () =>
-            buildFilterOptions(
-                searchedResults.filter(
-                    (result) =>
-                        matchesStatus(result, statusFilter) &&
-                        matchesPriority(result, priorityFilter)
-                ),
-                FLAG_OPTIONS,
-                matchesFlag
+            countFilterOptions(
+                filterResults(results, { ...criteria, flag: "ALL" }),
+                FLAG_FILTER_OPTIONS,
+                matchesFlagFilter
             ),
-        [priorityFilter, searchedResults, statusFilter]
+        [results, criteria]
     );
 
-    const filteredResults = useMemo(
-        () =>
-            searchedResults.filter(
-                (result) =>
-                    matchesStatus(result, statusFilter) &&
-                    matchesPriority(result, priorityFilter) &&
-                    matchesFlag(result, flagFilter)
-            ),
-        [flagFilter, priorityFilter, searchedResults, statusFilter]
-    );
-
-    const totalPages = Math.max(1, Math.ceil(filteredResults.length / PAGE_SIZE));
+    const totalPages = pageCount(filteredResults.length, PAGE_SIZE);
     const paginatedResults = useMemo(() => {
         const startIndex = page * PAGE_SIZE;
         return filteredResults.slice(startIndex, startIndex + PAGE_SIZE);
@@ -382,7 +285,7 @@ export default function ClinicalWorklistPage() {
                     label="Pending review"
                     value={pendingCount}
                     icon={ClipboardCheck}
-                    note="Technically verified"
+                    note="Awaiting pathologist authorization"
                     loading={loading}
                 />
                 <KpiTile
@@ -398,43 +301,62 @@ export default function ClinicalWorklistPage() {
                     value={criticalCount}
                     icon={AlertTriangle}
                     tone="danger"
-                    note="Critical high or low"
+                    note="Panic findings needing immediate attention"
                     loading={loading}
                 />
             </div>
 
             <SectionCard title="Results" count={loading ? undefined : filteredResults.length} flush>
-                {/* Filter toolbar — status, priority and flag are independent dimensions.
-                    Each control's counts are computed against the other two, so a number
-                    previews how many rows that option would leave. */}
+                {/* Filter toolbar — status, priority and flag dropdowns preview their counts */}
                 <div className="flex flex-wrap items-center gap-2 border-b border-edge bg-surface-muted px-3 py-2">
-                    <SegmentedControl<StatusFilter>
-                        ariaLabel="Filter by status"
+                    <SelectField
+                        label="Filter by status"
+                        hideLabel
                         value={statusFilter}
-                        onChange={setStatusFilter}
-                        options={statusOptions}
-                    />
-                    <SegmentedControl<PriorityFilter>
-                        ariaLabel="Filter by priority"
+                        onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}
+                        className="w-full sm:w-48"
+                    >
+                        {statusOptions.map((option) => (
+                            <option key={option.value} value={option.value}>
+                                {option.label} ({option.count})
+                            </option>
+                        ))}
+                    </SelectField>
+                    <SelectField
+                        label="Filter by priority"
+                        hideLabel
                         value={priorityFilter}
-                        onChange={setPriorityFilter}
-                        options={priorityOptions}
-                    />
-                    <SegmentedControl<FlagFilter>
-                        ariaLabel="Filter by flag state"
+                        onChange={(event) => setPriorityFilter(event.target.value as PriorityFilter)}
+                        className="w-full sm:w-44"
+                    >
+                        {priorityOptions.map((option) => (
+                            <option key={option.value} value={option.value}>
+                                {option.label} ({option.count})
+                            </option>
+                        ))}
+                    </SelectField>
+                    <SelectField
+                        label="Filter by flag state"
+                        hideLabel
                         value={flagFilter}
-                        onChange={setFlagFilter}
-                        options={flagOptions}
-                    />
+                        onChange={(event) => setFlagFilter(event.target.value as FlagFilter)}
+                        className="w-full sm:w-44"
+                    >
+                        {flagOptions.map((option) => (
+                            <option key={option.value} value={option.value}>
+                                {option.label} ({option.count})
+                            </option>
+                        ))}
+                    </SelectField>
                     <InputField
                         label="Search worklist"
                         hideLabel
                         type="search"
                         value={search}
                         onChange={(event) => setSearch(event.target.value)}
-                        placeholder="Search result ID, patient, code, test group or MLT"
+                        placeholder="Search result ID, patient, patient code, test group or verifier"
                         autoComplete="off"
-                        className="min-w-[200px] flex-1 xl:ml-auto xl:max-w-[360px]"
+                        className="min-w-[200px] flex-1"
                     />
                     {hasFilters && (
                         <Button variant="ghost" icon={X} onClick={clearFilters}>
@@ -485,51 +407,46 @@ export default function ClinicalWorklistPage() {
                         <EmptyState
                             icon={Inbox}
                             title="Worklist is clear"
-                            description="Results technically verified by the MLT team will appear here for review."
+                            description="Results technically verified by the lab will appear here for review."
                         />
                     )
                 ) : (
                     <div className="overflow-x-auto">
-                        {/* table-fixed budget: fixed cols + >=160px for each of the two auto
-                            cols (Patient, Test group). base 496+320=816, md 640+320=960,
-                            lg 784+320=1104 — min-w keeps them above the floor at every band. */}
-                        <table className="w-full min-w-[820px] table-fixed text-left text-[13px] md:min-w-[970px] lg:min-w-[1110px]">
+                        <table className="w-full min-w-[940px] table-fixed text-left text-[13px]">
                             <caption className="sr-only">Results awaiting clinical review</caption>
                             <thead>
                                 <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
-                                    <th scope="col" className="w-44 py-2 pl-4 pr-3 font-medium">
-                                        Result
+                                    <th scope="col" className="w-[16%] py-2 pl-4 pr-3 font-medium">
+                                        Result ID
                                     </th>
-                                    <th scope="col" className="px-3 py-2 font-medium">
+                                    <th scope="col" className="w-[19%] px-3 py-2 font-medium">
                                         Patient
                                     </th>
-                                    <th scope="col" className="px-3 py-2 font-medium">
+                                    <th scope="col" className="w-[18%] px-3 py-2 font-medium">
                                         Test group
                                     </th>
-                                    <th scope="col" className="hidden w-36 px-3 py-2 font-medium lg:table-cell">
+                                    <th scope="col" className="w-[15%] px-3 py-2 font-medium">
                                         Verified by
                                     </th>
-                                    <th scope="col" className="w-24 px-3 py-2 font-medium">
+                                    <th scope="col" className="w-[9%] px-3 py-2 font-medium">
                                         Priority
                                     </th>
-                                    <th scope="col" className="w-32 px-3 py-2 font-medium">
-                                        Flag
-                                    </th>
-                                    <th scope="col" className="hidden w-36 px-3 py-2 font-medium md:table-cell">
+                                    <th scope="col" className="w-[13%] px-3 py-2 font-medium">
                                         Status
                                     </th>
-                                    <th scope="col" className="w-24 py-2 pl-3 pr-4 text-right font-medium">
+                                    <th scope="col" className="w-[10%] py-2 pl-3 pr-4 text-right font-medium">
                                         <span className="sr-only">Actions</span>
                                     </th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-edge whitespace-nowrap">
                                 {paginatedResults.map((result) => {
-                                    const displayId = formatDisplayId(result.resultId, "RES");
+                                    const displayId = displayResultNo(result.resultNo, result.resultId);
                                     const updatedAt = result.updatedAt ?? result.createdAt;
                                     // Critical results stay tinted so the row still reads as
-                                    // urgent once the eye leaves the flag column.
-                                    const critical = isCriticalFlag(result.flag);
+                                    // urgent without a flag column.
+                                    const critical = isCritical(result);
+                                    const verifiedBy = result.technicianName || result.mltName;
                                     return (
                                         <tr
                                             key={result.resultId}
@@ -541,8 +458,17 @@ export default function ClinicalWorklistPage() {
                                             )}
                                         >
                                             <td className="py-2 pl-4 pr-3">
-                                                <div className="truncate font-mono text-xs font-medium text-fg" title={displayId}>
-                                                    {displayId}
+                                                <div
+                                                    className="flex items-center gap-1.5 truncate font-mono text-xs font-medium text-fg"
+                                                    title={result.resultId}
+                                                >
+                                                    {critical && (
+                                                        <>
+                                                            <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-status-danger-fg" aria-hidden="true" />
+                                                            <span className="sr-only">Critical: </span>
+                                                        </>
+                                                    )}
+                                                    <span className="truncate">{displayId}</span>
                                                 </div>
                                                 <div className="mt-0.5 text-xs text-fg-muted">
                                                     {updatedAt ? (
@@ -560,7 +486,7 @@ export default function ClinicalWorklistPage() {
                                             {/* Name over patient code — the code is searchable, so it
                                                 stays visible for the operator to match against. */}
                                             <td className="px-3 py-2">
-                                                <p className="truncate font-medium text-fg" title={result.patientName || undefined}>
+                                                <p className="truncate font-semibold text-fg" title={result.patientName || undefined}>
                                                     {result.patientName || "Unknown patient"}
                                                 </p>
                                                 {result.patientCode && (
@@ -572,20 +498,17 @@ export default function ClinicalWorklistPage() {
                                             <td className="truncate px-3 py-2 text-fg-secondary" title={result.testType || undefined}>
                                                 {result.testType || "Unknown test group"}
                                             </td>
-                                            <td
-                                                className="hidden truncate px-3 py-2 text-fg-secondary lg:table-cell"
-                                                title={result.technicianName || result.mltName || undefined}
-                                            >
-                                                {result.technicianName || result.mltName || <span className="text-fg-faint">—</span>}
+                                            <td className="truncate px-3 py-2 text-fg-secondary" title={verifiedBy || undefined}>
+                                                {verifiedBy || <span className="text-fg-faint">—</span>}
                                             </td>
                                             <td className="px-3 py-2">
                                                 <PriorityBadge priority={result.priorityLevel ?? ""} />
                                             </td>
-                                            <td className="px-3 py-2">{getFlagBadge(result.flag)}</td>
-                                            <td className="hidden px-3 py-2 md:table-cell">{getClinicalStatusBadge(result.status)}</td>
+                                            <td className="px-3 py-2">{getClinicalStatusBadge(result.status)}</td>
                                             <td className="py-2 pl-3 pr-4 text-right">
                                                 <Button
                                                     size="sm"
+                                                    variant="primary"
                                                     onClick={() => handleReview(result)}
                                                     aria-label={`Review result ${displayId}`}
                                                 >
@@ -601,14 +524,23 @@ export default function ClinicalWorklistPage() {
                 )}
 
                 {!loading && !error && filteredResults.length > 0 && (
-                    <Pagination
-                        currentPage={page + 1}
-                        totalPages={totalPages}
-                        totalItems={filteredResults.length}
-                        pageSize={PAGE_SIZE}
-                        onPageChange={(nextPage) => setPage(nextPage - 1)}
-                        itemLabel="results"
-                    />
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-edge px-4 pt-2 text-xs text-fg-muted">
+                        <p className="tabular-nums">
+                            Page {page + 1} of {totalPages}
+                            <span aria-hidden="true"> · </span>
+                            {filteredResults.length.toLocaleString()} matching
+                            {hasFilters && ` of ${results.length.toLocaleString()}`}
+                        </p>
+                        <Pagination
+                            currentPage={page + 1}
+                            totalPages={totalPages}
+                            totalItems={filteredResults.length}
+                            pageSize={PAGE_SIZE}
+                            onPageChange={(nextPage) => setPage(nextPage - 1)}
+                            itemLabel="results"
+                            className="w-full border-t-0 px-0 pt-0 sm:w-auto"
+                        />
+                    </div>
                 )}
             </SectionCard>
         </div>

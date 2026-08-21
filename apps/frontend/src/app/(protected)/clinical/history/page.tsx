@@ -9,7 +9,7 @@ import {
     type HistoryDateRange,
 } from "@/lib/history-date-range";
 import { downloadCsv } from "@/lib/export-csv";
-import { formatDisplayId } from "@/lib/format-id";
+import { displayResultNo } from "@/lib/result-display";
 import { formatStatusLabel } from "@/constants/sample-lifecycle";
 import {
     getClinicalHistory,
@@ -54,7 +54,9 @@ const EXPORT_NOTICE_STYLES: Record<"error" | "warning", string> = {
     warning: "border-status-pending-edge bg-status-pending-bg text-status-pending-fg",
 };
 
-const DATE_RANGE_OPTIONS = HISTORY_DATE_RANGES.map((range) => ({
+// The clinical audit offers Today / 7 days / 30 days / All time; the year-long
+// window belongs to the supervisor's regulatory history, not here.
+const DATE_RANGE_OPTIONS = HISTORY_DATE_RANGES.filter((range) => range.key !== "LAST_365_DAYS").map((range) => ({
     value: range.key,
     // Library labels are Title Case ("Last 7 Days"); the design system is sentence case.
     label: range.label.charAt(0).toUpperCase() + range.label.slice(1).toLowerCase(),
@@ -229,7 +231,7 @@ export default function ClinicalHistoryPage() {
                         timestamp ? formatFullTimestamp(timestamp) : "",
                         item.patientName || "Unknown patient",
                         item.patientCode || "",
-                        formatDisplayId(item.resultId, "RES"),
+                        displayResultNo(item.resultNo, item.resultId),
                         item.testName || "Unknown test group",
                         ACTION_LABELS[actionType] || item.actionSummary || "Workflow updated",
                         item.specimenPriority ? formatStatusLabel(item.specimenPriority) : "",
@@ -344,7 +346,7 @@ export default function ClinicalHistoryPage() {
                             type="search"
                             value={search}
                             onChange={(event) => setSearch(event.target.value)}
-                            placeholder="Search patient, code, result ID, test group or pathologist"
+                            placeholder="Search patient, code, result ID, test group, pathologist, notes or action"
                             autoComplete="off"
                             className="min-w-[200px] flex-1"
                         />
@@ -434,14 +436,11 @@ export default function ClinicalHistoryPage() {
                             <caption className="sr-only">Clinical history entries</caption>
                             <thead>
                                 <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
-                                    <th scope="col" className="w-36 py-2 pl-4 pr-3 font-medium">
-                                        Time
+                                    <th scope="col" className="w-44 py-2 pl-4 pr-3 font-medium">
+                                        Result ID
                                     </th>
                                     <th scope="col" className="w-44 px-3 py-2 font-medium">
                                         Patient
-                                    </th>
-                                    <th scope="col" className="w-32 px-3 py-2 font-medium">
-                                        Result ID
                                     </th>
                                     <th scope="col" className="hidden w-36 px-3 py-2 font-medium md:table-cell">
                                         Test group
@@ -469,22 +468,27 @@ export default function ClinicalHistoryPage() {
                                     const timestamp = item.actionAt ?? item.updatedAt;
                                     const actionLabel =
                                         ACTION_LABELS[actionType] || item.actionSummary || "Workflow updated";
-                                    const displayResultId = formatDisplayId(item.resultId, "RES");
+                                    const displayResultId = displayResultNo(item.resultNo, item.resultId);
 
                                     return (
                                         <tr
                                             key={`${item.resultId}-${item.actionAt ?? item.updatedAt ?? actionType ?? "event"}`}
                                             className="transition-colors hover:bg-surface-hover"
                                         >
-                                            {/* Time */}
-                                            <td className="py-2 pl-4 pr-3 tabular-nums text-fg-secondary">
-                                                {timestamp ? (
-                                                    <time dateTime={timestamp} title={formatFullTimestamp(timestamp)}>
-                                                        {formatAuditTime(timestamp)}
-                                                    </time>
-                                                ) : (
-                                                    <span className="text-fg-faint">—</span>
-                                                )}
+                                            {/* Result ID with the authorization time beneath; the raw id stays in the tooltip. */}
+                                            <td className="py-2 pl-4 pr-3">
+                                                <span className="block truncate font-mono text-xs font-medium text-fg" title={item.resultId}>
+                                                    {displayResultId}
+                                                </span>
+                                                <span className="mt-0.5 block text-xs tabular-nums text-fg-muted">
+                                                    {timestamp ? (
+                                                        <time dateTime={timestamp} title={formatFullTimestamp(timestamp)}>
+                                                            {formatAuditTime(timestamp)}
+                                                        </time>
+                                                    ) : (
+                                                        <span className="text-fg-faint">—</span>
+                                                    )}
+                                                </span>
                                             </td>
                                             {/* Patient */}
                                             <td className="px-3 py-2">
@@ -496,10 +500,6 @@ export default function ClinicalHistoryPage() {
                                                         {item.patientCode}
                                                     </p>
                                                 )}
-                                            </td>
-                                            {/* Result ID — short display form; the raw id stays in the tooltip. */}
-                                            <td className="truncate px-3 py-2 font-mono text-xs text-fg-secondary" title={item.resultId}>
-                                                {displayResultId}
                                             </td>
                                             {/* Test group */}
                                             <td
@@ -549,7 +549,7 @@ export default function ClinicalHistoryPage() {
                                             <td className="py-2 pl-3 pr-4">
                                                 <Button
                                                     size="sm"
-                                                    variant="ghost"
+                                                    variant="primary"
                                                     onClick={() => {
                                                         if (!item.resultId) {
                                                             return;

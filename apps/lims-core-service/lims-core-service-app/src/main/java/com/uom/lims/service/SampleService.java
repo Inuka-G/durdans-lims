@@ -335,8 +335,25 @@ public class SampleService {
         log.info("Sample {} rejected by {} for reason: {}",
                 sample.getBarcode(), sample.getRejectedBy(), sample.getRejectionReason());
 
-        // Create a new sample for recollection — inheriting tube type, priority,
-        // and order item from the rejected sample.
+        return toResponse(createRecollectionFor(rejectedSample));
+    }
+
+    /**
+     * Puts a rejected sample back in front of a phlebotomist.
+     *
+     * <p>A rejection is only half a decision: the test was still ordered, so the draw has
+     * to happen again. The new sample inherits the tube type, priority and order item, and
+     * enters RECOLLECTION_REQUIRED, which is one of the two statuses
+     * {@link #getPendingSamples} queues — so it appears in the collection worklist by
+     * itself, with no separate request to raise.
+     *
+     * <p>Shared rather than inlined at each rejection point on purpose. It was inlined
+     * here only, so a sample rejected at reception accessioning went to REJECTED and
+     * stopped there: nothing was ever recollected, and the order sat unfulfilled with no
+     * queue entry to show for it.
+     */
+    @Transactional
+    public SampleEntity createRecollectionFor(SampleEntity rejectedSample) {
         SampleEntity recollection = new SampleEntity();
         recollection.setOrderItem(rejectedSample.getOrderItem());
         recollection.setBarcode(referenceNumberGenerator.generateBarcode());
@@ -351,7 +368,7 @@ public class SampleService {
         log.info("Recollection sample {} created for rejected sample {}",
                 savedRecollection.getBarcode(), rejectedSample.getBarcode());
 
-        return toResponse(savedRecollection);
+        return savedRecollection;
     }
 
     /**

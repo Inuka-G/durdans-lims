@@ -63,6 +63,10 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/reception/**").hasAnyRole("LAB_RECEPTIONIST", "LAB_RECEPTION", "BRANCH_ADMIN", "SUPER_ADMIN")
                         .requestMatchers("/api/v1/verification/**")
                                 .hasAnyRole("LAB_SUPERVISOR", "BRANCH_ADMIN", "SUPER_ADMIN")
+                        // Admins may read the pathologist's queue and history; the
+                        // controller keeps authorize / return to PATHOLOGIST alone.
+                        .requestMatchers("/api/v1/clinical/**")
+                                .hasAnyRole("PATHOLOGIST", "BRANCH_ADMIN", "SUPER_ADMIN")
 
                         // All other API endpoints require authentication
                         .requestMatchers("/api/**").authenticated()

@@ -56,10 +56,15 @@ class PatientLifecycleNotificationServiceTest {
         PatientLifecycleSmsRequestedEvent event = captureEvent();
         assertThat(event.phone()).isEqualTo("+94702011540");
         assertThat(event.message())
-                .contains("Order received: ORD-20260816-001")
-                .contains("Bill: INV-20260816-001")
-                .contains("Total: LKR 3255.00")
-                .contains("Awaiting payment");
+                .startsWith("Durdans LIMS\nOrder received\n")
+                .contains("\nOrder: ORD-20260816-001\n")
+                .contains("\nBill: INV-20260816-001\n")
+                .contains("\nTotal: LKR 3,255.00\n")
+                .contains("\nStatus: Awaiting payment\n")
+                // A blank line between blocks is the whole point of the layout — assert it
+                // is there, or a future edit quietly collapses this back into a wall of text.
+                .contains("\n\n")
+                .doesNotContain("\r");
     }
 
     @Test
@@ -68,10 +73,20 @@ class PatientLifecycleNotificationServiceTest {
 
         PatientLifecycleSmsRequestedEvent event = captureEvent();
         assertThat(event.message())
-                .contains("Payment confirmed")
-                .contains("Amount: LKR 3255.00")
-                .contains("Method: CREDIT CARD")
-                .contains("Sample collection can proceed");
+                .startsWith("Durdans LIMS\nPayment confirmed\n")
+                .contains("\nAmount: LKR 3,255.00\n")
+                .contains("\nMethod: CREDIT CARD\n")
+                .contains("\nStatus: Paid\n")
+                .contains("Sample collection can proceed")
+                .doesNotContain("\r");
+    }
+
+    @Test
+    void groupsThousandsSoTheAmountReadsCorrectlyOnAPhone() {
+        bill.setTotalAmount(new BigDecimal("1234567.5"));
+        service.orderCreated(order, bill);
+
+        assertThat(captureEvent().message()).contains("Total: LKR 1,234,567.50");
     }
 
     @Test

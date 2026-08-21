@@ -31,12 +31,14 @@ import com.uom.lims.exception.ResourceNotFoundException;
 import com.uom.lims.qc.QcGateService;
 import com.uom.lims.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.HashSet;
@@ -48,6 +50,7 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class MltTestingService {
@@ -72,6 +75,8 @@ public class MltTestingService {
         private final ObjectMapper objectMapper;
         private final com.uom.lims.notification.CriticalValueNotificationService criticalValueNotificationService;
         private final QcGateService qcGateService;
+        private final SampleService sampleService;
+        private final ResultNumberService resultNumberService;
 
         @Transactional(readOnly = true)
         public SampleResultsResponse getSampleResults(UUID sampleId) {
@@ -130,6 +135,15 @@ public class MltTestingService {
                                 .findFirst()
                                 .orElse(null);
 
+                // A case the supervisor sent back is surfaced with its reason, so the
+                // MLT sees why before re-entering — and so the bench can tell returned
+                // work from fresh work.
+                TestResultEntity returnedToMlt = resultsByParameterId.values().stream()
+                                .filter(result -> result.getStatus() == ResultStatus.RETURNED_TO_MLT)
+                                .max(Comparator.comparing(TestResultEntity::getReturnedAt,
+                                                Comparator.nullsFirst(Comparator.naturalOrder())))
+                                .orElse(null);
+
                 return new SampleResultsResponse(
                                 sample.getId(),
                                 sample.getBarcode(),
@@ -145,7 +159,11 @@ public class MltTestingService {
                                 sample.getCollectedAt(),
                                 sample.getCollectedBy(),
                                 resultResponses,
-                                mltNotes);
+                                mltNotes,
+                                returnedToMlt != null,
+                                returnedToMlt == null ? null : returnedToMlt.getReturnReason(),
+                                returnedToMlt == null ? null : returnedToMlt.getReturnedBy(),
+                                returnedToMlt == null ? null : returnedToMlt.getReturnedAt());
         }
 
         @Transactional(readOnly = true)
@@ -286,6 +304,9 @@ public class MltTestingService {
                 }
 
                 if (!isDraft) {
+                        // The first submitted value on a specimen issues its case number
+                        // (RES<year>-<n>); a re-submission after a return keeps it.
+                        resultNumberService.ensureResultNo(sample);
                         sample.setStatus(SampleStatus.SENT_FOR_VERIFICATION);
                         sampleRepository.save(sample);
                 }
@@ -486,18 +507,45 @@ public class MltTestingService {
                                                 TestCatalogEntity::getTestName,
                                                 (existing, replacement) -> existing));
 
+                // Cases the supervisor returned, with the reason, so the worklist can
+                // mark them apart from fresh specimens. One query for the whole list.
+                List<UUID> sampleIds = samples.stream().map(SampleEntity::getId).toList();
+                Map<UUID, TestResultEntity> returnedBySampleId = new LinkedHashMap<>();
+                if (!sampleIds.isEmpty()) {
+                        resultRepository.findBySampleIdIn(sampleIds).stream()
+                                        .filter(result -> result.getStatus() == ResultStatus.RETURNED_TO_MLT)
+                                        .forEach(result -> returnedBySampleId.merge(
+                                                        result.getSample().getId(),
+                                                        result,
+                                                        (existing, candidate) -> {
+                                                                Instant existingAt = existing.getReturnedAt();
+                                                                Instant candidateAt = candidate.getReturnedAt();
+                                                                if (existingAt == null) {
+                                                                        return candidate;
+                                                                }
+                                                                return candidateAt != null && candidateAt.isAfter(existingAt)
+                                                                                ? candidate
+                                                                                : existing;
+                                                        }));
+                }
+
                 return samples.stream()
-                                .map(sample -> new MltWorklistItemResponse(
-                                                sample.getId(),
-                                                sample.getBarcode(),
-                                                sample.getOrderItem().getOrder().getOrderNo(),
-                                                sample.getOrderItem().getId(),
-                                                sample.getOrderItem().getOrder().getPatientId(),
-                                                testNameById.getOrDefault(sample.getOrderItem().getTestId(),
-                                                                "UNKNOWN_TEST"),
-                                                sample.getPriority().name(),
-                                                sample.getStatus().name(),
-                                                sample.getCollectedAt()))
+                                .map(sample -> {
+                                        TestResultEntity returned = returnedBySampleId.get(sample.getId());
+                                        return new MltWorklistItemResponse(
+                                                        sample.getId(),
+                                                        sample.getBarcode(),
+                                                        sample.getOrderItem().getOrder().getOrderNo(),
+                                                        sample.getOrderItem().getId(),
+                                                        sample.getOrderItem().getOrder().getPatientId(),
+                                                        testNameById.getOrDefault(sample.getOrderItem().getTestId(),
+                                                                        "UNKNOWN_TEST"),
+                                                        sample.getPriority().name(),
+                                                        sample.getStatus().name(),
+                                                        sample.getCollectedAt(),
+                                                        returned != null,
+                                                        returned == null ? null : returned.getReturnReason());
+                                })
                                 .toList();
         }
 
@@ -546,7 +594,13 @@ public class MltTestingService {
                 sample.setRejectedAt(Instant.now());
                 sample.setRejectedBy(SecurityUtils.getCurrentUsername());
 
-                sampleRepository.save(sample);
+                SampleEntity rejected = sampleRepository.save(sample);
+
+                // The test is still ordered, so the draw has to happen again. Without this
+                // the sample stopped at REJECTED: nothing reached the collection worklist,
+                // and the order sat unfulfilled with nothing to show that it was waiting.
+                // Phlebotomy's own rejection path has always done this; accessioning did not.
+                SampleEntity recollection = sampleService.createRecollectionFor(rejected);
 
                 auditService.log(
                                 "REJECTED",
@@ -555,6 +609,9 @@ public class MltTestingService {
                                 sample.getOrderItem().getOrder().getPatientId(),
                                 buildAccessioningAuditDetails(sample, SampleStatus.REJECTED, request.getRejectionNotes()),
                                 null);
+
+                log.info("Accessioning rejected sample {} and queued recollection {}",
+                                rejected.getBarcode(), recollection.getBarcode());
         }
 
         private String buildAccessioningAuditDetails(SampleEntity sample, SampleStatus status, String notes) {

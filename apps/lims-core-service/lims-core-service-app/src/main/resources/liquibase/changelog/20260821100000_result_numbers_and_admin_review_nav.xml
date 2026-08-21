@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+
+    <!--
+        Supervisor / pathologist module alignment.
+
+        1. A result had no human-readable identifier of its own: every screen showed
+           the last eight hex digits of a parameter row's UUID. The spec asks for the
+           same shape as the patient code — RES2026-00042 — issued from a sequence so
+           it is predictable, searchable and unique. One number per specimen (case),
+           because that is what a result is to the people reading it.
+
+        2. Branch and super admins could reach neither the supervisor nor the
+           pathologist module from the navigation, although the backend already
+           admitted them to verification. They now get read-only oversight of both;
+           the state-changing clinical actions stay with PATHOLOGIST (controller).
+    -->
+
+    <changeSet id="20260821100000-1-result-no-sequence" author="kalana">
+        <comment>Sequence behind the RES&lt;year&gt;-&lt;n&gt; case number</comment>
+        <createSequence sequenceName="result_no_seq" startValue="1" incrementBy="1"/>
+    </changeSet>
+
+    <changeSet id="20260821100000-2-samples-result-no" author="kalana">
+        <comment>Human-readable case number on the specimen; null until a result is submitted</comment>
+        <addColumn tableName="samples">
+            <column name="result_no" type="VARCHAR(32)"/>
+        </addColumn>
+        <createIndex tableName="samples" indexName="ux_samples_result_no" unique="true">
+            <column name="result_no"/>
+        </createIndex>
+    </changeSet>
+
+    <!-- Specimens that already carry a submitted result get their number now, in
+         the order they were created, so history and CSV exports never show a blank
+         case number. Existing rows keep the year they were created in. The sequence
+         is then moved past the highest number handed out. -->
+    <changeSet id="20260821100000-3-backfill-result-no" author="kalana">
+        <comment>Number every specimen that already has a submitted result</comment>
+        <sql splitStatements="true" endDelimiter=";">
+            WITH ordered AS (
+                SELECT s.id,
+                       row_number() OVER (ORDER BY s.created_at, s.id) AS rn,
+                       to_char(COALESCE(s.created_at, now()), 'YYYY') AS yr
+                FROM samples s
+                WHERE s.result_no IS NULL
+                  AND EXISTS (SELECT 1 FROM test_results tr
+                              WHERE tr.sample_id = s.id AND tr.is_draft = false)
+            )
+            UPDATE samples s
+               SET result_no = 'RES' || o.yr || '-' || lpad(o.rn::text, 5, '0')
+              FROM ordered o
+             WHERE s.id = o.id;
+
+            SELECT setval(
+                'result_no_seq',
+                GREATEST((SELECT COALESCE(MAX(CAST(split_part(result_no, '-', 2) AS BIGINT)), 0)
+                            FROM samples WHERE result_no LIKE 'RES%'), 1),
+                (SELECT COUNT(*) > 0 FROM samples WHERE result_no LIKE 'RES%')
+            );
+        </sql>
+    </changeSet>
+
+    <changeSet id="20260821100000-4-admin-review-nav" author="kalana">
+        <comment>Read-only supervisor / pathologist navigation for branch and super admins</comment>
+        <insert tableName="header_mapping">
+            <column name="id" value="20000000-0000-0000-0000-000000000301"/>
+            <column name="role_name" value="BRANCH_ADMIN"/>
+            <column name="display_text" value="Lab Supervision"/>
+            <column name="link_url" value="/lab-supervision"/>
+            <column name="priority" value="60"/>
+            <column name="created_at" valueComputed="CURRENT_TIMESTAMP"/>
+            <column name="created_by" value="SYSTEM"/>
+        </insert>
+        <insert tableName="header_mapping">
+            <column name="id" value="20000000-0000-0000-0000-000000000302"/>
+            <column name="role_name" value="BRANCH_ADMIN"/>
+            <column name="display_text" value="Clinical Approval"/>
+            <column name="link_url" value="/pathology"/>
+            <column name="priority" value="70"/>
+            <column name="created_at" valueComputed="CURRENT_TIMESTAMP"/>
+            <column name="created_by" value="SYSTEM"/>
+        </insert>
+        <insert tableName="header_mapping">
+            <column name="id" value="20000000-0000-0000-0000-000000000303"/>
+            <column name="role_name" value="SUPER_ADMIN"/>
+            <column name="display_text" value="Lab Supervision"/>
+            <column name="link_url" value="/lab-supervision"/>
+            <column name="priority" value="60"/>
+            <column name="created_at" valueComputed="CURRENT_TIMESTAMP"/>
+            <column name="created_by" value="SYSTEM"/>
+        </insert>
+        <insert tableName="header_mapping">
+            <column name="id" value="20000000-0000-0000-0000-000000000304"/>
+            <column name="role_name" value="SUPER_ADMIN"/>
+            <column name="display_text" value="Clinical Approval"/>
+            <column name="link_url" value="/pathology"/>
+            <column name="priority" value="70"/>
+            <column name="created_at" valueComputed="CURRENT_TIMESTAMP"/>
+            <column name="created_by" value="SYSTEM"/>
+        </insert>
+    </changeSet>
+
+</databaseChangeLog>
