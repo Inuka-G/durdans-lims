@@ -8,6 +8,7 @@ a shared internal token. Pipecat's WhatsAppClient then runs the whole SDP dance
 """
 
 import asyncio
+import json
 import hmac
 from contextlib import asynccontextmanager
 
@@ -69,8 +70,11 @@ async def calls_webhook(request: Request):
         logger.warning("Call event received but calling is not configured; ignoring")
         return {"handled": False}
 
-    payload = await request.json()
-    webhook = WhatsAppWebhookRequest.model_validate(payload)
+    # Raw bytes, not request.json(): the WhatsApp client re-verifies Meta's HMAC over
+    # the exact bytes, and the ingress forwards the signature header for that purpose.
+    raw_body = await request.body()
+    signature = request.headers.get("X-Hub-Signature-256")
+    webhook = WhatsAppWebhookRequest.model_validate(json.loads(raw_body))
 
     async def on_call(connection, call):
         caller = _caller_of(call)
@@ -78,8 +82,15 @@ async def calls_webhook(request: Request):
         _call_tasks.add(task)
         task.add_done_callback(_call_tasks.discard)
 
-    # Signature was already verified at the public ingress; nothing to re-check here.
-    handled = await _client.handle_webhook_request(webhook, connection_callback=on_call)
+    # Verified once at the public ingress, and again here against the app secret:
+    # the hop across the host boundary is token-guarded, but a second HMAC check is
+    # free and removes a trust assumption.
+    handled = await _client.handle_webhook_request(
+        webhook,
+        connection_callback=on_call,
+        raw_body=raw_body,
+        sha256_signature=signature,
+    )
     return {"handled": bool(handled)}
 
 

@@ -99,7 +99,7 @@ public class WebhookController {
         // Deliberately NOT wrapped in a try/catch. If persistence fails, the 500 makes
         // Meta redeliver, which is exactly what we want — acknowledging a message we
         // failed to store is the one way to lose it permanently.
-        int stored = inboundService.ingest(payload, body);
+        int stored = inboundService.ingest(payload, body, signature);
         if (stored > 0) {
             log.debug("Webhook delivery stored {} new message(s)", stored);
         }

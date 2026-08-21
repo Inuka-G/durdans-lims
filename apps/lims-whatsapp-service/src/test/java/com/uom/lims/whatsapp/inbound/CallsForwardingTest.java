@@ -45,7 +45,7 @@ class CallsForwardingTest {
         // the full body, so one forward covers them all.
         assertThat(service.ingest(payloadWithFields("calls", "calls"), "{\"raw\":true}")).isZero();
 
-        verify(callsForwarder, times(1)).forward("{\"raw\":true}");
+        verify(callsForwarder, times(1)).forward("{\"raw\":true}", null);
         verifyNoInteractions(writer);
     }
 
