@@ -28,7 +28,10 @@ public class ClinicalAuthorizationController {
 
     private final ClinicalAuthorizationService clinicalAuthorizationService;
 
-    @PreAuthorize("hasRole('PATHOLOGIST')")
+    // Reads are open to admins as well (read-only oversight); the two state-changing
+    // actions below stay with PATHOLOGIST alone — a clinical authorization is a
+    // medico-legal signature, not an administrative one.
+    @PreAuthorize("hasAnyRole('PATHOLOGIST','BRANCH_ADMIN','SUPER_ADMIN')")
     @GetMapping("/pending")
     @Operation(summary = "Get pending test results for clinical authorization")
     public PageResponse<TestResultSummaryResponse> getPendingResults(
@@ -48,7 +51,7 @@ public class ClinicalAuthorizationController {
         );
     }
 
-    @PreAuthorize("hasRole('PATHOLOGIST')")
+    @PreAuthorize("hasAnyRole('PATHOLOGIST','BRANCH_ADMIN','SUPER_ADMIN')")
     @GetMapping("/history")
     @Operation(summary = "Get clinical authorization history items")
     public PageResponse<VerificationHistoryItemResponse> getClinicalHistory(
@@ -72,7 +75,7 @@ public class ClinicalAuthorizationController {
         );
     }
 
-    @PreAuthorize("hasRole('PATHOLOGIST')")
+    @PreAuthorize("hasAnyRole('PATHOLOGIST','BRANCH_ADMIN','SUPER_ADMIN')")
     @GetMapping("/{resultId}")
     @Operation(summary = "Get test result details for clinical authorization")
     public TestResultDetailResponse getResultDetails(@PathVariable UUID resultId) {

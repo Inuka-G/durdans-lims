@@ -24,6 +24,15 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, UUID> {
                         Collection<UUID> entityIds,
                         Collection<String> actions);
 
+        /*
+         * The history screens promise an all-fields search: patient name and code,
+         * case number, result id, test, performer, notes and the action itself. The
+         * audit row alone cannot honour that — its patient_code column carries the
+         * specimen barcode on these writes and the patient's name is not stored at
+         * all — so the patient and case number are reached through the result the
+         * row points at (result -> sample -> order item -> order -> patient). The
+         * EXISTS keeps one row per audit event however many joins match.
+         */
         @Query(value = """
                         SELECT *
                         FROM audit_log a
@@ -35,7 +44,23 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, UUID> {
                                 :search IS NULL
                                 OR LOWER(COALESCE(CAST(a.entity_id AS TEXT), '')) LIKE LOWER(CONCAT('%%', CAST(:search AS TEXT), '%%'))
                                 OR LOWER(COALESCE(a.performed_by, '')) LIKE LOWER(CONCAT('%%', CAST(:search AS TEXT), '%%'))
+                                OR LOWER(COALESCE(a.action, '')) LIKE LOWER(CONCAT('%%', CAST(:search AS TEXT), '%%'))
                                 OR LOWER(COALESCE(CAST(a.details AS TEXT), '')) LIKE LOWER(CONCAT('%%', CAST(:search AS TEXT), '%%'))
+                                OR EXISTS (
+                                        SELECT 1
+                                        FROM test_results tr
+                                        JOIN samples s ON s.id = tr.sample_id
+                                        JOIN order_items oi ON oi.id = s.order_item_id
+                                        JOIN orders o ON o.id = oi.order_id
+                                        LEFT JOIN patient p ON p.patient_code = o.patient_id
+                                        WHERE tr.id = a.entity_id
+                                          AND (
+                                                LOWER(COALESCE(s.result_no, '')) LIKE LOWER(CONCAT('%%', CAST(:search AS TEXT), '%%'))
+                                                OR LOWER(COALESCE(s.barcode, '')) LIKE LOWER(CONCAT('%%', CAST(:search AS TEXT), '%%'))
+                                                OR LOWER(COALESCE(o.patient_id, '')) LIKE LOWER(CONCAT('%%', CAST(:search AS TEXT), '%%'))
+                                                OR LOWER(COALESCE(p.full_name, '')) LIKE LOWER(CONCAT('%%', CAST(:search AS TEXT), '%%'))
+                                          )
+                                )
                               )
                         ORDER BY a.timestamp DESC
                         """, countQuery = """
@@ -49,7 +74,23 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, UUID> {
                                 :search IS NULL
                                 OR LOWER(COALESCE(CAST(a.entity_id AS TEXT), '')) LIKE LOWER(CONCAT('%%', CAST(:search AS TEXT), '%%'))
                                 OR LOWER(COALESCE(a.performed_by, '')) LIKE LOWER(CONCAT('%%', CAST(:search AS TEXT), '%%'))
+                                OR LOWER(COALESCE(a.action, '')) LIKE LOWER(CONCAT('%%', CAST(:search AS TEXT), '%%'))
                                 OR LOWER(COALESCE(CAST(a.details AS TEXT), '')) LIKE LOWER(CONCAT('%%', CAST(:search AS TEXT), '%%'))
+                                OR EXISTS (
+                                        SELECT 1
+                                        FROM test_results tr
+                                        JOIN samples s ON s.id = tr.sample_id
+                                        JOIN order_items oi ON oi.id = s.order_item_id
+                                        JOIN orders o ON o.id = oi.order_id
+                                        LEFT JOIN patient p ON p.patient_code = o.patient_id
+                                        WHERE tr.id = a.entity_id
+                                          AND (
+                                                LOWER(COALESCE(s.result_no, '')) LIKE LOWER(CONCAT('%%', CAST(:search AS TEXT), '%%'))
+                                                OR LOWER(COALESCE(s.barcode, '')) LIKE LOWER(CONCAT('%%', CAST(:search AS TEXT), '%%'))
+                                                OR LOWER(COALESCE(o.patient_id, '')) LIKE LOWER(CONCAT('%%', CAST(:search AS TEXT), '%%'))
+                                                OR LOWER(COALESCE(p.full_name, '')) LIKE LOWER(CONCAT('%%', CAST(:search AS TEXT), '%%'))
+                                          )
+                                )
                               )
                         """, nativeQuery = true)
         /**

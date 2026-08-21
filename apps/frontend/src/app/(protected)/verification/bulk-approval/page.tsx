@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import {
     AlertTriangle,
     CheckCircle2,
     ClipboardCheck,
+    ExternalLink,
     Layers,
     ListChecks,
     RefreshCw,
@@ -16,9 +17,11 @@ import {
 } from "lucide-react";
 import {
     BulkVerificationBatch,
+    BulkVerificationCase,
     bulkApproveTechnically,
     getBulkVerificationWorklist,
 } from "@/lib/api";
+import { displayResultNo, resultStatusLabel } from "@/lib/result-display";
 import { cn } from "@/lib/utils";
 import Button from "@/components/ui/Button";
 import PageHeader from "@/components/ui/PageHeader";
@@ -26,25 +29,67 @@ import SectionCard from "@/components/ui/SectionCard";
 import EmptyState from "@/components/ui/EmptyState";
 import KpiTile from "@/components/ui/KpiTile";
 import Modal from "@/components/ui/Modal";
-import StatusChip from "@/components/ui/StatusChip";
+import StatusChip, { type ChipTone } from "@/components/ui/StatusChip";
 import { InputField, SelectField, TextareaField } from "@/components/ui/Field";
+import PriorityBadge from "@/components/shared/PriorityBadge";
 import { formatAuditTime } from "@/components/patient-dashboard/dashboard-data";
 
-type SelectableBatch = BulkVerificationBatch & {
-    isSelected: boolean;
+/** One case flattened with the test group it belongs to — what a card renders. */
+type WorklistCase = BulkVerificationCase & {
+    batchId: string;
+    batchName: string;
+    batchCode: string;
+    department: string;
 };
 
 const ALL_DEPARTMENTS = "All Departments";
-const SKELETON_ROWS = 6;
+const SKELETON_CARDS = 6;
 
 const CHECKBOX_CLASS =
     "h-4 w-4 shrink-0 rounded border-edge-strong accent-primary " +
     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-surface " +
     "disabled:cursor-not-allowed disabled:opacity-50";
 
+const FLAG_TONE: Record<string, ChipTone> = {
+    NORMAL: "neutral",
+    LOW: "pending",
+    HIGH: "pending",
+    CRITICAL_LOW: "danger",
+    CRITICAL_HIGH: "danger",
+};
+
+const toneForFlag = (flag?: string | null): ChipTone => FLAG_TONE[(flag ?? "").toUpperCase()] ?? "neutral";
+
+const flattenCases = (batches: BulkVerificationBatch[]): WorklistCase[] =>
+    batches.flatMap((batch) =>
+        (batch.cases ?? []).map((bulkCase) => ({
+            ...bulkCase,
+            batchId: batch.batchId,
+            batchName: batch.batchName,
+            batchCode: batch.batchCode,
+            department: batch.department,
+        }))
+    );
+
+const matchesSearch = (item: WorklistCase, query: string) => {
+    if (query.length === 0) {
+        return true;
+    }
+    return [
+        item.batchName,
+        item.batchCode,
+        item.patientName,
+        item.patientCode,
+        item.sampleBarcode,
+        item.resultNo,
+        displayResultNo(item.resultNo, item.resultId),
+    ].some((value) => (value ?? "").toLowerCase().includes(query));
+};
+
 export default function BulkApprovalPage() {
     const router = useRouter();
-    const [batches, setBatches] = useState<SelectableBatch[]>([]);
+    const [batches, setBatches] = useState<BulkVerificationBatch[]>([]);
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
     const [search, setSearch] = useState("");
     const [department, setDepartment] = useState(ALL_DEPARTMENTS);
     const [loading, setLoading] = useState(true);
@@ -52,7 +97,6 @@ export default function BulkApprovalPage() {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isConfirming, setIsConfirming] = useState(false);
     const [supervisorNote, setSupervisorNote] = useState("");
-    const headerCheckboxRef = useRef<HTMLInputElement | null>(null);
 
     const loadBulkWorklist = useCallback(async () => {
         try {
@@ -60,7 +104,8 @@ export default function BulkApprovalPage() {
             setError(null);
 
             const response = await getBulkVerificationWorklist();
-            setBatches(response.map((batch) => ({ ...batch, isSelected: false })));
+            setBatches(response);
+            setSelectedIds(new Set());
         } catch (loadError) {
             console.error("Failed to load bulk verification worklist", loadError);
             setError("Couldn't load the bulk verification worklist. Retry to try again.");
@@ -74,56 +119,35 @@ export default function BulkApprovalPage() {
         void loadBulkWorklist();
     }, [loadBulkWorklist]);
 
-    const filteredBatches = useMemo(() => {
-        return batches.filter((batch) => {
-            const matchesSearch =
-                search.trim() === "" ||
-                batch.batchName.toLowerCase().includes(search.toLowerCase()) ||
-                batch.batchCode.toLowerCase().includes(search.toLowerCase());
-
-            const matchesDept =
-                department === ALL_DEPARTMENTS ||
-                batch.department.toLowerCase() === department.toLowerCase();
-
-            return matchesSearch && matchesDept;
-        });
-    }, [batches, search, department]);
+    const allCases = useMemo(() => flattenCases(batches), [batches]);
 
     const departments = useMemo(
-        () => Array.from(new Set(batches.map((batch) => batch.department))),
+        () => Array.from(new Set(batches.map((batch) => batch.department))).sort(),
         [batches]
     );
 
-    const selectedBatches = batches.filter((batch) => batch.isSelected);
-    const selectedResultIds = selectedBatches.flatMap((batch) => batch.resultIds);
-    const totalSafeForApproval = selectedBatches.reduce(
-        (sum, batch) => sum + batch.safeForApproval,
-        0
-    );
-    const totalExceptions = selectedBatches.reduce(
-        (sum, batch) => sum + batch.exceptions,
-        0
-    );
+    const visibleCases = useMemo(() => {
+        const query = search.trim().toLowerCase();
+        return allCases.filter(
+            (item) =>
+                matchesSearch(item, query) &&
+                (department === ALL_DEPARTMENTS || item.department.toLowerCase() === department.toLowerCase())
+        );
+    }, [allCases, search, department]);
+
+    const safeVisible = useMemo(() => visibleCases.filter((item) => item.safeForApproval), [visibleCases]);
+    const heldVisible = useMemo(() => visibleCases.filter((item) => !item.safeForApproval), [visibleCases]);
 
     // Queue-wide totals for the KPI row
-    const queueSafe = batches.reduce((sum, batch) => sum + batch.safeForApproval, 0);
-    const queueTotal = batches.reduce((sum, batch) => sum + batch.totalResults, 0);
-    const queueHeld = batches.reduce((sum, batch) => sum + batch.exceptions, 0);
-    const queueSafePercent =
-        batches.length === 0 ? 0 : Math.min(100, Math.round((queueSafe / Math.max(1, queueTotal)) * 100));
+    const queueSafe = allCases.filter((item) => item.safeForApproval).length;
+    const queueHeld = allCases.length - queueSafe;
 
-    // Header checkbox state (visible, selectable groups only)
-    const selectableVisible = filteredBatches.filter((batch) => batch.safeForApproval > 0);
-    const selectedVisibleCount = selectableVisible.filter((batch) => batch.isSelected).length;
-    const allVisibleSelected =
-        selectableVisible.length > 0 && selectedVisibleCount === selectableVisible.length;
-    const someVisibleSelected = selectedVisibleCount > 0 && !allVisibleSelected;
-
-    useEffect(() => {
-        if (headerCheckboxRef.current) {
-            headerCheckboxRef.current.indeterminate = someVisibleSelected;
-        }
-    }, [someVisibleSelected]);
+    const selectedCases = useMemo(
+        () => allCases.filter((item) => item.safeForApproval && selectedIds.has(item.resultId)),
+        [allCases, selectedIds]
+    );
+    const selectedVisibleCount = safeVisible.filter((item) => selectedIds.has(item.resultId)).length;
+    const allVisibleSelected = safeVisible.length > 0 && selectedVisibleCount === safeVisible.length;
 
     const hasFilters = search.trim() !== "" || department !== ALL_DEPARTMENTS;
 
@@ -132,31 +156,26 @@ export default function BulkApprovalPage() {
         setDepartment(ALL_DEPARTMENTS);
     };
 
-    const toggleBatch = (id: string) => {
-        setBatches((previous) =>
-            previous.map((batch) =>
-                batch.batchId === id && batch.safeForApproval > 0
-                    ? { ...batch, isSelected: !batch.isSelected }
-                    : batch
-            )
-        );
+    const toggleCase = (resultId: string) => {
+        setSelectedIds((previous) => {
+            const next = new Set(previous);
+            if (next.has(resultId)) {
+                next.delete(resultId);
+            } else {
+                next.add(resultId);
+            }
+            return next;
+        });
     };
 
     // Deliberately replaces the selection rather than adding to it: a supervisor
-    // must never approve a batch that the current filters have scrolled off screen.
-    const selectAll = () => {
-        setBatches((previous) =>
-            previous.map((batch) => ({
-                ...batch,
-                isSelected:
-                    batch.safeForApproval > 0 &&
-                    filteredBatches.some((visibleBatch) => visibleBatch.batchId === batch.batchId),
-            }))
-        );
+    // must never approve a case that the current filters have scrolled off screen.
+    const selectAllVisible = () => {
+        setSelectedIds(new Set(safeVisible.map((item) => item.resultId)));
     };
 
     const clearSelection = () => {
-        setBatches((previous) => previous.map((batch) => ({ ...batch, isSelected: false })));
+        setSelectedIds(new Set());
     };
 
     const closeConfirm = useCallback(() => {
@@ -164,23 +183,43 @@ export default function BulkApprovalPage() {
     }, []);
 
     const handleApprove = async () => {
-        if (selectedResultIds.length === 0) {
+        if (selectedCases.length === 0) {
             return;
         }
 
         try {
             setIsSubmitting(true);
 
-            await bulkApproveTechnically({
-                resultIds: selectedResultIds,
+            const outcome = await bulkApproveTechnically({
+                resultIds: selectedCases.map((item) => item.resultId),
                 status: "TECHNICALLY_VERIFIED",
                 mltNotes: "Bulk technically verified by lab supervisor.",
                 supervisorNote: supervisorNote.trim() || undefined,
             });
 
+            // The server approves each case in its own transaction and reports every
+            // one: a case the QC gate held must not vanish behind a green toast.
+            const entries = Object.entries(outcome ?? {});
+            const failures = entries.filter(([, status]) => status !== "VERIFIED");
+            const approvedCount = entries.length - failures.length;
+
             setIsConfirming(false);
             setSupervisorNote("");
-            router.push("/verification/pending");
+
+            if (failures.length === 0) {
+                toast.success(
+                    `Approved ${approvedCount} ${approvedCount === 1 ? "case" : "cases"} and released them to the pathologist worklist.`
+                );
+                router.push("/verification/pending");
+                return;
+            }
+
+            const firstFailure = failures[0][1].replace(/^FAILED:\s*/, "");
+            toast.error(
+                `Approved ${approvedCount}, but ${failures.length} ${failures.length === 1 ? "case was" : "cases were"} not released: ${firstFailure}`,
+                { duration: 10000 }
+            );
+            await loadBulkWorklist();
         } catch (submitError) {
             console.error("Failed to bulk approve results", submitError);
             toast.error("Failed to bulk approve results. Please try again.");
@@ -189,29 +228,22 @@ export default function BulkApprovalPage() {
         }
     };
 
-    const handleReviewCases = (reviewResultIds: string[]) => {
-        if (reviewResultIds.length === 0) {
-            return;
-        }
-
-        router.push(`/verification/review/${reviewResultIds[0]}`);
+    const openCase = (resultId: string) => {
+        router.push(`/verification/review/${resultId}`);
     };
 
-    const caseWord = selectedResultIds.length === 1 ? "case" : "cases";
-    const groupWord = selectedBatches.length === 1 ? "group" : "groups";
+    const caseWord = selectedCases.length === 1 ? "case" : "cases";
 
     return (
         <div className="mx-auto max-w-[1400px]">
             <PageHeader
                 crumbs={[{ label: "Verification", href: "/verification/pending" }, { label: "Bulk approval" }]}
-                title="Bulk technical verification"
+                title="Bulk technical approval"
                 meta={
                     <>
-                        <span>Approve safe result groups while holding exceptions for case-by-case review.</span>
+                        <span>Approve every in-range case in one click; exceptions stay held for case-by-case review.</span>
                         <span aria-hidden="true">·</span>
                         <span>Lab supervisor</span>
-                        <span aria-hidden="true">·</span>
-                        <span>Verification queue</span>
                     </>
                 }
                 actions={
@@ -227,7 +259,7 @@ export default function BulkApprovalPage() {
                     ? "Loading bulk verification worklist"
                     : error
                       ? "Bulk verification worklist failed to load"
-                      : `Showing ${filteredBatches.length} of ${batches.length} test groups. ${selectedBatches.length} ${groupWord} selected.`}
+                      : `Showing ${visibleCases.length} of ${allCases.length} cases. ${selectedCases.length} selected.`}
             </p>
 
             <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -236,347 +268,191 @@ export default function BulkApprovalPage() {
                     value={batches.length}
                     icon={Layers}
                     loading={loading}
-                    note={`${filteredBatches.length} shown`}
+                    note={`${allCases.length} ${allCases.length === 1 ? "case" : "cases"} in the queue`}
                 />
                 <KpiTile
-                    label="Safe results ready"
+                    label="Safe for instant approval"
                     value={queueSafe}
                     icon={ShieldCheck}
                     tone="success"
                     loading={loading}
-                    note={`${queueSafePercent}% of ${queueTotal} results`}
+                    note="Every parameter within range"
                 />
                 <KpiTile
-                    label="Held for review"
+                    label="Review mixed / exceptions"
                     value={queueHeld}
                     icon={AlertTriangle}
                     tone={queueHeld > 0 ? "warning" : "neutral"}
                     loading={loading}
-                    note="Needs case-by-case review"
+                    note="Abnormal or critical findings"
                 />
                 <KpiTile
                     label="Selected for approval"
-                    value={totalSafeForApproval}
+                    value={selectedCases.length}
                     icon={ClipboardCheck}
                     loading={loading}
-                    note={`${selectedBatches.length} ${groupWord} selected`}
+                    note={selectedCases.length > 0 ? "Ready to approve" : "Pick safe cases below"}
                 />
             </div>
 
-            <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
-                <SectionCard title="Test groups" count={loading ? undefined : filteredBatches.length} flush>
-                    {/* Filter toolbar */}
-                    <div className="flex flex-wrap items-center gap-2 border-b border-edge bg-surface-muted px-3 py-2">
-                        <InputField
-                            label="Search test groups"
-                            hideLabel
-                            type="search"
-                            value={search}
-                            onChange={(event) => setSearch(event.target.value)}
-                            placeholder="Search test group or code"
-                            autoComplete="off"
-                            className="min-w-[180px] flex-1 sm:max-w-xs"
-                        />
-                        <SelectField
-                            label="Department"
-                            hideLabel
-                            value={department}
-                            onChange={(event) => setDepartment(event.target.value)}
-                            className="w-full sm:w-48"
-                        >
-                            <option value={ALL_DEPARTMENTS}>All departments</option>
-                            {departments.map((item) => (
-                                <option key={item} value={item}>
-                                    {item}
-                                </option>
-                            ))}
-                        </SelectField>
-                        {hasFilters && (
-                            <Button variant="ghost" icon={X} onClick={clearFilters}>
-                                Clear filters
-                            </Button>
-                        )}
-                        <Button
-                            icon={ListChecks}
-                            onClick={selectAll}
-                            disabled={loading || selectableVisible.length === 0}
-                            className="sm:ml-auto"
-                        >
-                            Select safe groups
-                        </Button>
-                    </div>
+            {/* Filter toolbar */}
+            <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-edge bg-surface-muted px-3 py-2">
+                <InputField
+                    label="Search cases"
+                    hideLabel
+                    type="search"
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                    placeholder="Search test group, patient, patient code, specimen or result ID"
+                    autoComplete="off"
+                    className="min-w-[220px] flex-1 sm:max-w-md"
+                />
+                <SelectField
+                    label="Department"
+                    hideLabel
+                    value={department}
+                    onChange={(event) => setDepartment(event.target.value)}
+                    className="w-full sm:w-48"
+                >
+                    <option value={ALL_DEPARTMENTS}>All departments</option>
+                    {departments.map((item) => (
+                        <option key={item} value={item}>
+                            {item}
+                        </option>
+                    ))}
+                </SelectField>
+                {hasFilters && (
+                    <Button variant="ghost" icon={X} onClick={clearFilters}>
+                        Clear filters
+                    </Button>
+                )}
+                <label className="ml-auto flex cursor-pointer items-center gap-2 text-sm text-fg-secondary">
+                    <input
+                        type="checkbox"
+                        checked={allVisibleSelected}
+                        onChange={() => (allVisibleSelected ? clearSelection() : selectAllVisible())}
+                        disabled={loading || safeVisible.length === 0}
+                        aria-label="Select all safe cases shown"
+                        className={CHECKBOX_CLASS}
+                    />
+                    <span>
+                        Select all safe ({safeVisible.length})
+                    </span>
+                </label>
+            </div>
 
-                    {/* States live outside the table so they centre on small screens */}
-                    {loading ? (
-                        <ul aria-hidden="true" className="divide-y divide-edge">
-                            {Array.from({ length: SKELETON_ROWS }).map((_, index) => (
-                                <li key={index} className="flex items-center gap-3 px-4 py-2.5">
-                                    <span className="h-4 w-4 shrink-0 rounded bg-skeleton" />
-                                    <span className="h-3 w-40 rounded bg-skeleton" />
-                                    <span className="hidden h-3 w-24 rounded bg-skeleton md:block" />
-                                    <span className="h-3 w-10 rounded bg-skeleton" />
-                                    <span className="h-3 w-10 rounded bg-skeleton" />
-                                    <span className="hidden h-4 w-20 rounded bg-skeleton sm:block" />
-                                    <span className="ml-auto hidden h-3 w-24 rounded bg-skeleton lg:block" />
-                                </li>
-                            ))}
-                        </ul>
-                    ) : error ? (
+            {loading ? (
+                <div aria-hidden="true" className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    {Array.from({ length: SKELETON_CARDS }).map((_, index) => (
+                        <div key={index} className="rounded-lg border border-edge bg-surface p-4">
+                            <span className="block h-4 w-40 rounded bg-skeleton" />
+                            <span className="mt-2 block h-3 w-28 rounded bg-skeleton" />
+                            <span className="mt-4 block h-3 w-full rounded bg-skeleton" />
+                            <span className="mt-2 block h-3 w-3/4 rounded bg-skeleton" />
+                        </div>
+                    ))}
+                </div>
+            ) : error ? (
+                <div className="rounded-lg border border-edge bg-surface">
+                    <EmptyState
+                        icon={AlertTriangle}
+                        title="Worklist unavailable"
+                        description={error}
+                        action={
+                            <Button size="sm" icon={RefreshCw} onClick={() => void loadBulkWorklist()}>
+                                Retry
+                            </Button>
+                        }
+                    />
+                </div>
+            ) : visibleCases.length === 0 ? (
+                <div className="rounded-lg border border-edge bg-surface">
+                    {hasFilters ? (
                         <EmptyState
-                            icon={AlertTriangle}
-                            title="Worklist unavailable"
-                            description={error}
+                            icon={Search}
+                            title="No cases match"
+                            description="Try a different search term or department."
                             action={
-                                <Button size="sm" icon={RefreshCw} onClick={() => void loadBulkWorklist()}>
-                                    Retry
+                                <Button size="sm" icon={X} onClick={clearFilters}>
+                                    Clear filters
                                 </Button>
                             }
                         />
-                    ) : filteredBatches.length === 0 ? (
-                        hasFilters ? (
-                            <EmptyState
-                                icon={Search}
-                                title="No test groups match"
-                                description="Try a different search term or department."
-                                action={
-                                    <Button size="sm" icon={X} onClick={clearFilters}>
-                                        Clear filters
-                                    </Button>
-                                }
-                            />
-                        ) : (
-                            <EmptyState
-                                icon={ShieldCheck}
-                                title="No test groups ready"
-                                description="Result groups waiting for technical verification will appear here."
-                            />
-                        )
                     ) : (
-                        <div className="overflow-x-auto">
-                            <table className="w-full min-w-[760px] table-fixed text-left text-[13px] md:min-w-[810px] lg:min-w-[940px]">
-                                <caption className="sr-only">Test groups ready for bulk technical verification</caption>
-                                <thead>
-                                    <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
-                                        <th scope="col" className="w-10 py-2 pl-4 pr-2">
-                                            <input
-                                                ref={headerCheckboxRef}
-                                                type="checkbox"
-                                                aria-label="Select all safe groups"
-                                                checked={allVisibleSelected}
-                                                onChange={() => (allVisibleSelected ? clearSelection() : selectAll())}
-                                                disabled={selectableVisible.length === 0}
-                                                className={CHECKBOX_CLASS}
-                                            />
-                                        </th>
-                                        <th scope="col" className="px-3 py-2 font-medium">
-                                            Test group
-                                        </th>
-                                        <th scope="col" className="hidden w-36 px-3 py-2 font-medium md:table-cell">
-                                            Department
-                                        </th>
-                                        <th scope="col" className="w-16 px-3 py-2 text-right font-medium">
-                                            Total
-                                        </th>
-                                        <th scope="col" className="w-16 px-3 py-2 text-right font-medium">
-                                            Safe
-                                        </th>
-                                        <th scope="col" className="w-16 px-3 py-2 text-right font-medium">
-                                            Held
-                                        </th>
-                                        <th scope="col" className="w-32 px-3 py-2 font-medium">
-                                            Status
-                                        </th>
-                                        <th scope="col" className="hidden w-32 px-3 py-2 font-medium lg:table-cell">
-                                            Updated
-                                        </th>
-                                        <th scope="col" className="w-36 py-2 pl-3 pr-4 text-right">
-                                            <span className="sr-only">Actions</span>
-                                        </th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-edge whitespace-nowrap">
-                                    {filteredBatches.map((batch) => {
-                                        const selectable = batch.safeForApproval > 0;
-                                        const reviewable = (batch.reviewResultIds ?? []).length > 0;
-
-                                        return (
-                                            <tr
-                                                key={batch.batchId}
-                                                onClick={() => selectable && toggleBatch(batch.batchId)}
-                                                className={cn(
-                                                    "transition-colors",
-                                                    selectable ? "cursor-pointer" : "cursor-default",
-                                                    !selectable && !reviewable && "opacity-70",
-                                                    batch.isSelected
-                                                        ? "bg-primary-soft hover:bg-primary-soft"
-                                                        : selectable && "hover:bg-surface-hover"
-                                                )}
-                                            >
-                                                <td className="py-2 pl-4 pr-2">
-                                                    {/*
-                                                      The row itself toggles the batch on click. Stop the checkbox's
-                                                      click from bubbling up to it: onChange already toggles once, and
-                                                      a second toggle from the row would silently cancel it out,
-                                                      leaving an unticked batch still in the approval set.
-                                                    */}
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={batch.isSelected}
-                                                        disabled={!selectable}
-                                                        onChange={() => selectable && toggleBatch(batch.batchId)}
-                                                        onClick={(event) => event.stopPropagation()}
-                                                        aria-label={`Select ${batch.batchName}`}
-                                                        className={CHECKBOX_CLASS}
-                                                    />
-                                                </td>
-                                                <td className="px-3 py-2">
-                                                    <div className="min-w-0">
-                                                        <div className="truncate font-medium text-fg" title={batch.batchName}>
-                                                            {batch.batchName}
-                                                        </div>
-                                                        <div className="truncate text-xs text-fg-muted">
-                                                            <span className="font-mono" title={batch.batchCode}>
-                                                                {batch.batchCode}
-                                                            </span>
-                                                            <span className="md:hidden"> · {batch.department}</span>
-                                                        </div>
-                                                    </div>
-                                                </td>
-                                                <td className="hidden px-3 py-2 text-fg-secondary md:table-cell">
-                                                    <span className="block truncate" title={batch.department}>
-                                                        {batch.department}
-                                                    </span>
-                                                </td>
-                                                <td className="px-3 py-2 text-right tabular-nums text-fg-secondary">
-                                                    {batch.totalResults}
-                                                </td>
-                                                <td className="px-3 py-2 text-right font-medium tabular-nums text-fg">
-                                                    {batch.safeForApproval}
-                                                </td>
-                                                <td
-                                                    className={cn(
-                                                        "px-3 py-2 text-right tabular-nums",
-                                                        batch.exceptions > 0 ? "font-medium text-status-pending-fg" : "text-fg-muted"
-                                                    )}
-                                                >
-                                                    {batch.exceptions}
-                                                </td>
-                                                <td className="px-3 py-2">
-                                                    <StatusChip tone={batch.exceptions === 0 ? "success" : "pending"} dot size="sm">
-                                                        {batch.exceptions === 0 ? "Safe group" : "Review mixed"}
-                                                    </StatusChip>
-                                                </td>
-                                                <td className="hidden px-3 py-2 text-fg-muted lg:table-cell">
-                                                    {batch.updatedAt ? (
-                                                        <time dateTime={batch.updatedAt}>{formatAuditTime(batch.updatedAt)}</time>
-                                                    ) : (
-                                                        <span className="text-fg-faint">—</span>
-                                                    )}
-                                                </td>
-                                                <td className="py-2 pl-3 pr-4 text-right">
-                                                    {batch.exceptions === 0 ? (
-                                                        <span className="text-xs text-fg-muted">No review needed</span>
-                                                    ) : (
-                                                        <Button
-                                                            size="sm"
-                                                            variant="ghost"
-                                                            onClick={(event) => {
-                                                                event.stopPropagation();
-                                                                handleReviewCases(batch.reviewResultIds ?? []);
-                                                            }}
-                                                            disabled={!reviewable}
-                                                            aria-label={`Review ${batch.exceptions} held ${batch.exceptions === 1 ? "case" : "cases"} in ${batch.batchName}`}
-                                                        >
-                                                            Review cases
-                                                        </Button>
-                                                    )}
-                                                </td>
-                                            </tr>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
-                        </div>
+                        <EmptyState
+                            icon={ShieldCheck}
+                            title="No cases waiting"
+                            description="Cases waiting for technical verification will appear here, grouped as safe or held for review."
+                        />
                     )}
-                </SectionCard>
-
-                <SectionCard title="Approval rules" className="lg:sticky lg:top-20">
-                    <div className="space-y-5">
-                        <div>
-                            <p className="flex items-center gap-1.5 text-xs font-medium text-status-verified-fg">
-                                <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden="true" />
-                                Eligible for bulk approval
-                            </p>
-                            <ul className="mt-2 space-y-2 text-sm text-fg-secondary">
-                                <li className="flex items-start gap-2">
-                                    <span aria-hidden="true" className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-status-verified" />
-                                    <span>
-                                        Result status is <code className="font-mono text-xs font-medium text-fg">ENTERED</code>
-                                    </span>
-                                </li>
-                                <li className="flex items-start gap-2">
-                                    <span aria-hidden="true" className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-status-verified" />
-                                    <span>
-                                        Flag is <code className="font-mono text-xs font-medium text-fg">NORMAL</code> or not set
-                                    </span>
-                                </li>
+                </div>
+            ) : (
+                <div className="space-y-6 pb-24">
+                    {/* Safe cases — one click approves them all */}
+                    <SectionCard
+                        title="Safe for instant approval"
+                        count={safeVisible.length}
+                        actions={
+                            safeVisible.length > 0 ? (
+                                <Button size="sm" icon={ListChecks} onClick={selectAllVisible} disabled={allVisibleSelected}>
+                                    Select all
+                                </Button>
+                            ) : undefined
+                        }
+                    >
+                        {safeVisible.length === 0 ? (
+                            <p className="text-sm text-fg-muted">No fully in-range cases match the current filters.</p>
+                        ) : (
+                            <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                                {safeVisible.map((item) => (
+                                    <li key={item.resultId}>
+                                        <CaseCard
+                                            item={item}
+                                            selected={selectedIds.has(item.resultId)}
+                                            onToggle={() => toggleCase(item.resultId)}
+                                            onOpen={() => openCase(item.resultId)}
+                                        />
+                                    </li>
+                                ))}
                             </ul>
-                        </div>
+                        )}
+                    </SectionCard>
 
-                        <div>
-                            <p className="flex items-center gap-1.5 text-xs font-medium text-status-pending-fg">
-                                <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
-                                Held for manual review
-                            </p>
-                            <ul className="mt-2 space-y-2 text-sm text-fg-secondary">
-                                <li className="flex items-start gap-2">
-                                    <span aria-hidden="true" className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-status-pending" />
-                                    <span>Cases returned to the supervisor</span>
-                                </li>
-                                <li className="flex items-start gap-2">
-                                    <span aria-hidden="true" className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-status-pending" />
-                                    <span>
-                                        <code className="font-mono text-xs font-medium text-fg">HIGH</code> or{" "}
-                                        <code className="font-mono text-xs font-medium text-fg">LOW</code> flagged results
-                                    </span>
-                                </li>
-                                <li className="flex items-start gap-2">
-                                    <span aria-hidden="true" className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-status-pending" />
-                                    <span>
-                                        <code className="font-mono text-xs font-medium text-fg">CRITICAL_HIGH</code> or{" "}
-                                        <code className="font-mono text-xs font-medium text-fg">CRITICAL_LOW</code> flagged results
-                                    </span>
-                                </li>
+                    {/* Held cases — each opens in the single-case review */}
+                    <SectionCard title="Review mixed / exceptions" count={heldVisible.length}>
+                        {heldVisible.length === 0 ? (
+                            <p className="text-sm text-fg-muted">No held cases match the current filters.</p>
+                        ) : (
+                            <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                                {heldVisible.map((item) => (
+                                    <li key={item.resultId}>
+                                        <CaseCard item={item} onOpen={() => openCase(item.resultId)} />
+                                    </li>
+                                ))}
                             </ul>
-                        </div>
-                    </div>
-                </SectionCard>
-            </div>
+                        )}
+                    </SectionCard>
+                </div>
+            )}
 
-            {/* Selection summary bar — sticks to the bottom while the table scrolls */}
-            {selectedBatches.length > 0 && (
+            {/* Floating bulk action bar — appears once a case is selected */}
+            {selectedCases.length > 0 && (
                 <section
                     aria-label="Selection summary"
-                    className="sticky bottom-0 z-20 mt-4 rounded-lg border border-edge bg-surface p-3 sm:p-4"
+                    className="sticky bottom-0 z-20 mt-4 rounded-lg border border-edge bg-surface p-3 shadow-lg sm:p-4"
                 >
-                    {/* Wraps instead of overflowing on narrow viewports; sitting in normal
-                        flow (not fixed) means it never has to guess the sidebar's width. */}
                     <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
                         <dl className="flex flex-wrap gap-x-6 gap-y-2">
                             <div>
-                                <dt className="text-xs text-fg-muted">Selected groups</dt>
-                                <dd className="text-base font-semibold tabular-nums text-fg">{selectedBatches.length}</dd>
-                            </div>
-                            <div>
-                                <dt className="text-xs text-fg-muted">Safe for approval</dt>
+                                <dt className="text-xs text-fg-muted">Selected cases</dt>
                                 <dd className="text-base font-semibold tabular-nums text-status-verified-fg">
-                                    {totalSafeForApproval}
+                                    {selectedCases.length}
                                 </dd>
                             </div>
                             <div>
-                                <dt className="text-xs text-fg-muted">Held for review</dt>
-                                <dd className="text-base font-semibold tabular-nums text-status-pending-fg">
-                                    {totalExceptions}
+                                <dt className="text-xs text-fg-muted">Test groups</dt>
+                                <dd className="text-base font-semibold tabular-nums text-fg">
+                                    {new Set(selectedCases.map((item) => item.batchId)).size}
                                 </dd>
                             </div>
                         </dl>
@@ -589,9 +465,9 @@ export default function BulkApprovalPage() {
                                 variant="primary"
                                 icon={CheckCircle2}
                                 onClick={() => setIsConfirming(true)}
-                                disabled={isSubmitting || selectedResultIds.length === 0}
+                                disabled={isSubmitting}
                             >
-                                Approve safe results
+                                Approve {selectedCases.length} {caseWord}
                             </Button>
                         </div>
                     </div>
@@ -602,7 +478,7 @@ export default function BulkApprovalPage() {
                 open={isConfirming}
                 onClose={closeConfirm}
                 dismissible={!isSubmitting}
-                title={`Approve ${selectedResultIds.length} safe ${caseWord}?`}
+                title={`Approve ${selectedCases.length} safe ${caseWord}?`}
                 description="Every parameter on these specimens is within its reference range. Each case will be marked technically verified under your name and released to the pathologist worklist."
                 footer={
                     <>
@@ -615,20 +491,19 @@ export default function BulkApprovalPage() {
                     </>
                 }
             >
-                <dl className="mb-4 grid grid-cols-3 gap-3 rounded-md border border-edge bg-surface-muted px-3 py-2 text-xs">
-                    <div>
-                        <dt className="text-fg-muted">Groups</dt>
-                        <dd className="font-semibold tabular-nums text-fg">{selectedBatches.length}</dd>
-                    </div>
-                    <div>
-                        <dt className="text-fg-muted">Safe {caseWord}</dt>
-                        <dd className="font-semibold tabular-nums text-status-verified-fg">{totalSafeForApproval}</dd>
-                    </div>
-                    <div>
-                        <dt className="text-fg-muted">Held for review</dt>
-                        <dd className="font-semibold tabular-nums text-status-pending-fg">{totalExceptions}</dd>
-                    </div>
-                </dl>
+                <ul className="mb-4 max-h-40 divide-y divide-edge overflow-y-auto rounded-md border border-edge bg-surface-muted text-xs">
+                    {selectedCases.map((item) => (
+                        <li key={item.resultId} className="flex items-center justify-between gap-3 px-3 py-1.5">
+                            <span className="min-w-0 truncate font-medium text-fg">
+                                {item.patientName || "Unknown patient"}
+                                <span className="font-normal text-fg-muted"> · {item.batchName}</span>
+                            </span>
+                            <span className="shrink-0 font-mono text-fg-secondary">
+                                {displayResultNo(item.resultNo, item.resultId)}
+                            </span>
+                        </li>
+                    ))}
+                </ul>
                 <TextareaField
                     id="supervisor-note"
                     label="Supervisor remark"
@@ -641,5 +516,139 @@ export default function BulkApprovalPage() {
                 />
             </Modal>
         </div>
+    );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Card                                                                */
+/* ------------------------------------------------------------------ */
+
+function CaseCard({
+    item,
+    selected,
+    onToggle,
+    onOpen,
+}: {
+    item: WorklistCase;
+    selected?: boolean;
+    onToggle?: () => void;
+    onOpen: () => void;
+}) {
+    const selectable = item.safeForApproval && Boolean(onToggle);
+    const displayId = displayResultNo(item.resultNo, item.resultId);
+    const critical = Boolean(item.hasCriticalFinding);
+    const hiddenParameters = Math.max(0, item.parameterCount - item.parameters.length);
+
+    return (
+        <article
+            onClick={() => selectable && onToggle?.()}
+            className={cn(
+                "flex h-full flex-col gap-3 rounded-lg border p-4 transition-colors",
+                selectable ? "cursor-pointer" : "cursor-default",
+                selected
+                    ? "border-primary bg-primary-soft"
+                    : critical
+                      ? "border-status-danger-edge bg-status-danger-bg"
+                      : "border-edge bg-surface hover:bg-surface-hover"
+            )}
+            aria-label={`${item.batchName} for ${item.patientName || "unknown patient"}`}
+        >
+            <header className="flex items-start gap-3">
+                {selectable && (
+                    <input
+                        type="checkbox"
+                        checked={Boolean(selected)}
+                        onChange={() => onToggle?.()}
+                        onClick={(event) => event.stopPropagation()}
+                        aria-label={`Select ${displayId}`}
+                        className={cn("mt-0.5", CHECKBOX_CLASS)}
+                    />
+                )}
+                <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-fg" title={item.batchName}>
+                        {item.batchName}
+                    </p>
+                    <p className="mt-0.5 truncate text-xs text-fg-muted">
+                        <span className="font-mono">{displayId}</span>
+                        {item.sampleBarcode && (
+                            <>
+                                <span aria-hidden="true"> · </span>
+                                <span className="font-mono" title="Specimen barcode">
+                                    {item.sampleBarcode}
+                                </span>
+                            </>
+                        )}
+                    </p>
+                </div>
+                <div className="flex shrink-0 flex-col items-end gap-1">
+                    <PriorityBadge priority={item.priorityLevel ?? ""} />
+                    {item.status === "RETURNED_FOR_RECHECK" && (
+                        <StatusChip tone="pending" size="sm" dot>
+                            {resultStatusLabel(item.status)}
+                        </StatusChip>
+                    )}
+                </div>
+            </header>
+
+            <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-fg" title={item.patientName || undefined}>
+                    {item.patientName || "Unknown patient"}
+                </p>
+                {item.patientCode && (
+                    <p className="truncate font-mono text-xs text-fg-muted">{item.patientCode}</p>
+                )}
+            </div>
+
+            {item.parameters.length > 0 && (
+                <ul className="flex flex-wrap gap-1.5" aria-label="Parameter preview">
+                    {item.parameters.map((parameter, index) => (
+                        <li key={`${parameter.parameterName ?? "p"}-${index}`}>
+                            <StatusChip tone={toneForFlag(parameter.flag)} size="sm">
+                                <span className="font-medium">{parameter.parameterName ?? "—"}</span>
+                                <span className="tabular-nums"> {parameter.resultValue ?? "—"}</span>
+                                {parameter.unit && <span className="text-fg-muted"> {parameter.unit}</span>}
+                            </StatusChip>
+                        </li>
+                    ))}
+                    {hiddenParameters > 0 && (
+                        <li>
+                            <StatusChip tone="neutral" size="sm">
+                                +{hiddenParameters} more
+                            </StatusChip>
+                        </li>
+                    )}
+                </ul>
+            )}
+
+            <footer className="mt-auto flex items-center justify-between gap-2 pt-1 text-xs text-fg-muted">
+                <span>
+                    {item.updatedAt ? (
+                        <>
+                            Updated <time dateTime={item.updatedAt}>{formatAuditTime(item.updatedAt)}</time>
+                        </>
+                    ) : (
+                        <span className="text-fg-faint">—</span>
+                    )}
+                </span>
+                {item.safeForApproval ? (
+                    <StatusChip tone="success" size="sm" dot>
+                        Safe
+                    </StatusChip>
+                ) : (
+                    <Button
+                        size="sm"
+                        variant="primary"
+                        icon={ExternalLink}
+                        onClick={(event) => {
+                            event.stopPropagation();
+                            onOpen();
+                        }}
+                        aria-label={`Review exception ${displayId}`}
+                    >
+                        Review exception
+                    </Button>
+                )}
+            </footer>
+        </article>
     );
 }

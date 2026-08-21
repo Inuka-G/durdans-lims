@@ -491,10 +491,23 @@ export interface TestResultParameter {
     referenceRangeLow?: number | null;
     referenceRangeHigh?: number | null;
     flag?: string | null;
+    /** Delta check: the patient's most recent released value for this parameter (previous visit). */
+    previousValue?: string | null;
+    previousFlag?: string | null;
+    previousVisitedAt?: string | null;
+    previousSampleBarcode?: string | null;
+    /** current - previous, when both are numeric */
+    deltaAbsolute?: number | null;
+    /** Signed percent change vs the previous value */
+    deltaPercent?: number | null;
+    /** |deltaPercent| exceeds the lab's delta-check threshold */
+    deltaSignificant?: boolean | null;
 }
 
 export interface PreviousVisitSummary {
     resultId: string;
+    /** Human-readable case number of that visit (RES2026-00042) */
+    resultNo?: string | null;
     sampleId: string;
     status?: string | null;
     priorityLevel?: string | null;
@@ -506,6 +519,8 @@ export interface PreviousVisitSummary {
 
 export interface TestResultSummary {
     resultId: string;
+    /** Human-readable case number (RES2026-00042); the UUID stays the routing key */
+    resultNo?: string | null;
     status?: string | null;
     /** Patient code, so the queue can be searched by ID as well as by name */
     patientCode?: string | null;
@@ -527,6 +542,8 @@ export interface TestResultSummary {
 
 export interface TestResultDetail {
     resultId: string;
+    /** Human-readable case number (RES2026-00042) */
+    resultNo?: string | null;
     status?: string | null;
     patientCode?: string | null;
     patientName?: string | null;
@@ -546,6 +563,21 @@ export interface TestResultDetail {
     clinicalNote?: string | null;
     mltNotes?: string | null;
     supervisorNote?: string | null;
+    /** Specimen / encounter context for the review header */
+    sampleBarcode?: string | null;
+    tubeType?: string | null;
+    collectedAt?: string | null;
+    collectedBy?: string | null;
+    /** When accessioning accepted the specimen into the lab */
+    receivedAt?: string | null;
+    /** When the analyser / MLT recorded the latest value */
+    measuredAt?: string | null;
+    referringDoctor?: string | null;
+    referringDepartment?: string | null;
+    /** Last return on the case, in either direction */
+    returnReason?: string | null;
+    returnedBy?: string | null;
+    returnedAt?: string | null;
 }
 
 export interface TestResultPage {
@@ -573,6 +605,32 @@ export interface BulkVerificationPayload {
     supervisorNote?: string;
 }
 
+export interface BulkVerificationParameterPreview {
+    parameterName?: string | null;
+    resultValue?: string | null;
+    unit?: string | null;
+    flag?: string | null;
+}
+
+/** One case (specimen) on the bulk approval worklist — enough for a card. */
+export interface BulkVerificationCase {
+    /** Anchor result id: the id the case is approved or reviewed through */
+    resultId: string;
+    resultNo?: string | null;
+    sampleId?: string | null;
+    sampleBarcode?: string | null;
+    patientCode?: string | null;
+    patientName?: string | null;
+    priorityLevel?: string | null;
+    status?: string | null;
+    flag?: string | null;
+    hasCriticalFinding?: boolean | null;
+    safeForApproval: boolean;
+    updatedAt?: string | null;
+    parameterCount: number;
+    parameters: BulkVerificationParameterPreview[];
+}
+
 export interface BulkVerificationBatch {
     batchId: string;
     batchName: string;
@@ -584,10 +642,14 @@ export interface BulkVerificationBatch {
     updatedAt?: string | null;
     resultIds: string[];
     reviewResultIds: string[];
+    /** Every case in this test group, safe and held alike */
+    cases?: BulkVerificationCase[] | null;
 }
 
 export interface VerificationHistoryItem {
     resultId: string;
+    /** Human-readable case number (RES2026-00042) of the result the action was taken on */
+    resultNo?: string | null;
     actionType?: string | null;
     patientCode?: string | null;
     patientName?: string | null;
@@ -738,6 +800,9 @@ export interface MltWorklistItem {
     priority: 'STAT' | 'URGENT' | 'NORMAL';
     status: string;
     collectedAt?: string | null;
+    /** The supervisor returned this case to the MLT; it awaits re-entry */
+    returnedToMlt?: boolean | null;
+    returnReason?: string | null;
 }
 
 export interface SampleRejectRequest {
@@ -779,6 +844,11 @@ export interface SampleResults {
     collectedBy?: string | null;
     mltNotes: string | null;
     results: ResultParameter[];
+    /** The supervisor returned this case to the MLT; it awaits re-entry */
+    returnedToMlt?: boolean | null;
+    returnReason?: string | null;
+    returnedBy?: string | null;
+    returnedAt?: string | null;
 }
 
 export interface MltResultActivityItem {
@@ -803,19 +873,6 @@ export interface SubmitResultsRequest {
      * it the result is neither held nor vouched for.
      */
     instrumentCode?: string;
-}
-
-export interface VerificationPendingItem {
-    sampleId: string;
-    barcode: string;
-    patientId: string;
-    patientName: string;
-    testName: string;
-    priority: 'STAT' | 'URGENT' | 'NORMAL';
-    status: string;
-    flag: string | null;
-    mltName: string | null;
-    submittedAt: string | number | null;
 }
 
 export interface MltAllWorklistItem {
@@ -947,11 +1004,6 @@ export const saveDraftResults = async (id: string, payload: SubmitResultsRequest
 
 export const submitResults = async (id: string, payload: SubmitResultsRequest) => {
     await axiosInstance.post(`/api/v1/mlt/samples/${id}/results`, payload);
-};
-
-export const getVerificationPendingSamples = async () => {
-    const response = await axiosInstance.get('/api/v1/verification/pending');
-    return response.data as VerificationPendingItem[];
 };
 
 // ============ LAB TESTS ============

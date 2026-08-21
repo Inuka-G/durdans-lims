@@ -43,6 +43,7 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.Period;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.HashMap;
@@ -73,6 +74,7 @@ public class ClinicalAuthorizationService {
     private final PatientRepository patientRepository;
     private final BranchRepository branchRepository;
     private final DispatchService dispatchService;
+    private final CaseContextResolver caseContextResolver;
 
     @Transactional(readOnly = true)
     public Page<TestResultSummaryResponse> getPendingResults(int page, int size) {
@@ -220,28 +222,29 @@ public class ClinicalAuthorizationService {
                 .findHistoryByEntityTypeAndActions(
                         VERIFICATION_ENTITY_TYPE,
                         actions,
-                        normalizeSearch(search),
+                        CaseContextResolver.normalizeHistorySearch(search),
                         fromTimestamp,
                         PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "timestamp"))
                 );
 
-        Map<UUID, HistoryPatient> patients = resolveHistoryPatients(auditPage.getContent());
-        return auditPage.map(auditLog -> toHistoryItemResponse(auditLog, patients));
+        Map<UUID, HistoryCaseRef> cases = resolveHistoryCases(auditPage.getContent());
+        return auditPage.map(auditLog -> toHistoryItemResponse(auditLog, cases));
     }
 
-    /** Patient identity for one audited action, resolved for display in the history table. */
-    private record HistoryPatient(String code, String name) {
+    /** Patient identity and case number for one audited action, resolved for the history table. */
+    private record HistoryCaseRef(String patientCode, String patientName, String resultNo) {
     }
 
     /**
-     * Resolve the patient behind each audit row for a whole page at once.
+     * Resolve the patient and case number behind each audit row for a whole page
+     * at once.
      *
      * <p>The audit row's own patient_code column carries the specimen barcode on
      * these writes, so identity comes from the result the row points at:
      * result -> sample -> order -> patient. Batched to two queries per page rather
      * than two per row.
      */
-    private Map<UUID, HistoryPatient> resolveHistoryPatients(List<AuditLog> auditLogs) {
+    private Map<UUID, HistoryCaseRef> resolveHistoryCases(List<AuditLog> auditLogs) {
         List<UUID> resultIds = auditLogs.stream()
                 .map(AuditLog::getEntityId)
                 .filter(Objects::nonNull)
@@ -252,17 +255,20 @@ public class ClinicalAuthorizationService {
         }
 
         Map<UUID, String> codeByResultId = new HashMap<>();
+        Map<UUID, String> resultNoByResultId = new HashMap<>();
         for (TestResultEntity result : testResultRepository.findAllById(resultIds)) {
             String code = safelyResolvePatientId(result);
             if (code != null && !code.isBlank()) {
                 codeByResultId.put(result.getId(), code.trim());
             }
-        }
-        if (codeByResultId.isEmpty()) {
-            return Map.of();
+            if (result.getSample() != null && result.getSample().getResultNo() != null) {
+                resultNoByResultId.put(result.getId(), result.getSample().getResultNo());
+            }
         }
 
-        Map<String, String> nameByCode = patientRepository
+        Map<String, String> nameByCode = codeByResultId.isEmpty()
+                ? Map.of()
+                : patientRepository
                 .findByPatientCodeIn(new java.util.HashSet<>(codeByResultId.values()))
                 .stream()
                 .collect(Collectors.toMap(
@@ -270,9 +276,15 @@ public class ClinicalAuthorizationService {
                         PatientEntity::getFullName,
                         (first, second) -> first));
 
-        Map<UUID, HistoryPatient> resolved = new HashMap<>();
-        codeByResultId.forEach((resultId, code) ->
-                resolved.put(resultId, new HistoryPatient(code, nameByCode.get(code))));
+        Map<UUID, HistoryCaseRef> resolved = new HashMap<>();
+        for (UUID resultId : resultIds) {
+            String code = codeByResultId.get(resultId);
+            String resultNo = resultNoByResultId.get(resultId);
+            if (code == null && resultNo == null) {
+                continue;
+            }
+            resolved.put(resultId, new HistoryCaseRef(code, code == null ? null : nameByCode.get(code), resultNo));
+        }
         return resolved;
     }
 
@@ -282,6 +294,13 @@ public class ClinicalAuthorizationService {
 
         if (!Boolean.TRUE.equals(request.getSignatureConfirmed())) {
             throw new InvalidRequestException("Pathologist signature confirmation is required before authorization.");
+        }
+
+        // The interpretation is what the referring clinician reads; a report released
+        // without one is a number without a meaning. Mandatory here, not only in the UI.
+        String clinicalNote = request.getClinicalNote() == null ? null : request.getClinicalNote().trim();
+        if (clinicalNote == null || clinicalNote.isEmpty()) {
+            throw new InvalidRequestException("A clinical interpretation is required before authorization.");
         }
 
         List<TestResultEntity> targets = testResultRepository.findBySampleId(anchor.getSample().getId()).stream()
@@ -307,7 +326,7 @@ public class ClinicalAuthorizationService {
         String signature = String.format("Electronically authorized by %s on %s", actorName, now);
         for (TestResultEntity result : targets) {
             result.setStatus(ResultStatus.CLINICALLY_AUTHORIZED);
-            result.setClinicalNote(request.getClinicalNote());
+            result.setClinicalNote(clinicalNote);
             result.setClinicallyAuthorizedBy(actorName);
             result.setClinicallyAuthorizedAt(now);
             result.setClinicalSignature(signature);
@@ -317,7 +336,7 @@ public class ClinicalAuthorizationService {
         }
 
         registerAuthorizedReportForDispatch(anchor);
-        logClinicalAuthorized(anchor, request.getClinicalNote());
+        logClinicalAuthorized(anchor, clinicalNote);
         return buildDetailResponse(anchor);
     }
 
@@ -374,7 +393,12 @@ public class ClinicalAuthorizationService {
         String patientName = patient != null ? patient.getFullName() : null;
         Integer patientAge = patient == null ? null : calculatePatientAge(patient);
         String patientGender = patient == null || patient.getGender() == null ? null : patient.getGender().name();
-        List<PreviousVisitSummaryResponse> previousVisits = resolvePreviousVisits(patientId, testId, result.getSample().getId());
+
+        // One query serves both the "previous visits" panel and the per-parameter
+        // delta column, so the two can never disagree about what "previous" means.
+        List<TestResultEntity> priorResults = caseContextResolver.priorResults(patientId, testId, result.getSample());
+        List<PreviousVisitSummaryResponse> previousVisits = toPreviousVisits(priorResults);
+        Map<UUID, TestResultEntity> priorByParameter = caseContextResolver.latestReleasedByParameter(priorResults);
 
         return testResultMapper.toDetailResponse(
                 result,
@@ -384,7 +408,9 @@ public class ClinicalAuthorizationService {
                 testType,
                 patientAge,
                 patientGender,
-                previousVisits
+                previousVisits,
+                priorByParameter,
+                caseContextResolver.receivedAt(result.getSample().getId())
         );
     }
 
@@ -492,10 +518,29 @@ public class ClinicalAuthorizationService {
         TestCatalogEntity catalog = testCatalogRepository.findById(result.getSample().getOrderItem().getTestId())
                 .orElse(null);
 
+        // Everything the history screen shows and searches on is written into the
+        // row itself, so the audit trail stays readable even if the result it points
+        // at is later purged, and so the all-fields search has something to match.
         Map<String, String> details = new HashMap<>();
         details.put("testName", catalog == null ? "Unknown Test Group" : catalog.getTestName());
+        details.put("actionSummary", getActionSummary(action));
         if (result.getSample().getPriority() != null) {
             details.put("specimenPriority", result.getSample().getPriority().name());
+        }
+        if (result.getSample().getResultNo() != null) {
+            details.put("resultNo", result.getSample().getResultNo());
+        }
+        String patientCode = safelyResolvePatientId(result);
+        if (patientCode != null && !patientCode.isBlank()) {
+            details.put("patientCode", patientCode);
+            String patientName = safelyResolvePatientName(patientCode);
+            if (patientName != null && !patientName.isBlank()) {
+                details.put("patientName", patientName);
+            }
+        }
+        String performedById = SecurityUtils.getCurrentUserId();
+        if (performedById != null && !performedById.isBlank()) {
+            details.put("performedById", performedById);
         }
         if (notes != null && !notes.isBlank()) {
             details.put("notes", notes);
@@ -517,20 +562,25 @@ public class ClinicalAuthorizationService {
 
     private VerificationHistoryItemResponse toHistoryItemResponse(
             AuditLog auditLog,
-            Map<UUID, HistoryPatient> patients) {
+            Map<UUID, HistoryCaseRef> cases) {
         Map<String, String> details = parseDetails(auditLog.getDetails());
+        // AuditService writes LocalDateTime.now(UTC); read it back the same way so a
+        // host in another zone does not shift every history time by its offset.
         Instant actionAt = auditLog.getTimestamp() == null
                 ? null
-                : auditLog.getTimestamp().atZone(ZoneId.systemDefault()).toInstant();
-        HistoryPatient patient = auditLog.getEntityId() == null
+                : auditLog.getTimestamp().atOffset(ZoneOffset.UTC).toInstant();
+        HistoryCaseRef caseRef = auditLog.getEntityId() == null
                 ? null
-                : patients.get(auditLog.getEntityId());
+                : cases.get(auditLog.getEntityId());
 
         return VerificationHistoryItemResponse.builder()
                 .resultId(auditLog.getEntityId() == null ? "" : auditLog.getEntityId().toString())
+                .resultNo(caseRef != null && caseRef.resultNo() != null
+                        ? caseRef.resultNo()
+                        : details.get("resultNo"))
                 .actionType(auditLog.getAction())
-                .patientCode(patient == null ? null : patient.code())
-                .patientName(patient == null ? null : patient.name())
+                .patientCode(caseRef == null ? details.get("patientCode") : caseRef.patientCode())
+                .patientName(caseRef == null ? details.get("patientName") : caseRef.patientName())
                 .testName(details.getOrDefault("testName", "Unknown Test Group"))
                 .specimenPriority(details.get("specimenPriority"))
                 .actionSummary(getActionSummary(auditLog.getAction()))
@@ -636,28 +686,13 @@ public class ClinicalAuthorizationService {
         return Period.between(patient.getDob(), LocalDate.now()).getYears();
     }
 
-    private List<PreviousVisitSummaryResponse> resolvePreviousVisits(String patientId, UUID testId, UUID currentSampleId) {
-        if (patientId == null || patientId.isBlank() || testId == null || currentSampleId == null) {
-            return List.of();
-        }
-
-        TestResultEntity currentResult = testResultRepository.findBySampleId(currentSampleId).stream()
-                .findFirst()
-                .orElse(null);
-        Instant currentVisitAt = currentResult == null
-                ? null
-                : currentResult.getSample().getCollectedAt() != null
-                ? currentResult.getSample().getCollectedAt()
-                : currentResult.getSample().getCreatedAt();
-
-        if (currentVisitAt == null) {
-            return List.of();
-        }
-
-        Map<UUID, List<TestResultEntity>> resultsBySample = testResultRepository
-                .findPreviousResultsForPatientAndTest(patientId.trim(), testId, currentSampleId, currentVisitAt)
-                .stream()
-                .collect(Collectors.groupingBy(result -> result.getSample().getId()));
+    /** Prior results (newest visit first) grouped into the last five visits. */
+    private List<PreviousVisitSummaryResponse> toPreviousVisits(List<TestResultEntity> priorResults) {
+        Map<UUID, List<TestResultEntity>> resultsBySample = priorResults.stream()
+                .collect(Collectors.groupingBy(
+                        result -> result.getSample().getId(),
+                        LinkedHashMap::new,
+                        Collectors.toList()));
 
         return resultsBySample.values().stream()
                 .sorted(Comparator.comparing(this::resolveVisitedAt, Comparator.nullsLast(Comparator.reverseOrder())))
@@ -678,8 +713,12 @@ public class ClinicalAuthorizationService {
 
         return PreviousVisitSummaryResponse.builder()
                 .resultId(primaryResult.getId().toString())
+                .resultNo(primaryResult.getSample().getResultNo())
                 .sampleId(primaryResult.getSample().getId().toString())
                 .status(primaryResult.getStatus() == null ? null : primaryResult.getStatus().name())
+                .priorityLevel(primaryResult.getSample().getPriority() == null
+                        ? null
+                        : primaryResult.getSample().getPriority().name())
                 .visitedAt(visitedAt)
                 .parameterCount(sampleResults.size())
                 .abnormalCount(abnormalCount)
@@ -688,9 +727,6 @@ public class ClinicalAuthorizationService {
     }
 
     private Instant resolveVisitedAt(List<TestResultEntity> sampleResults) {
-        TestResultEntity primaryResult = sampleResults.get(0);
-        return primaryResult.getSample().getCollectedAt() != null
-                ? primaryResult.getSample().getCollectedAt()
-                : primaryResult.getSample().getCreatedAt();
+        return CaseContextResolver.visitedAt(sampleResults.get(0).getSample());
     }
 }

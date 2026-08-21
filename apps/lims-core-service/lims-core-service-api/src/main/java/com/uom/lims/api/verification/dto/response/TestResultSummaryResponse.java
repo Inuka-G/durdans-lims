@@ -13,6 +13,8 @@ import java.time.Instant;
 @AllArgsConstructor
 public class TestResultSummaryResponse {
     private String resultId;
+    /** Human-readable case number (RES<year>-<sequence>); the UUID stays the routing key. */
+    private String resultNo;
     private String status;
     /** Patient code, shown beside the name so staff can search the queue by ID. */
     private String patientCode;
