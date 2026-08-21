@@ -28,8 +28,6 @@ export const ORDER_BILLING_ENDPOINTS = {
 };
 
 // ==========================================
-// STATUS COLORS & BADGES
-// ==========================================
 // CURRENCY & FORMATTING
 // ==========================================
 export const CURRENCY_SYMBOL = 'LKR';

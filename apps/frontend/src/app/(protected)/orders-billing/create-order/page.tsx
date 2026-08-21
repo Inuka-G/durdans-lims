@@ -71,6 +71,17 @@ const formatTurnaround = (hours?: number) => {
 };
 
 /** "34 / Male" — keeps the page's own age + gender values, with em-dash fallbacks. */
+// A failed patient lookup is usually a role problem, not an empty branch: axios only
+// logs the 403, so left unreported the picker renders as "no patients" and the order
+// simply cannot be started. Name the cause instead.
+const patientLookupError = (err: unknown): string => {
+    const status = (err as { response?: { status?: number } })?.response?.status;
+    if (status === 403) {
+        return 'Your account is not allowed to look up patients. Ask an administrator to add patient search to your role.';
+    }
+    return (err as { message?: string })?.message || 'Failed to load patients.';
+};
+
 const formatAgeSex = (patient: OrderPatient) => {
     const age = String(patient.age ?? '').trim() || '—';
     return `${age} / ${patient.gender || '—'}`;
@@ -99,6 +110,7 @@ export default function CreateTestOrderPage() {
     const [isSearching, setIsSearching] = useState(false);
     const [patientSearchLoading, setPatientSearchLoading] = useState(false);
     const [recentPatientsLoading, setRecentPatientsLoading] = useState(true);
+    const [patientsError, setPatientsError] = useState<string | null>(null);
 
     // ── Test State ─────────────────────────────────────────────────────────────
     const [allTests, setAllTests] = useState<LabTest[]>([]);
@@ -135,29 +147,24 @@ export default function CreateTestOrderPage() {
         loadTests();
     }, [loadTests]);
 
-    useEffect(() => {
-        let active = true;
-
-        const fetchRecentPatients = async () => {
-            try {
-                setRecentPatientsLoading(true);
-                const res = await getPatients({ page: 0, size: 5, sort: 'createdAt,desc' });
-                const list = res?.content ?? res?.data?.content ?? res ?? [];
-                const mapped = (Array.isArray(list) ? list : []).map(mapPatientForOrder);
-                if (active) setRecentPatients(mapped);
-            } catch {
-                if (active) setRecentPatients([]);
-            } finally {
-                if (active) setRecentPatientsLoading(false);
-            }
-        };
-
-        fetchRecentPatients();
-
-        return () => {
-            active = false;
-        };
+    const loadRecentPatients = useCallback(async () => {
+        try {
+            setRecentPatientsLoading(true);
+            setPatientsError(null);
+            const res = await getPatients({ page: 0, size: 5, sort: 'createdAt,desc' });
+            const list = res?.content ?? res?.data?.content ?? res ?? [];
+            setRecentPatients((Array.isArray(list) ? list : []).map(mapPatientForOrder));
+        } catch (err) {
+            setRecentPatients([]);
+            setPatientsError(patientLookupError(err));
+        } finally {
+            setRecentPatientsLoading(false);
+        }
     }, []);
+
+    useEffect(() => {
+        loadRecentPatients();
+    }, [loadRecentPatients]);
 
     // ── Patient Search (debounced) ─────────────────────────────────────────────
     useEffect(() => {
@@ -173,8 +180,10 @@ export default function CreateTestOrderPage() {
                 const list = res?.content ?? res?.data?.content ?? res ?? [];
                 const mapped: OrderPatient[] = (Array.isArray(list) ? list : []).map(mapPatientForOrder);
                 setPatientResults(mapped);
-            } catch {
+                setPatientsError(null);
+            } catch (err) {
                 setPatientResults([]);
+                setPatientsError(patientLookupError(err));
             } finally {
                 setPatientSearchLoading(false);
             }
@@ -336,7 +345,14 @@ export default function CreateTestOrderPage() {
 
                                 {/* Search results */}
                                 {!patientSearchLoading && trimmedQuery.length >= 2 && (
-                                    patientResults.length > 0 ? (
+                                    patientsError ? (
+                                        <EmptyState
+                                            compact
+                                            icon={AlertTriangle}
+                                            title="Couldn't search patients"
+                                            description={patientsError}
+                                        />
+                                    ) : patientResults.length > 0 ? (
                                         <div className="overflow-hidden rounded-lg border border-edge">
                                             <p className="border-b border-edge bg-surface-muted px-3 py-1.5 text-xs font-medium text-fg-muted">
                                                 {patientResults.length} {patientResults.length === 1 ? 'match' : 'matches'}
@@ -369,6 +385,18 @@ export default function CreateTestOrderPage() {
                                                     </li>
                                                 ))}
                                             </ul>
+                                        ) : patientsError ? (
+                                            <EmptyState
+                                                compact
+                                                icon={AlertTriangle}
+                                                title="Couldn't load patients"
+                                                description={patientsError}
+                                                action={
+                                                    <Button size="sm" onClick={loadRecentPatients}>
+                                                        Retry
+                                                    </Button>
+                                                }
+                                            />
                                         ) : recentPatients.length > 0 ? (
                                             <ul className="divide-y divide-edge">{recentPatients.map(renderPatientRow)}</ul>
                                         ) : (
