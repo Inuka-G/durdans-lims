@@ -37,6 +37,14 @@ public class InboundWebhookService {
      * @return how many messages were newly stored; redeliveries are not counted
      */
     public int ingest(WebhookPayload payload, String rawBody) {
+        return ingest(payload, rawBody, null);
+    }
+
+    /**
+     * @param signature Meta's X-Hub-Signature-256 header, forwarded with call events so the
+     *                  voice gateway can re-verify the delivery; null when unknown
+     */
+    public int ingest(WebhookPayload payload, String rawBody, String signature) {
         if (payload == null || payload.entry() == null) {
             return 0;
         }
@@ -54,7 +62,7 @@ public class InboundWebhookService {
                 // gateway parses the full webhook shape itself, and Meta's ~30-second
                 // accept window is why this happens inline rather than off-thread.
                 if (CALLS_FIELD.equals(change.field()) && !callsForwarded) {
-                    callsForwarder.forward(rawBody);
+                    callsForwarder.forward(rawBody, signature);
                     callsForwarded = true;
                     continue;
                 }

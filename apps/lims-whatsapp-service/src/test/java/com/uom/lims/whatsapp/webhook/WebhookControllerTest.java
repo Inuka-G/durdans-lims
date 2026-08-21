@@ -90,7 +90,7 @@ class WebhookControllerTest {
                         .content(VALID_BODY))
                 .andExpect(status().isForbidden());
 
-        verify(inboundService, never()).ingest(any(), anyString());
+        verify(inboundService, never()).ingest(any(), anyString(), any());
     }
 
     @Test
@@ -103,7 +103,7 @@ class WebhookControllerTest {
                         .content(VALID_BODY))
                 .andExpect(status().isOk());
 
-        verify(inboundService).ingest(any(WebhookPayload.class), anyString());
+        verify(inboundService).ingest(any(WebhookPayload.class), anyString(), anyString());
     }
 
     /**
@@ -121,6 +121,6 @@ class WebhookControllerTest {
                         .content("{ this is not json"))
                 .andExpect(status().isOk());
 
-        verify(inboundService, never()).ingest(any(), anyString());
+        verify(inboundService, never()).ingest(any(), anyString(), any());
     }
 }
