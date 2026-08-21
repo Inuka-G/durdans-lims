@@ -1,0 +1,40 @@
+# Compose override for the voice stack. Lives in S3 (bootstrap downloads it next to
+# docker-compose.yml, where compose merges it automatically) because user_data is
+# byte-capped and the base compose heredoc is already near it.
+#
+# The gateway runs with HOST networking: aiortc binds ephemeral UDP ports for SRTP,
+# and there is no sane way to publish a 64k-port range through the docker proxy.
+# Its 8085 control port is reachable from the whatsapp container via the
+# host-gateway alias, and from nowhere else — the security group admits only
+# 80/443/UDP from the internet.
+services:
+  whatsapp:
+    # Loopback-only publish: the host-networked gateway reaches the tool endpoints
+    # at 127.0.0.1:11010. Not internet-reachable — bound to loopback and the
+    # security group has no 11010 ingress either.
+    ports:
+      - "127.0.0.1:11010:11010"
+    extra_hosts:
+      - "host-gateway:host-gateway"
+    environment:
+      VOICE_GATEWAY_URL: http://host-gateway:8085
+      VOICE_INTERNAL_TOKEN: ${VOICE_INTERNAL_TOKEN}
+
+  voice:
+    image: ${ECR_VOICE}:${VOICE_TAG}
+    network_mode: host
+    mem_limit: 768m
+    environment:
+      WHATSAPP_TOKEN: ${META_ACCESS_TOKEN}
+      WHATSAPP_PHONE_NUMBER_ID: ${META_PHONE_NUMBER_ID}
+      WHATSAPP_APP_SECRET: ${META_APP_SECRET}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      VOICE_INTERNAL_TOKEN: ${VOICE_INTERNAL_TOKEN}
+      TOOLS_BASE_URL: http://127.0.0.1:11010
+    restart: always
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8085/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s

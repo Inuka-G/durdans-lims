@@ -102,6 +102,13 @@ app:
     max-tool-rounds: ${AGENT_MAX_TOOL_ROUNDS:4}
     history-limit: ${AGENT_HISTORY_LIMIT:10}
 
+  voice:
+    # The voice gateway runs host-networked on the same box; this service reaches it
+    # through the compose host-gateway alias, and it calls back into the internal
+    # tool endpoints. One shared token guards both directions; blank disables both.
+    gateway-url: ${VOICE_GATEWAY_URL:http://host-gateway:8085}
+    internal-token: ${VOICE_INTERNAL_TOKEN:}
+
 logging:
   level:
     com.uom.lims.whatsapp: INFO

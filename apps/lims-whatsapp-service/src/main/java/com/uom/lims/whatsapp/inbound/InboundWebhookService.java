@@ -1,6 +1,7 @@
 package com.uom.lims.whatsapp.inbound;
 
 import com.uom.lims.whatsapp.outbound.DeliveryStatusWriter;
+import com.uom.lims.whatsapp.voice.CallsForwarder;
 import com.uom.lims.whatsapp.webhook.WebhookPayload;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -26,9 +27,11 @@ import java.util.stream.Collectors;
 public class InboundWebhookService {
 
     private static final String MESSAGES_FIELD = "messages";
+    private static final String CALLS_FIELD = "calls";
 
     private final InboundMessageWriter writer;
     private final DeliveryStatusWriter statusWriter;
+    private final CallsForwarder callsForwarder;
 
     /**
      * @return how many messages were newly stored; redeliveries are not counted
@@ -38,13 +41,25 @@ public class InboundWebhookService {
             return 0;
         }
         int stored = 0;
+        boolean callsForwarded = false;
         for (WebhookPayload.Entry entry : payload.entry()) {
             if (entry == null || entry.changes() == null) {
                 continue;
             }
             for (WebhookPayload.Change change : entry.changes()) {
-                if (change == null || !MESSAGES_FIELD.equals(change.field()) || change.value() == null) {
-                    // Account updates, template quality alerts, calls — other fields get
+                if (change == null) {
+                    continue;
+                }
+                // Call events go to the voice gateway, whole delivery at once: the
+                // gateway parses the full webhook shape itself, and Meta's ~30-second
+                // accept window is why this happens inline rather than off-thread.
+                if (CALLS_FIELD.equals(change.field()) && !callsForwarded) {
+                    callsForwarder.forward(rawBody);
+                    callsForwarded = true;
+                    continue;
+                }
+                if (!MESSAGES_FIELD.equals(change.field()) || change.value() == null) {
+                    // Account updates, template quality alerts — other fields get
                     // their own listeners when needed. Ignoring them here is not a gap.
                     continue;
                 }

@@ -112,6 +112,12 @@ variable "whatsapp_image_tag" {
   default     = "latest"
 }
 
+variable "voice_image_tag" {
+  description = "Image tag for lims-voice-gateway. CI overwrites this on the host per deploy."
+  type        = string
+  default     = "latest"
+}
+
 # --- Optional TLS domain (Caddy auto-HTTPS). Empty = serve over HTTP on the EIP. ---
 variable "domain_name" {
   type    = string

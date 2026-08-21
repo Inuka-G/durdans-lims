@@ -84,9 +84,12 @@ BACKUP_BUCKET=${BACKUP_BUCKET}
 ECR_APP=${ECR_APP}
 ECR_FRONTEND=${ECR_FRONTEND}
 ECR_WHATSAPP=${ECR_WHATSAPP}
+ECR_VOICE=${ECR_VOICE}
 APP_TAG=${APP_TAG}
 FRONTEND_TAG=${FRONTEND_TAG}
 WHATSAPP_TAG=${WHATSAPP_TAG}
+VOICE_TAG=${VOICE_TAG}
+VOICE_INTERNAL_TOKEN=$(openssl rand -hex 24)
 WHATSAPP_ORIGIN=${WHATSAPP_ORIGIN}
 WA_DB_URL=${WA_DB_URL}
 WA_DB_USERNAME=${WA_DB_USERNAME}
@@ -103,10 +106,7 @@ AGENT_CLIENT_SECRET=
 ENVEOF
 chmod 600 .env
 
-# Keycloak realm seed. Uploaded by Terraform (aws_s3_object.keycloak_realm_seed)
-# because user_data is capped at 16 KB and the realm JSON is ~80 KB. Without it
-# Keycloak starts with --import-realm and nothing to import, so lims-realm never
-# exists and every login fails with a JWKS 404.
+# Realm seed from S3 (user_data is byte-capped; the JSON is ~80 KB).
 mkdir -p /opt/lims/keycloak-imports
 aws s3 cp "s3://${S3_BUCKET}/bootstrap/lims-dev-seed.json" \
   /opt/lims/keycloak-imports/lims-dev-seed.json --region "${AWS_REGION}"
@@ -146,16 +146,15 @@ aws s3 cp "s3://${S3_BUCKET}/bootstrap/deploy-service.sh" \
   /opt/lims/deploy-service.sh --region "${AWS_REGION}"
 chmod 700 /opt/lims/deploy-service.sh
 
-# Same reason as deploy-service.sh: EC2 caps user_data at 16 KB, so anything that is
-# not strictly boot glue lives in S3. provision-wa-db.sh creates the agent's own
-# Postgres role and database on RDS; refresh-meta.sh re-reads the Meta secret after
-# an operator fills or rotates it, without replacing the instance.
+# Non-boot-glue scripts live in S3 (user_data byte cap); each file says why it exists.
 aws s3 cp "s3://${S3_BUCKET}/bootstrap/provision-wa-db.sh" \
   /opt/lims/provision-wa-db.sh --region "${AWS_REGION}"
 aws s3 cp "s3://${S3_BUCKET}/bootstrap/refresh-meta.sh" \
   /opt/lims/refresh-meta.sh --region "${AWS_REGION}"
 aws s3 cp "s3://${S3_BUCKET}/bootstrap/fetch-agent-secret.sh" \
   /opt/lims/fetch-agent-secret.sh --region "${AWS_REGION}"
+aws s3 cp "s3://${S3_BUCKET}/bootstrap/docker-compose.override.yml" \
+  /opt/lims/docker-compose.override.yml --region "${AWS_REGION}"
 chmod 700 /opt/lims/provision-wa-db.sh /opt/lims/refresh-meta.sh /opt/lims/fetch-agent-secret.sh
 
 # Never fatal: the lab must not fail to boot because the agent's database could not
@@ -349,6 +348,7 @@ docker compose up -d kc-db keycloak kafka caddy
 # and answers the ACME challenge for wa.<domain>, so the certificate is issued and
 # the hostname simply 502s until the first deploy lands.
 /opt/lims/deploy-service.sh whatsapp "${WHATSAPP_TAG}" || true
+/opt/lims/deploy-service.sh voice "${VOICE_TAG}" || true
 /opt/lims/fetch-agent-secret.sh || true
 
 
