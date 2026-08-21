@@ -104,21 +104,13 @@ export default function TopNav() {
     // Use fallback values if token parsing fails
     const userName = user?.name || user?.preferred_username || "User";
 
-    const getRoleTitle = () => {
-        if (pathname.startsWith("/verification")) return "Lab Supervisor";
-        if (pathname.startsWith("/clinical")) return "Pathologist";
-        if (pathname.startsWith("/branch")) return "Admin";
-        if (pathname.startsWith("/superadmin")) return "Super Admin";
-        return userName;
-    };
-
-    const getRoleSubtitle = () => {
-        if (pathname.startsWith("/verification")) return "Verification";
-        if (pathname.startsWith("/clinical")) return "Clinical Approval";
-        if (pathname.startsWith("/branch")) return "Branch Admin";
-        if (pathname.startsWith("/superadmin")) return "Super Admin";
-        return "Active User";
-    };
+    /**
+     * The account chip names who is signed in, nothing more. It used to swap in a
+     * role title per module ("Lab Supervisor · Verification" on /verification,
+     * "Pathologist · Clinical Approval" on /clinical), which read as a second
+     * identity next to the name — and the active module tab already says where you are.
+     */
+    const subtitleLine = "Active User";
 
     const isActive = (url: string) => {
         const prefixes = MODULE_PREFIXES[url] ?? [resolveUrl(url)];
@@ -188,10 +180,6 @@ export default function TopNav() {
             setMenuOpen(true);
         }
     };
-
-    const roleTitle = getRoleTitle();
-    const roleSubtitle = getRoleSubtitle();
-    const subtitleLine = roleTitle === userName ? roleSubtitle : `${roleTitle} · ${roleSubtitle}`;
 
     return (
         <header className="fixed top-0 left-0 right-0 z-50 h-16 border-b border-edge bg-surface">
