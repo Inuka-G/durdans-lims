@@ -45,12 +45,12 @@ class AutoResponderTest {
 
     private static InboundMessageStoredEvent event(UUID conversationId, String body) {
         return new InboundMessageStoredEvent(
-                UUID.randomUUID(), conversationId, "94770000002", body, "text", null);
+                UUID.randomUUID(), conversationId, "94770000002", body, "text", null, null);
     }
 
     private static InboundMessageStoredEvent tap(UUID conversationId, String interactiveId, String title) {
         return new InboundMessageStoredEvent(
-                UUID.randomUUID(), conversationId, "94770000002", title, "interactive", interactiveId);
+                UUID.randomUUID(), conversationId, "94770000002", title, "interactive", interactiveId, null);
     }
 
     private AutoResponder responder(AutoReplyProperties greeting, MetaProperties meta, AgentProperties agentProps) {
@@ -72,7 +72,7 @@ class AutoResponderTest {
     @Test
     void agentAnswersTextMessagesWhenConfigured() {
         UUID conversationId = UUID.randomUUID();
-        when(agent.reply(conversationId, "94770000002")).thenReturn(Optional.of("FBC is Rs. 1,200"));
+        when(agent.reply(conversationId, "94770000002", null)).thenReturn(Optional.of("FBC is Rs. 1,200"));
         when(outbound.sendFreeFormText(conversationId, "FBC is Rs. 1,200")).thenReturn(Optional.empty());
 
         responder(greetingEnabled(), SEND_CONFIGURED, AGENT_ON)
@@ -85,7 +85,7 @@ class AutoResponderTest {
     @Test
     void agentSilenceFallsBackToTheCooldownLimitedApology() {
         UUID conversationId = UUID.randomUUID();
-        when(agent.reply(conversationId, "94770000002")).thenReturn(Optional.empty());
+        when(agent.reply(conversationId, "94770000002", null)).thenReturn(Optional.empty());
 
         responder(greetingEnabled(), SEND_CONFIGURED, AGENT_ON)
                 .onInboundStored(event(conversationId, "cbc price?"));
@@ -97,7 +97,7 @@ class AutoResponderTest {
     @Test
     void agentFailureFallsBackInsteadOfPropagating() {
         UUID conversationId = UUID.randomUUID();
-        when(agent.reply(conversationId, "94770000002")).thenThrow(new IllegalStateException("Gemini returned 429"));
+        when(agent.reply(conversationId, "94770000002", null)).thenThrow(new IllegalStateException("Gemini returned 429"));
 
         responder(greetingEnabled(), SEND_CONFIGURED, AGENT_ON)
                 .onInboundStored(event(conversationId, "cbc price?"));
@@ -135,12 +135,12 @@ class AutoResponderTest {
         UUID conversationId = UUID.randomUUID();
         InboundMessageStoredEvent tapped = tap(conversationId, "test_UNKNOWN", "Mystery test");
         when(menuRouter.route(tapped)).thenReturn(false);
-        when(agent.reply(conversationId, "94770000002")).thenReturn(Optional.of("Could not find that one."));
+        when(agent.reply(conversationId, "94770000002", null)).thenReturn(Optional.of("Could not find that one."));
         when(outbound.sendFreeFormText(any(), any())).thenReturn(Optional.empty());
 
         responder(greetingEnabled(), SEND_CONFIGURED, AGENT_ON).onInboundStored(tapped);
 
-        verify(agent).reply(conversationId, "94770000002");
+        verify(agent).reply(conversationId, "94770000002", null);
     }
 
     @Test

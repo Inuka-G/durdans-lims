@@ -84,7 +84,7 @@ public class InboundMessageWriter {
         events.publishEvent(new InboundMessageStoredEvent(
                 entity.getId(), conversation.getId(), message.from(),
                 entity.getBody(), entity.getMessageType(),
-                InboundWebhookService.extractInteractiveId(message)));
+                InboundWebhookService.extractInteractiveId(message), contact.getDisplayName()));
 
         log.info("Stored inbound {} message from {} {}",
                 entity.getMessageType(),

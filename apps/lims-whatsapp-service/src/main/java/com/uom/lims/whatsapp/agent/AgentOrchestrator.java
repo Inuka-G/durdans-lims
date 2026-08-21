@@ -64,10 +64,21 @@ public class AgentOrchestrator {
             Report status flow: you need the laboratory order number, printed on the receipt and \
             the request form (format ORD-YYYYMMDD-000000). Ask for it if the patient has not given \
             it. Then call getOrderStatus with exactly that number. The system verifies ownership \
-            automatically using the WhatsApp number this message came from — NEVER ask for an NIC, \
-            phone number or any other identifier. If the tool returns found=false, say the order \
+            automatically using the WhatsApp number this message came from — do not ask for an NIC \
+            or phone number for this flow (the NIC is only for verifyPatient, below). If the tool returns found=false, say the order \
             could not be verified for this WhatsApp number and suggest calling the laboratory — do \
             not reveal whether the order number exists.
+
+            Without an order number: if the patient asks about "my report", "my order" or "my \
+            results" and has no order number, do the identity step-up instead. Address them by \
+            their WhatsApp profile name if you know it and ask whether it is really them, then ask \
+            for their full name and NIC number, then call verifyPatient with exactly what they \
+            said — the phone is checked automatically. If verified, greet them by firstName and \
+            describe the most recent order naturally: which branch (branchName), when (orderedOn), \
+            how far along it is (stage, testsCompleted of totalTests) and whether the report is \
+            ready; then offer the others if there are several. If not verified, say you could not \
+            verify those details for this WhatsApp number and suggest the laboratory desk — never \
+            say which part failed and never reveal any order detail.
 
             When found, present it nicely: one line of overall progress (testsCompleted of \
             totalTests ready), then each test from items on its own line with a status emoji and \
@@ -101,14 +112,14 @@ public class AgentOrchestrator {
      * @return the agent's answer, or empty when the model produced nothing usable —
      * the caller decides what a patient hears in that case, not this class
      */
-    public Optional<String> reply(UUID conversationId, String requesterWaId) {
+    public Optional<String> reply(UUID conversationId, String requesterWaId, String displayName) {
         ArrayNode contents = historyAsContents(conversationId);
         if (contents.isEmpty()) {
             return Optional.empty();
         }
 
         for (int round = 0; round <= properties.maxToolRounds(); round++) {
-            JsonNode content = gemini.generate(requestBody(contents));
+            JsonNode content = gemini.generate(requestBody(contents, displayName));
             List<JsonNode> calls = functionCalls(content);
             if (calls.isEmpty()) {
                 return textOf(content);
@@ -140,9 +151,23 @@ public class AgentOrchestrator {
         return contents;
     }
 
-    private ObjectNode requestBody(ArrayNode contents) {
+    /**
+     * The WhatsApp profile name rides in the system prompt rather than the history: it is
+     * context about the person, not something they said — and it is a display name they
+     * chose, so the prompt says exactly that.
+     */
+    private static String systemPrompt(String displayName) {
+        if (displayName == null || displayName.isBlank()) {
+            return SYSTEM_PROMPT;
+        }
+        return SYSTEM_PROMPT + "\n\nThe patient's WhatsApp profile name is \"" + displayName.trim()
+                + "\". Use it to address them and to ask \"is that you?\" before the identity step-up; "
+                + "it is a display name they chose, not a verified identity.";
+    }
+
+    private ObjectNode requestBody(ArrayNode contents, String displayName) {
         ObjectNode body = mapper.createObjectNode();
-        body.putObject("systemInstruction").putArray("parts").addObject().put("text", SYSTEM_PROMPT);
+        body.putObject("systemInstruction").putArray("parts").addObject().put("text", systemPrompt(displayName));
         body.set("contents", contents);
         body.putArray("tools").addObject().set("functionDeclarations", toolDeclarations());
         ObjectNode config = body.putObject("generationConfig");
@@ -200,6 +225,24 @@ public class AgentOrchestrator {
                 .put("description", "The order number from the receipt, e.g. ORD-20260820-000123");
         statusParams.putArray("required").add("orderNo");
 
+        // Identity step-up for "my report / my order" without an order number. Possession
+        // (the WhatsApp number) is injected server-side; the model supplies only what the
+        // patient told it, and gets nothing back unless both agree with one record.
+        ObjectNode verify = declarations.addObject();
+        verify.put("name", "verifyPatient");
+        verify.put("description", "Verify the patient by the full name and national identity number (NIC) "
+                + "they state, against the patient record on this WhatsApp number. When verified, returns "
+                + "firstName and recentOrders (each with orderNo, branchName, orderedOn, stage, reportReady, "
+                + "testsCompleted, totalTests, items). Returns verified=false otherwise.");
+        ObjectNode verifyParams = verify.putObject("parameters");
+        verifyParams.put("type", "object");
+        ObjectNode verifyProps = verifyParams.putObject("properties");
+        verifyProps.putObject("identityNumber").put("type", "string")
+                .put("description", "The NIC exactly as the patient stated it");
+        verifyProps.putObject("fullName").put("type", "string")
+                .put("description", "The full name exactly as the patient stated it");
+        verifyParams.putArray("required").add("identityNumber").add("fullName");
+
         return declarations;
     }
 
@@ -240,6 +283,8 @@ public class AgentOrchestrator {
             case "listPackages" -> catalog.listPackages(localeOf(args));
             case "getPackage" -> catalog.getPackage(args.path("packageCode").asText(""), localeOf(args));
             case "getOrderStatus" -> catalog.getOrderStatus(args.path("orderNo").asText(""), requesterWaId);
+            case "verifyPatient" -> catalog.verifyPatient(args.path("identityNumber").asText(""),
+                    args.path("fullName").asText(""), requesterWaId);
             default -> "{\"error\":\"unknown tool\"}";
         };
     }

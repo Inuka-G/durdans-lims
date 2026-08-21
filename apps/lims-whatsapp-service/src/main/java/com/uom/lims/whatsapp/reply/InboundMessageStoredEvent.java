@@ -19,5 +19,6 @@ public record InboundMessageStoredEvent(
         String waId,
         String body,
         String messageType,
-        String interactiveId) {
+        String interactiveId,
+        String displayName) {
 }

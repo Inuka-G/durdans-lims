@@ -45,13 +45,13 @@ class MenuRouterTest {
 
     private static InboundMessageStoredEvent tap(String interactiveId, String title) {
         return new InboundMessageStoredEvent(UUID.randomUUID(), UUID.randomUUID(),
-                "94770000002", title, "interactive", interactiveId);
+                "94770000002", title, "interactive", interactiveId, null);
     }
 
     @Test
     void typedTextIsNeverRouted() {
         InboundMessageStoredEvent typed = new InboundMessageStoredEvent(UUID.randomUUID(), UUID.randomUUID(),
-                "94770000002", "cbc price?", "text", null);
+                "94770000002", "cbc price?", "text", null, null);
 
         assertThat(router(CORE_ON).route(typed)).isFalse();
         verifyNoInteractions(catalog, outbound);

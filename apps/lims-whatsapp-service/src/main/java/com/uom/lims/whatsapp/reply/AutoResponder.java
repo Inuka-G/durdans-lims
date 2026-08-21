@@ -108,7 +108,7 @@ public class AutoResponder {
 
     private void answerWithAgent(InboundMessageStoredEvent event) {
         try {
-            Optional<String> answer = agent.reply(event.conversationId(), event.waId());
+            Optional<String> answer = agent.reply(event.conversationId(), event.waId(), event.displayName());
             if (answer.isPresent()) {
                 outbound.sendFreeFormText(event.conversationId(), answer.get())
                         .ifPresent(m -> log.info("Agent answered {}", PiiMasker.maskWaId(event.waId())));

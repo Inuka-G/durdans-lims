@@ -21,6 +21,14 @@ public interface PatientRepository
 
         Optional<PatientEntity> findByPhone(String phone);
 
+        /**
+         * Candidates for a possession check. Patient phones are stored as typed at
+         * the desk (0771234567, +94 77 ...), WhatsApp ids arrive as 94771234567; the
+         * last nine digits are the stable core, and the caller re-verifies each
+         * candidate with a digits-only compare.
+         */
+        java.util.List<PatientEntity> findByPhoneEndingWith(String phoneTail);
+
         boolean existsByEmail(String email);
 
         Optional<PatientEntity> findByEmail(String email);
