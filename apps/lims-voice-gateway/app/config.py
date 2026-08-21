@@ -23,9 +23,9 @@ class Settings:
     # Empty means "use Pipecat's default Gemini Live model", which tracks the
     # current native-audio release better than a name pinned here would.
     gemini_live_model: str = field(default_factory=lambda: _env("GEMINI_LIVE_MODEL"))
-    # Zephyr reads as bright and friendly on the phone; Aoede was flatter in the
-    # first live calls. Tunable without a rebuild.
-    gemini_voice: str = field(default_factory=lambda: _env("GEMINI_VOICE", "Zephyr"))
+    # Aoede, by the user's ear after hearing both on real calls; what was flat was
+    # the prompt's register, not the voice. Tunable without a rebuild.
+    gemini_voice: str = field(default_factory=lambda: _env("GEMINI_VOICE", "Aoede"))
     # The whatsapp-service tool layer, reached over loopback: this container runs
     # with host networking and the compose override publishes 11010 on 127.0.0.1.
     tools_base_url: str = field(default_factory=lambda: _env("TOOLS_BASE_URL", "http://127.0.0.1:11010"))

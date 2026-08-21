@@ -2,9 +2,11 @@ package com.uom.lims.whatsapp.agent;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -76,6 +78,37 @@ public class CoreCatalogClient {
      * Failures come back as a JSON error object instead of an exception: the model can
      * say "I could not look that up" gracefully, which beats the whole reply dying.
      */
+    /**
+     * The identity step-up: possession (the WhatsApp number, injected server-side by the
+     * caller of this method) plus the name and identity number the patient stated. A POST
+     * because an identity number has no business in a URL or an access log.
+     */
+    public String verifyPatient(String identityNumber, String fullName, String requesterPhone) {
+        ObjectNode body = objectMapper.createObjectNode();
+        body.put("phone", requesterPhone == null ? "" : requesterPhone);
+        body.put("identityNumber", identityNumber == null ? "" : identityNumber);
+        body.put("fullName", fullName == null ? "" : fullName);
+        return post(properties.coreBaseUrl() + "/api/v1/agent/patients/verify", body.toString());
+    }
+
+    private String post(String uri, String json) {
+        try {
+            String body = restClient.post()
+                    .uri(uri)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenClient.accessToken())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(json)
+                    .retrieve()
+                    .body(String.class);
+            JsonNode root = objectMapper.readTree(body == null ? "{}" : body);
+            JsonNode data = root.path("data");
+            return data.isMissingNode() ? "{\"error\":\"empty response\"}" : data.toString();
+        } catch (Exception e) {
+            log.warn("Core lookup failed: {}", e.getMessage());
+            return "{\"error\":\"lookup failed\"}";
+        }
+    }
+
     private String get(String uri) {
         try {
             String body = restClient.get()

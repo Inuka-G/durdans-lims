@@ -9,6 +9,7 @@ import com.uom.lims.entity.SampleEntity;
 import com.uom.lims.entity.TestCatalogEntity;
 import com.uom.lims.patient.PatientEntity;
 import com.uom.lims.patient.PatientRepository;
+import com.uom.lims.metadata.BranchRepository;
 import com.uom.lims.repository.OrderRepository;
 import com.uom.lims.repository.TestCatalogRepository;
 import org.junit.jupiter.api.Test;
@@ -39,6 +40,9 @@ class AgentOrderStatusServiceTest {
 
     @Mock
     private TestCatalogRepository testCatalogRepository;
+
+    @Mock
+    private BranchRepository branchRepository;
 
     @InjectMocks
     private AgentOrderStatusService service;
