@@ -28,7 +28,14 @@ public class CallsForwarder {
         this.restClient = restClient;
     }
 
-    public void forward(String rawBody) {
+    /**
+     * @param signature Meta's {@code X-Hub-Signature-256} over the raw body, passed through
+     *                  so the gateway's WhatsApp client can re-verify it against the app
+     *                  secret — the ingress already checked it, but a second check on the
+     *                  other side of the host boundary costs nothing and removes a class of
+     *                  trust assumption from the forwarding hop.
+     */
+    public void forward(String rawBody, String signature) {
         if (!properties.isConfigured()) {
             log.debug("Voice gateway not configured; dropping call event");
             return;
@@ -37,6 +44,7 @@ public class CallsForwarder {
             restClient.post()
                     .uri(properties.gatewayUrl() + "/internal/calls/webhook")
                     .header("X-Internal-Token", properties.internalToken())
+                    .headers(h -> { if (signature != null && !signature.isBlank()) h.set("X-Hub-Signature-256", signature); })
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(rawBody)
                     .retrieve()
