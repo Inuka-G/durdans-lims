@@ -113,6 +113,29 @@ public class VoiceToolsController {
         return ResponseEntity.ok(response);
     }
 
+    @PostMapping("/verify-patient")
+    public ResponseEntity<Object> verifyPatient(
+            @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestBody JsonNode body) throws Exception {
+        if (!authorized(token)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        // callerWaId comes from the CALL event via the gateway, never from the model.
+        JsonNode result = mapper.readTree(catalog.verifyPatient(
+                body.path("identityNumber").asText(""),
+                body.path("fullName").asText(""),
+                body.path("callerWaId").asText("")));
+        ObjectNode response = mapper.createObjectNode();
+        boolean verified = result.path("verified").asBoolean(false);
+        response.put("verified", verified);
+        if (verified) {
+            response.put("firstName", result.path("firstName").asText(""));
+        }
+        response.put("spoken_en", formatter.spokenPatientEn(result));
+        response.put("spoken_si", formatter.spokenPatientSi(result));
+        return ResponseEntity.ok(response);
+    }
+
     private boolean authorized(String token) {
         if (!properties.isConfigured()) {
             return false;

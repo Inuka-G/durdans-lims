@@ -159,6 +159,26 @@ A caveat on `nip.io`: the hostname contains the IP address, so changing the Elas
 changes the webhook URL. Meta's callback URL is awkward to change — re-verification has
 a window where deliveries fail — so a real domain is worth having before launch.
 
+## Phase 2g — landed
+
+Knowing the patient from their phone — so "is my report ready" needs no order number.
+
+- Core: `POST /api/v1/agent/patients/verify` — possession (the WhatsApp number, injected
+  server-side by the agent service) plus knowledge (the full name and NIC the patient
+  states). Only when all three agree with one record does it answer: the first name to
+  address them by, and their recent orders described exactly as a single lookup would
+  — now with the branch as a patient would name it. Unknown phone, wrong NIC and wrong
+  name are byte-identical from outside. NICs compare whole after normalisation (a spoken
+  NIC often drops its V); names match on any real token, because the NIC is the hard
+  factor
+- Text agent: a `verifyPatient` tool (the phone is not a parameter the model can
+  supply) and the sender's WhatsApp profile name in the prompt, so it can ask "is that
+  you?" before the step-up — a display name they chose, the prompt says so
+- Voice: the same tool as spoken sentences, plus a caller-profile lookup so a known
+  caller is greeted by name the moment the call connects
+- Voice manner: everyday spoken Sinhala rather than the written register — the first
+  answered calls sounded like a notice being read; Aoede again, by the user's ear
+
 ## Phase 5 — voice, first cut (landed with caveats)
 
 `apps/lims-voice-gateway` — Python, FastAPI, Pipecat. Answers a WhatsApp voice call

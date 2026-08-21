@@ -7,9 +7,9 @@ pre-rendered spoken strings that layer composed; on a native-audio path there
 is no draft to inspect, so price grounding is structural — the model relays a
 sentence it did not write.
 
-The caller's WhatsApp number is bound into the order-status tool AT REGISTRATION,
-from the call event — the model's arguments cannot influence whose order is
-looked up.
+The caller's WhatsApp number is bound into the possession-checked tools AT
+REGISTRATION, from the call event — the model's arguments cannot influence
+whose record is looked up.
 """
 
 from typing import Any
@@ -40,6 +40,27 @@ async def _post(session: aiohttp.ClientSession, path: str, payload: dict[str, An
         return {"error": "lookup failed"}
 
 
+async def fetch_caller_profile(session: aiohttp.ClientSession, caller_wa_id: str) -> str:
+    """The caller's WhatsApp profile name if they have ever messaged us; "" otherwise.
+    Best effort and fast — a greeting must not wait on it."""
+    if not caller_wa_id:
+        return ""
+    try:
+        async with session.post(
+            f"{settings.tools_base_url}/internal/voice/tools/caller-profile",
+            json={"callerWaId": caller_wa_id},
+            timeout=aiohttp.ClientTimeout(total=3),
+            headers={"X-Internal-Token": settings.internal_token},
+        ) as response:
+            if response.status != 200:
+                return ""
+            data = await response.json()
+            return str(data.get("displayName") or "").strip()
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("caller-profile lookup skipped: {}", exc)
+        return ""
+
+
 def build_tool_handlers(session: aiohttp.ClientSession, caller_wa_id: str):
     """Returns {function_name: async handler} with the caller's identity closed over."""
 
@@ -65,16 +86,27 @@ def build_tool_handlers(session: aiohttp.ClientSession, caller_wa_id: str):
         })
         await params.result_callback(result)
 
+    async def verify_patient(params) -> None:
+        args = params.arguments or {}
+        result = await _post(session, "verify-patient", {
+            "identityNumber": args.get("identityNumber", ""),
+            "fullName": args.get("fullName", ""),
+            # Possession factor, never a model argument.
+            "callerWaId": caller_wa_id,
+        })
+        await params.result_callback(result)
+
     return {
         "search_tests": search_tests,
         "list_packages": list_packages,
         "get_order_status": get_order_status,
+        "verify_patient": verify_patient,
     }
 
 
 def tool_definitions():
-    """Function schemas for Gemini Live. Note get_order_status takes only the
-    order number — the phone is not a parameter the model can supply."""
+    """Function schemas for Gemini Live. Note get_order_status and verify_patient
+    take no phone parameter — the phone is not something the model can supply."""
     from pipecat.adapters.schemas.function_schema import FunctionSchema
     from pipecat.adapters.schemas.tools_schema import ToolsSchema
 
@@ -103,7 +135,7 @@ def tool_definitions():
         name="get_order_status",
         description=(
             "Check how far a laboratory order has progressed and whether the report "
-            "is ready. Needs the order number from the caller's receipt, like "
+            "is ready, by its order number from the caller's receipt, like "
             "ORD-20260820-000123. Identity is verified automatically against the "
             "number the caller is calling from."
         ),
@@ -112,4 +144,19 @@ def tool_definitions():
         },
         required=["orderNo"],
     )
-    return ToolsSchema(standard_tools=[search, packages, order_status])
+    verify_patient = FunctionSchema(
+        name="verify_patient",
+        description=(
+            "For a caller asking about their report or order WITHOUT an order number: "
+            "verify them by the full name and national identity number (NIC) they state. "
+            "The phone they are calling from is checked automatically. When verified, "
+            "returns spoken sentences describing their most recent order (branch, date, "
+            "progress, whether the report is ready). Returns verified=false otherwise."
+        ),
+        properties={
+            "identityNumber": {"type": "string", "description": "The NIC exactly as the caller said it"},
+            "fullName": {"type": "string", "description": "The full name exactly as the caller said it"},
+        },
+        required=["identityNumber", "fullName"],
+    )
+    return ToolsSchema(standard_tools=[search, packages, order_status, verify_patient])

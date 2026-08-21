@@ -18,6 +18,7 @@ import java.util.List;
 public record AgentOrderStatusResponse(
         boolean found,
         String orderNo,
+        String branchName,
         String stage,
         boolean reportReady,
         int totalTests,
@@ -39,6 +40,6 @@ public record AgentOrderStatusResponse(
     }
 
     public static AgentOrderStatusResponse notFound() {
-        return new AgentOrderStatusResponse(false, null, null, false, 0, 0, null, List.of());
+        return new AgentOrderStatusResponse(false, null, null, null, false, 0, 0, null, List.of());
     }
 }

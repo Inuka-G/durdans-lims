@@ -4,11 +4,13 @@ import com.uom.lims.api.dto.response.AgentOrderStatusResponse;
 import com.uom.lims.api.dto.response.AgentOrderStatusResponse.AgentOrderItemProgress;
 import com.uom.lims.api.enums.OrderStatus;
 import com.uom.lims.api.enums.SampleStatus;
+import com.uom.lims.entity.BranchEntity;
 import com.uom.lims.entity.OrderEntity;
 import com.uom.lims.entity.OrderItemEntity;
 import com.uom.lims.entity.SampleEntity;
 import com.uom.lims.entity.TestCatalogEntity;
 import com.uom.lims.patient.PatientEntity;
+import com.uom.lims.metadata.BranchRepository;
 import com.uom.lims.patient.PatientRepository;
 import com.uom.lims.repository.OrderRepository;
 import com.uom.lims.repository.TestCatalogRepository;
@@ -64,6 +66,7 @@ public class AgentOrderStatusService {
     private final OrderRepository orderRepository;
     private final PatientRepository patientRepository;
     private final TestCatalogRepository testCatalogRepository;
+    private final BranchRepository branchRepository;
 
     @Transactional(readOnly = true)
     public AgentOrderStatusResponse status(String orderNo, String requesterPhone) {
@@ -86,6 +89,16 @@ public class AgentOrderStatusService {
             return AgentOrderStatusResponse.notFound();
         }
 
+        return describe(order);
+    }
+
+    /**
+     * The patient-facing progress of one order, without any identity check — callers
+     * perform that first. Shared by the single-order lookup and the verified-patient
+     * recent-orders view so both channels describe an order identically.
+     */
+    @Transactional(readOnly = true)
+    public AgentOrderStatusResponse describe(OrderEntity order) {
         List<OrderItemEntity> items = order.getItems().stream()
                 .filter(item -> !item.isDeleted())
                 .toList();
@@ -106,14 +119,18 @@ public class AgentOrderStatusService {
         }
 
         String stage = stageOf(order, progress, items.size(), completed);
+        // The branch as a patient would name it ("Colombo 3"), falling back to the code.
+        String branchName = order.getBranchCode() == null ? null
+                : branchRepository.findByCode(order.getBranchCode()).map(BranchEntity::getName).orElse(order.getBranchCode());
         boolean ready = AgentOrderStatusResponse.STAGE_REPORT_READY.equals(stage);
 
-        log.info("Agent order-status lookup: order {} -> {} ({}/{}) for {}",
-                order.getOrderNo(), stage, completed, items.size(), PiiMasker.maskPhone(requesterPhone));
+        log.info("Agent order-status: order {} -> {} ({}/{})",
+                order.getOrderNo(), stage, completed, items.size());
 
         return new AgentOrderStatusResponse(
                 true,
                 order.getOrderNo(),
+                branchName,
                 stage,
                 ready,
                 items.size(),
