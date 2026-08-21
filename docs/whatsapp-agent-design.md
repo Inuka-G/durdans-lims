@@ -191,6 +191,20 @@ transcription hop, no synthesis hop, exactly as the components diagram always sa
   Sinhala is whatever Gemini Live native audio gives us — the tool sentences keep
   digits as digits partly for that reason.
 
+Two lessons from the first release night, kept here because both will recur:
+
+- Meta-side enablement works over the Graph API with no dashboard clicks — but in
+  one order only: subscribe the `calls` webhook field first (`POST /{app-id}/
+  subscriptions` with the app token re-verifies the callback), then enable calling
+  on the number. The other way round Meta answers "technical pre-requisites are not
+  met" (error 138018)
+- The slim Python base ships util-linux with HIGH CVEs fixed in trixie-security, and
+  plain `apt-get upgrade` holds the fix back because it needs a new dependency — the
+  Trivy gate failed twice on exactly that. `dist-upgrade` takes it. A local
+  `docker build` plus `aquasec/trivy:0.70.0 image --severity HIGH,CRITICAL
+  --ignore-unfixed --exit-code 1` is an exact stand-in for the gate
+
+
 ## Phase 2d — landed
 
 What the first hour of live use asked for.
