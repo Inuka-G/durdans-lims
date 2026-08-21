@@ -31,6 +31,7 @@ import com.uom.lims.exception.ResourceNotFoundException;
 import com.uom.lims.qc.QcGateService;
 import com.uom.lims.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -48,6 +49,7 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class MltTestingService {
@@ -72,6 +74,7 @@ public class MltTestingService {
         private final ObjectMapper objectMapper;
         private final com.uom.lims.notification.CriticalValueNotificationService criticalValueNotificationService;
         private final QcGateService qcGateService;
+        private final SampleService sampleService;
 
         @Transactional(readOnly = true)
         public SampleResultsResponse getSampleResults(UUID sampleId) {
@@ -546,7 +549,13 @@ public class MltTestingService {
                 sample.setRejectedAt(Instant.now());
                 sample.setRejectedBy(SecurityUtils.getCurrentUsername());
 
-                sampleRepository.save(sample);
+                SampleEntity rejected = sampleRepository.save(sample);
+
+                // The test is still ordered, so the draw has to happen again. Without this
+                // the sample stopped at REJECTED: nothing reached the collection worklist,
+                // and the order sat unfulfilled with nothing to show that it was waiting.
+                // Phlebotomy's own rejection path has always done this; accessioning did not.
+                SampleEntity recollection = sampleService.createRecollectionFor(rejected);
 
                 auditService.log(
                                 "REJECTED",
@@ -555,6 +564,9 @@ public class MltTestingService {
                                 sample.getOrderItem().getOrder().getPatientId(),
                                 buildAccessioningAuditDetails(sample, SampleStatus.REJECTED, request.getRejectionNotes()),
                                 null);
+
+                log.info("Accessioning rejected sample {} and queued recollection {}",
+                                rejected.getBarcode(), recollection.getBarcode());
         }
 
         private String buildAccessioningAuditDetails(SampleEntity sample, SampleStatus status, String notes) {

@@ -158,7 +158,15 @@ public class AuditLogController {
         r.setPerformedBy(auditLog.getPerformedBy());
         r.setBranchCode(auditLog.getBranchCode());
         r.setIpAddress(auditLog.getIpAddress());
-        r.setTimestamp(auditLog.getTimestamp() != null ? auditLog.getTimestamp().toString() : "");
+        // Stamped with the offset, not bare. LocalDateTime.toString() emits
+        // "2026-08-21T18:30:00" with nothing to say which zone that is, and a
+        // date-time string carrying no offset is parsed by every browser as *local*
+        // time. The value is UTC, so in Colombo (+5:30) every audit row displayed
+        // 5h30m early - and anything logged after 18:30 local showed up under the
+        // previous day's date. Appending the offset lets the browser convert.
+        r.setTimestamp(auditLog.getTimestamp() != null
+                ? auditLog.getTimestamp().atOffset(java.time.ZoneOffset.UTC).toString()
+                : "");
         r.setDetails(enrichPatientNameInDetails(auditLog));
         return r;
     }
