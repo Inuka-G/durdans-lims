@@ -1461,3 +1461,71 @@ export const getQcAnalytes = async (): Promise<QcAnalyteOption[]> => {
     const response = await axiosInstance.get('/api/v1/mlt/qc-analytes');
     return (response.data ?? []) as QcAnalyteOption[];
 };
+
+// --- Branch Mocks ---
+
+export interface BranchActivityLog {
+    id: string;
+    timestamp: string;
+    performedBy: string;
+    entityType: string;
+    action: string;
+    entityId: string;
+    patientCode?: string;
+    ipAddress: string;
+}
+
+export const getBranchActivityLogs = async (): Promise<BranchActivityLog[]> => {
+    return [
+        { id: "1", timestamp: new Date().toISOString(), performedBy: "John Doe", entityType: "User", action: "Login", entityId: "123", ipAddress: "192.168.1.1" }
+    ];
+};
+
+export interface BranchUser {
+    id?: string;
+    fullName: string;
+    email: string;
+    role: string;
+    isActive: boolean;
+    lastLogin?: string;
+    initials?: string;
+    bgColor?: string;
+    textColor?: string;
+    phone?: string;
+    username?: string;
+}
+
+export const getBranchUsers = async (branchId: string): Promise<BranchUser[]> => {
+    const response = await axiosInstance.get(`/api/v1/branches/${branchId}/users`, {
+        params: { size: 100 } // Get all for UI
+    });
+    return (response.data.content ?? []) as BranchUser[];
+};
+
+export const createBranchUser = async (branchId: string, userData: Partial<BranchUser>): Promise<BranchUser> => {
+    // Inject branchId into payload
+    const payload = { ...userData, branchId };
+    const response = await axiosInstance.post(`/api/v1/branches/${branchId}/users`, payload);
+    return response.data as BranchUser;
+};
+
+export const updateBranchUser = async (userId: string, userData: Partial<BranchUser>): Promise<BranchUser> => {
+    const response = await axiosInstance.put(`/api/v1/branch-users/${userId}`, userData);
+    return response.data as BranchUser;
+};
+
+export const deleteBranchUser = async (userId: string): Promise<void> => {
+    await axiosInstance.delete(`/api/v1/branch-users/${userId}`);
+};
+
+export interface BranchTest {
+    id?: string;
+    testName: string;
+    testCode: string;
+    category: string;
+    price: number;
+    turnaroundTime: string;
+    unit: string;
+    referenceRange: string;
+    isActive: boolean;
+}
