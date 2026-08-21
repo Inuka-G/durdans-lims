@@ -3,16 +3,15 @@ import {
   formatCurrency,
   formatDate,
   formatDateTime,
-  getOrderStatusColor,
   calculateServiceCharge,
   calculateTotal,
   SERVICE_CHARGE_PERCENTAGE,
-  ORDER_STATUS_COLORS,
-  PAYMENT_STATUS_COLORS,
-  PAYMENT_RECORD_STATUS_COLORS,
-  INVOICE_STATUS_COLORS,
   PAGINATION,
 } from './orders-billing';
+
+// getOrderStatusColor and the ORDER/PAYMENT/PAYMENT_RECORD/INVOICE_STATUS_COLORS
+// maps were removed by the design-system rebuild — order, payment and invoice
+// chips now go through `components/ui/StatusChip` (covered in StatusChip.test.tsx).
 
 // ---- formatCurrency ----
 
@@ -71,23 +70,6 @@ describe('formatDateTime', () => {
   });
 });
 
-// ---- getOrderStatusColor ----
-
-describe('getOrderStatusColor', () => {
-  it.each(Object.keys(ORDER_STATUS_COLORS))(
-    'returns the mapped class string for status "%s"',
-    (status) => {
-      expect(getOrderStatusColor(status)).toBe(ORDER_STATUS_COLORS[status]);
-    }
-  );
-
-  it('returns a slate fallback for an unknown status', () => {
-    expect(getOrderStatusColor('UNKNOWN')).toBe(
-      'bg-slate-50 text-slate-700 border border-slate-200'
-    );
-  });
-});
-
 // ---- calculateServiceCharge / calculateTotal ----
 
 describe('calculateServiceCharge', () => {
@@ -121,27 +103,6 @@ describe('calculateTotal', () => {
   it('handles a discount larger than subtotal+charge (negative total)', () => {
     // 100 + 5 - 200 = -95 — the function does not clamp
     expect(calculateTotal(100, 200)).toBe(-95);
-  });
-});
-
-// ---- Color maps are complete (smoke) ----
-
-describe('status color maps completeness', () => {
-  it('PAYMENT_STATUS_COLORS has PAID and PENDING', () => {
-    expect(PAYMENT_STATUS_COLORS).toHaveProperty('PAID');
-    expect(PAYMENT_STATUS_COLORS).toHaveProperty('PENDING');
-  });
-
-  it('PAYMENT_RECORD_STATUS_COLORS has SUCCESS, PENDING, FAILED, REFUNDED', () => {
-    for (const key of ['SUCCESS', 'PENDING', 'FAILED', 'REFUNDED']) {
-      expect(PAYMENT_RECORD_STATUS_COLORS).toHaveProperty(key);
-    }
-  });
-
-  it('INVOICE_STATUS_COLORS has ISSUED, PENDING, OVERDUE, CANCELLED', () => {
-    for (const key of ['ISSUED', 'PENDING', 'OVERDUE', 'CANCELLED']) {
-      expect(INVOICE_STATUS_COLORS).toHaveProperty(key);
-    }
   });
 });
 

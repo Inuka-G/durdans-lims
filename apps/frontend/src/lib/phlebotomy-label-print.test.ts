@@ -41,28 +41,42 @@ describe('getBarcodeBars', () => {
   });
 });
 
+// Tube colour is no longer a static tube-name → hex map: the colour travels on the
+// sample payload, sourced from the stocked tube in supplies inventory. The helper
+// only validates that operator-supplied value before it lands in a style attribute.
 describe('getTubeHexColor', () => {
+  it.each(['#a855f7', '#d8b4fe', '#facc15', '#EF4444', '#60a5fa'])(
+    'passes a well-formed 6-digit hex through unchanged: %s',
+    (hex) => {
+      expect(getTubeHexColor(hex)).toBe(hex);
+    }
+  );
+
+  it('trims surrounding whitespace', () => {
+    expect(getTubeHexColor('  #22c55e  ')).toBe('#22c55e');
+  });
+
   it.each([
-    ['EDTA_PURPLE', '#a855f7'],
-    ['EDTA_LAVENDER', '#d8b4fe'],
-    ['SST_GOLD', '#facc15'],
-    ['SST_RED', '#ef4444'],
-    ['CITRATE_BLUE', '#60a5fa'],
-    ['HEPARIN_GREEN', '#22c55e'],
-    ['URINE_YELLOW', '#fde047'],
-    ['OTHER', '#9ca3af'],
-  ])('returns %s → %s', (tube, expected) => {
-    expect(getTubeHexColor(tube)).toBe(expected);
+    ['a tube enum code', 'EDTA_PURPLE'],
+    ['a humanized label', 'edta purple'],
+    ['a 3-digit shorthand hex', '#abc'],
+    ['a named CSS colour', 'red'],
+    ['a hex without the hash', 'a855f7'],
+    ['an empty string', ''],
+    ['whitespace only', '   '],
+  ])('falls back to grey for %s', (_label, value) => {
+    expect(getTubeHexColor(value)).toBe('#9ca3af');
   });
 
-  it('normalises whitespace to underscores and uppercases', () => {
-    expect(getTubeHexColor('edta purple')).toBe('#a855f7');
-    expect(getTubeHexColor('sst gold')).toBe('#facc15');
+  it('falls back to grey for null and undefined', () => {
+    expect(getTubeHexColor(null)).toBe('#9ca3af');
+    expect(getTubeHexColor(undefined)).toBe('#9ca3af');
+    expect(getTubeHexColor()).toBe('#9ca3af');
   });
 
-  it('falls back to OTHER color for unrecognized tube types', () => {
-    expect(getTubeHexColor('UNKNOWN_TUBE')).toBe('#9ca3af');
-    expect(getTubeHexColor('')).toBe('#9ca3af');
+  it('rejects a value that would break out of the style attribute', () => {
+    expect(getTubeHexColor('#a855f7" onload="alert(1)')).toBe('#9ca3af');
+    expect(getTubeHexColor('red; background: url(javascript:alert(1))')).toBe('#9ca3af');
   });
 });
 
@@ -73,6 +87,7 @@ describe('openPhlebotomySpecimenLabelPrint', () => {
     pid: 'DH-40281',
     testCodes: ['FBC', 'CRP'],
     tubeTypeLabel: 'EDTA_PURPLE',
+    tubeColor: '#a855f7',
   };
 
   let mockPrintWindow: {
@@ -112,12 +127,22 @@ describe('openPhlebotomySpecimenLabelPrint', () => {
     vi.restoreAllMocks();
   });
 
-  it('uses the tube hex color for the accent strip', () => {
+  it('uses the tube hex color from the payload for the accent strip', () => {
     vi.spyOn(window, 'open').mockReturnValue(mockPrintWindow as unknown as Window);
     openPhlebotomySpecimenLabelPrint(payload);
 
     const html = mockPrintWindow.document.write.mock.calls[0][0] as string;
-    expect(html).toContain('#a855f7'); // EDTA_PURPLE color
+    expect(html).toContain('#a855f7');
+    vi.restoreAllMocks();
+  });
+
+  it('falls back to grey when the sample carries no tube colour', () => {
+    vi.spyOn(window, 'open').mockReturnValue(mockPrintWindow as unknown as Window);
+    openPhlebotomySpecimenLabelPrint({ ...payload, tubeColor: null });
+
+    const html = mockPrintWindow.document.write.mock.calls[0][0] as string;
+    expect(html).toContain('#9ca3af');
+    expect(html).not.toContain('#a855f7');
     vi.restoreAllMocks();
   });
 
