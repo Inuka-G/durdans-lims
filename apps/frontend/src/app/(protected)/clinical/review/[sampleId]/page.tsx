@@ -11,11 +11,13 @@ import {
     BadgeCheck,
     CheckCircle2,
     Download,
+    Eye,
     FileText,
     History,
     Undo2,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { useRoles } from '@/hooks/useRoles';
 import {
     authorizeClinical,
     downloadPatientDocument,
@@ -25,15 +27,22 @@ import {
     TestResultDetail,
 } from '@/lib/api';
 import type { PatientDocument } from '@/lib/api';
-import { formatDisplayId } from '@/lib/format-id';
+import {
+    deltaTone,
+    displayResultNo,
+    formatDeltaPercent,
+    resultStatusLabel,
+    resultStatusTone,
+} from '@/lib/result-display';
 import { cn } from '@/lib/utils';
 import Button from '@/components/ui/Button';
 import PageHeader from '@/components/ui/PageHeader';
 import SectionCard from '@/components/ui/SectionCard';
 import EmptyState from '@/components/ui/EmptyState';
 import Modal from '@/components/ui/Modal';
-import StatusChip, { type ChipTone } from '@/components/ui/StatusChip';
+import StatusChip, { humanizeStatus, type ChipTone } from '@/components/ui/StatusChip';
 import { TextareaField } from '@/components/ui/Field';
+import PriorityBadge from '@/components/shared/PriorityBadge';
 import { formatRegistered } from '@/components/patient-dashboard/dashboard-data';
 
 const getInitials = (value: string) =>
@@ -63,6 +72,25 @@ const formatDateTime = (value?: string | null) => {
     return formatRegistered(date);
 };
 
+/** Full date and time for the encounter facts where the exact clock matters. */
+const formatExact = (value?: string | null) => {
+    if (!value) {
+        return null;
+    }
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return null;
+    }
+    return date.toLocaleString('en-GB', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+    });
+};
+
 const formatGender = (value?: string | null) => {
     if (!value) {
         return null;
@@ -90,20 +118,23 @@ const getStatusLabel = (status?: string | null) => {
     if (status === 'CLINICALLY_AUTHORIZED') {
         return 'Authorized';
     }
-    if (status === 'RETURNED_FOR_RECHECK') {
-        return 'Returned to supervisor';
+    if (status === 'TECHNICALLY_VERIFIED' || !status) {
+        return 'Pending clinical review';
     }
-    return 'Pending clinical review';
+    return resultStatusLabel(status);
 };
 
 const getStatusTone = (status?: string | null): ChipTone => {
     if (status === 'CLINICALLY_AUTHORIZED') {
         return 'success';
     }
-    if (status === 'RETURNED_FOR_RECHECK') {
+    if (status === 'RETURNED_FOR_RECHECK' || status === 'RETURNED_TO_MLT') {
         return 'danger';
     }
-    return 'pending';
+    if (status === 'TECHNICALLY_VERIFIED' || !status) {
+        return 'pending';
+    }
+    return resultStatusTone(status);
 };
 
 const getFlagTone = (flag: string): ChipTone =>
@@ -125,14 +156,19 @@ const getFlagLabel = (flag: string) => {
     return flag.replace(/_/g, ' ').toLowerCase().replace(/^\w/, (char) => char.toUpperCase());
 };
 
+const DELTA_CHIP_TONE: Record<ReturnType<typeof deltaTone>, ChipTone> = {
+    neutral: 'neutral',
+    pending: 'pending',
+    danger: 'danger',
+};
+
 export default function ClinicalReviewPage() {
     const router = useRouter();
     const { user } = useAuth();
+    const { hasRole } = useRoles();
     const params = useParams<{ sampleId: string }>();
     const sampleId = Array.isArray(params.sampleId) ? params.sampleId[0] : params.sampleId;
     const resultId = sampleId;
-    /** Short, human-readable case reference (RES-xxxxxxxx); the raw id stays in the title attribute. */
-    const displayId = formatDisplayId(sampleId, 'RES');
 
     const [data, setData] = useState<TestResultDetail | null>(null);
     const [loading, setLoading] = useState(true);
@@ -149,10 +185,14 @@ export default function ClinicalReviewPage() {
     const [documentsLoading, setDocumentsLoading] = useState(false);
     const [documentsError, setDocumentsError] = useState<string | null>(null);
 
+    /** Short, human-readable case reference; the raw id stays in the title attribute. */
+    const displayId = displayResultNo(data?.resultNo, sampleId);
     const rawPathologistName = user?.name || user?.preferred_username || 'Pathologist';
     const pathologistDisplayName = withDoctorPrefix(rawPathologistName);
+    // Admins may read this screen for oversight; only a pathologist signs or returns.
+    const isPathologist = hasRole('PATHOLOGIST');
     const isAuthorized = data?.status === 'CLINICALLY_AUTHORIZED';
-    const canActOnCase = data?.status === 'TECHNICALLY_VERIFIED';
+    const canActOnCase = data?.status === 'TECHNICALLY_VERIFIED' && isPathologist;
     const authorizationActor = withDoctorPrefix(data?.pathologistName || rawPathologistName);
     const authorizationInitials = getInitials(data?.pathologistName || rawPathologistName);
 
@@ -222,6 +262,11 @@ export default function ClinicalReviewPage() {
                 ? `${parameter.referenceRangeLow} - ${parameter.referenceRangeHigh}`
                 : '-',
         isAbnormal: parameter.flag != null && parameter.flag !== 'NORMAL',
+        previousValue: parameter.previousValue ?? null,
+        previousVisitedAt: parameter.previousVisitedAt ?? null,
+        previousSampleBarcode: parameter.previousSampleBarcode ?? null,
+        deltaPercent: parameter.deltaPercent ?? null,
+        deltaSignificant: parameter.deltaSignificant ?? null,
     }));
 
     const flaggedResults = labResults.filter((row) => row.isAbnormal);
@@ -255,13 +300,22 @@ export default function ClinicalReviewPage() {
 
     const previousVisits = data?.previousVisits ?? [];
 
+    const describeLockedCase = (verb: 'authorized' | 'returned') => {
+        if (!isPathologist) {
+            return `Only a pathologist can ${verb === 'authorized' ? 'authorize' : 'return'} this case. Your access is read-only.`;
+        }
+        if (data?.status === 'CLINICALLY_AUTHORIZED') {
+            return 'This case is already authorized.';
+        }
+        if (data?.status === 'RETURNED_FOR_RECHECK' && verb === 'returned') {
+            return 'This case has already been returned to the lab supervisor.';
+        }
+        return `This case can no longer be ${verb} from its current status: ${getStatusLabel(data?.status)}.`;
+    };
+
     const handleAuthorize = () => {
         if (!canActOnCase) {
-            setActionError(
-                data?.status === 'CLINICALLY_AUTHORIZED'
-                    ? 'This case is already authorized.'
-                    : `This case can no longer be authorized from its current status: ${getStatusLabel(data?.status)}.`
-            );
+            setActionError(describeLockedCase('authorized'));
             return;
         }
         setActionError(null);
@@ -278,11 +332,7 @@ export default function ClinicalReviewPage() {
         }
         if (!canActOnCase) {
             setShowSignModal(false);
-            setActionError(
-                data?.status === 'CLINICALLY_AUTHORIZED'
-                    ? 'This case is already authorized.'
-                    : `This case can no longer be authorized from its current status: ${getStatusLabel(data?.status)}.`
-            );
+            setActionError(describeLockedCase('authorized'));
             return;
         }
         try {
@@ -291,7 +341,7 @@ export default function ClinicalReviewPage() {
             setShowSignModal(false);
             const response = await authorizeClinical(resultId, {
                 status: 'CLINICALLY_AUTHORIZED',
-                clinicalNote: interpretation,
+                clinicalNote: interpretation.trim(),
                 signatureConfirmed: true,
             });
 
@@ -312,11 +362,7 @@ export default function ClinicalReviewPage() {
         }
         if (!canActOnCase) {
             setShowReturnModal(false);
-            setActionError(
-                data?.status === 'RETURNED_FOR_RECHECK'
-                    ? 'This case has already been returned to the lab supervisor.'
-                    : `This case can no longer be returned from its current status: ${getStatusLabel(data?.status)}.`
-            );
+            setActionError(describeLockedCase('returned'));
             return;
         }
         if (!returnReason.trim()) {
@@ -327,8 +373,8 @@ export default function ClinicalReviewPage() {
             setIsSubmittingReturn(true);
             setActionError(null);
             await returnForRecheck(resultId, {
-                status: 'RETURNED',
-                returnReason,
+                status: 'RETURNED_FOR_RECHECK',
+                returnReason: returnReason.trim(),
             });
 
             setShowReturnModal(false);
@@ -371,6 +417,10 @@ export default function ClinicalReviewPage() {
 
             if (status === 409) {
                 return backendMessage || 'This case was changed by another action. Refresh the page and try again.';
+            }
+
+            if (status === 403) {
+                return 'Only a pathologist can perform this action.';
             }
 
             if (status === 422) {
@@ -489,28 +539,29 @@ export default function ClinicalReviewPage() {
     const noteTimestamp = formatDateTime(data.updatedAt);
     const patientName = data.patientName ?? 'Unknown patient';
     const genderLabel = formatGender(data.patientGender);
-    const hasPriorityChip =
-        data.priority === 'CRITICAL_HIGH' ||
-        data.priority === 'CRITICAL_LOW' ||
-        data.priority === 'HIGH' ||
-        data.priority === 'LOW';
-    const priorityLabel =
-        data.priority === 'CRITICAL_HIGH'
-            ? 'Critical high'
-            : data.priority === 'CRITICAL_LOW'
-                ? 'Critical low'
-                : data.priority === 'HIGH'
-                    ? 'Flagged high'
-                    : 'Flagged low';
-    const priorityTone: ChipTone = data.priority?.includes('CRITICAL') ? 'danger' : 'pending';
+
+    const encounterFacts: { label: string; value: string; mono?: boolean }[] = [
+        { label: 'Patient ID', value: data.patientCode ?? '—', mono: true },
+        {
+            label: 'Age / sex',
+            value: [data.patientAge != null ? `${data.patientAge} y` : null, genderLabel].filter(Boolean).join(' / ') || '—',
+        },
+        { label: 'Referring clinician', value: data.referringDoctor ?? '—' },
+        { label: 'Ward / clinic', value: data.referringDepartment ?? '—' },
+        { label: 'Collected', value: formatExact(data.collectedAt) ?? '—' },
+        { label: 'Specimen', value: data.sampleBarcode ?? '—', mono: true },
+    ];
+
+    const hasReturnContext = Boolean(data.returnReason) &&
+        (data.status === 'RETURNED_FOR_RECHECK' || data.status === 'RETURNED_TO_MLT');
 
     return (
         <div className="mx-auto max-w-[1400px]">
             <Modal
                 open={showReturnModal}
                 onClose={closeReturnModal}
-                title="Return to lab supervisor"
-                description="The case goes back to the supervisor for recheck. Explain what needs attention."
+                title="Return for recheck"
+                description="The case goes back to the lab supervisor for recheck. Explain what needs attention."
                 size="md"
                 dismissible={!isSubmittingReturn}
                 footer={
@@ -597,6 +648,15 @@ export default function ClinicalReviewPage() {
                         <StatusChip tone={getStatusTone(data.status)} dot size="sm">
                             {getStatusLabel(data.status)}
                         </StatusChip>
+                        {!isPathologist && (
+                            <>
+                                <span aria-hidden="true" className="text-fg-faint">·</span>
+                                <StatusChip tone="neutral" size="sm">
+                                    <Eye className="mr-1 inline h-3 w-3" aria-hidden="true" />
+                                    Read-only
+                                </StatusChip>
+                            </>
+                        )}
                     </>
                 }
                 actions={
@@ -620,47 +680,42 @@ export default function ClinicalReviewPage() {
                             <h2 className="min-w-0 truncate text-lg font-semibold tracking-tight text-fg" title={patientName}>
                                 {patientName}
                             </h2>
-                            {hasPriorityChip && (
-                                <StatusChip tone={priorityTone} dot size="sm">
-                                    {priorityLabel}
+                            {data.priority && <PriorityBadge priority={data.priority} />}
+                            {hasCriticalBanner ? (
+                                <StatusChip tone="danger" dot size="sm">
+                                    Critical findings
                                 </StatusChip>
-                            )}
+                            ) : hasAbnormalBanner ? (
+                                <StatusChip tone="pending" dot size="sm">
+                                    Flagged findings
+                                </StatusChip>
+                            ) : null}
                         </div>
                         <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-fg-secondary">
-                            {data.patientCode && (
-                                <span className="min-w-0 break-words">
-                                    <span className="text-fg-muted">MRN </span>
-                                    <span className="font-mono">{data.patientCode}</span>
-                                </span>
-                            )}
-                            {data.patientAge != null && genderLabel && (
-                                <>
-                                    {data.patientCode && <span aria-hidden="true" className="text-fg-faint">·</span>}
-                                    <span className="tabular-nums">
-                                        <span className="sr-only">Age / sex </span>
-                                        {data.patientAge}Y
-                                        <span className="text-fg-faint"> / </span>
-                                        {genderLabel}
-                                    </span>
-                                </>
-                            )}
                             {data.testType && (
-                                <>
-                                    <span aria-hidden="true" className="text-fg-faint">·</span>
-                                    <span className="min-w-0 break-words">
-                                        <span className="text-fg-muted">Test </span>
-                                        {data.testType}
-                                    </span>
-                                </>
+                                <span className="min-w-0 break-words">
+                                    <span className="text-fg-muted">Test </span>
+                                    {data.testType}
+                                </span>
                             )}
                             <span aria-hidden="true" className="hidden text-fg-faint md:inline">·</span>
                             <span className="hidden min-w-0 break-words md:inline">
-                                <span className="text-fg-muted">Supervisor </span>
+                                <span className="text-fg-muted">Verified by </span>
                                 {data.supervisorName ?? 'Lab supervisor'}
                             </span>
                         </p>
                     </div>
                 </div>
+                <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 border-t border-edge pt-2 text-xs sm:grid-cols-3 lg:grid-cols-6">
+                    {encounterFacts.map((fact) => (
+                        <div key={fact.label} className="min-w-0">
+                            <dt className="text-fg-muted">{fact.label}</dt>
+                            <dd className={cn('truncate text-fg', fact.mono && 'font-mono')} title={fact.value}>
+                                {fact.value}
+                            </dd>
+                        </div>
+                    ))}
+                </dl>
             </header>
 
             {hasAbnormalBanner && (
@@ -687,6 +742,20 @@ export default function ClinicalReviewPage() {
                 </div>
             )}
 
+            {hasReturnContext && (
+                <div
+                    role="note"
+                    className="mb-4 rounded-lg border border-status-pending-edge bg-status-pending-bg px-4 py-3 text-sm text-status-pending-fg"
+                >
+                    <p className="font-semibold">
+                        {resultStatusLabel(data.status)}
+                        {data.returnedBy && <span className="font-normal"> · by {data.returnedBy}</span>}
+                        {data.returnedAt && <span className="font-normal"> · {formatDateTime(data.returnedAt)}</span>}
+                    </p>
+                    <p className="mt-1 break-words text-fg">{data.returnReason}</p>
+                </div>
+            )}
+
             <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
                 <div className="flex min-w-0 flex-col gap-4">
                     <SectionCard
@@ -705,51 +774,80 @@ export default function ClinicalReviewPage() {
                             <EmptyState icon={FileText} title="No parameters recorded" description="This result has no parameter values yet." compact />
                         ) : (
                             <div className="overflow-x-auto">
-                                <table className="w-full min-w-[640px] table-fixed text-left text-[13px]">
+                                <table className="w-full min-w-[820px] table-fixed text-left text-[13px]">
                                     <thead>
                                         <tr className="border-b border-edge text-xs font-medium text-fg-muted">
-                                            <th scope="col" className="w-[30%] px-3 py-2 pl-4 font-medium">Parameter</th>
-                                            <th scope="col" className="w-[18%] px-3 py-2 font-medium">Result</th>
-                                            <th scope="col" className="w-[12%] px-3 py-2 font-medium">Unit</th>
-                                            <th scope="col" className="w-[20%] px-3 py-2 font-medium">Flag</th>
-                                            <th scope="col" className="w-[20%] px-3 py-2 font-medium">Reference range</th>
+                                            <th scope="col" className="w-[22%] px-3 py-2 pl-4 font-medium">Parameter</th>
+                                            <th scope="col" className="w-[12%] px-3 py-2 font-medium">Result</th>
+                                            <th scope="col" className="w-[10%] px-3 py-2 font-medium">Unit</th>
+                                            <th scope="col" className="w-[14%] px-3 py-2 font-medium">Flag</th>
+                                            <th scope="col" className="w-[16%] px-3 py-2 font-medium">Reference range</th>
+                                            <th scope="col" className="w-[26%] px-3 py-2 font-medium">Delta / previous visit</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-edge whitespace-nowrap">
-                                        {labResults.map((row) => (
-                                            <tr key={row.parameter} className="hover:bg-surface-hover">
-                                                <td className="truncate px-3 py-2 pl-4 font-medium text-fg" title={row.parameter}>
-                                                    {row.parameter}
-                                                </td>
-                                                <td
-                                                    className={cn(
-                                                        'truncate px-3 py-2 tabular-nums',
-                                                        row.isAbnormal ? 'font-semibold text-status-danger-fg' : 'font-medium text-fg'
-                                                    )}
-                                                    title={String(row.result)}
-                                                >
-                                                    {row.result}
-                                                </td>
-                                                <td className="truncate px-3 py-2 text-xs text-fg-muted" title={row.unit}>
-                                                    {row.unit}
-                                                </td>
-                                                <td className="px-3 py-2">
-                                                    {row.flag === 'NORMAL' ? (
-                                                        <span className="text-fg-faint">-</span>
-                                                    ) : (
-                                                        <StatusChip tone={getFlagTone(row.flag)} dot size="sm" title={getFlagLabel(row.flag)}>
-                                                            {getFlagLabel(row.flag)}
-                                                        </StatusChip>
-                                                    )}
-                                                </td>
-                                                <td
-                                                    className="truncate px-3 py-2 text-xs tabular-nums text-fg-muted"
-                                                    title={row.referenceRange}
-                                                >
-                                                    {row.referenceRange}
-                                                </td>
-                                            </tr>
-                                        ))}
+                                        {labResults.map((row) => {
+                                            const delta = formatDeltaPercent(row.deltaPercent);
+                                            const tone = DELTA_CHIP_TONE[deltaTone(row.deltaPercent, row.deltaSignificant)];
+                                            return (
+                                                <tr key={row.parameter} className="hover:bg-surface-hover">
+                                                    <td className="truncate px-3 py-2 pl-4 font-medium text-fg" title={row.parameter}>
+                                                        {row.parameter}
+                                                    </td>
+                                                    <td
+                                                        className={cn(
+                                                            'truncate px-3 py-2 tabular-nums',
+                                                            row.isAbnormal ? 'font-semibold text-status-danger-fg' : 'font-medium text-fg'
+                                                        )}
+                                                        title={String(row.result)}
+                                                    >
+                                                        {row.result}
+                                                    </td>
+                                                    <td className="truncate px-3 py-2 text-xs text-fg-muted" title={row.unit}>
+                                                        {row.unit}
+                                                    </td>
+                                                    <td className="px-3 py-2">
+                                                        {row.flag === 'NORMAL' ? (
+                                                            <span className="text-fg-faint">-</span>
+                                                        ) : (
+                                                            <StatusChip tone={getFlagTone(row.flag)} dot size="sm" title={getFlagLabel(row.flag)}>
+                                                                {getFlagLabel(row.flag)}
+                                                            </StatusChip>
+                                                        )}
+                                                    </td>
+                                                    <td
+                                                        className="truncate px-3 py-2 text-xs tabular-nums text-fg-muted"
+                                                        title={row.referenceRange}
+                                                    >
+                                                        {row.referenceRange}
+                                                    </td>
+                                                    <td className="px-3 py-2">
+                                                        {row.previousValue != null ? (
+                                                            <div
+                                                                className="flex items-center gap-1.5"
+                                                                title={
+                                                                    row.previousSampleBarcode
+                                                                        ? `Previous specimen ${row.previousSampleBarcode}`
+                                                                        : undefined
+                                                                }
+                                                            >
+                                                                <span className="tabular-nums text-fg-secondary">{row.previousValue}</span>
+                                                                {delta ? (
+                                                                    <StatusChip tone={tone} size="sm" className="tabular-nums">
+                                                                        Δ {delta}
+                                                                    </StatusChip>
+                                                                ) : null}
+                                                                <span className="truncate text-xs text-fg-muted">
+                                                                    {formatDateTime(row.previousVisitedAt) ?? ''}
+                                                                </span>
+                                                            </div>
+                                                        ) : (
+                                                            <span className="text-xs text-fg-faint">No previous visit</span>
+                                                        )}
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
                                     </tbody>
                                 </table>
                             </div>
@@ -765,7 +863,14 @@ export default function ClinicalReviewPage() {
                             value={interpretation}
                             onChange={(event) => setInterpretation(event.target.value)}
                             placeholder="Enter your clinical interpretation of these results"
-                            hint={canActOnCase ? 'Required before the case can be authorized.' : undefined}
+                            readOnly={!canActOnCase}
+                            hint={
+                                canActOnCase
+                                    ? 'Required before the case can be authorized. Printed on the report for the referring clinician.'
+                                    : !isPathologist
+                                      ? 'Read-only: only a pathologist can record the interpretation.'
+                                      : undefined
+                            }
                         />
                         <div aria-live="assertive" role="alert">
                             {actionError && !showReturnModal && (
@@ -882,7 +987,7 @@ export default function ClinicalReviewPage() {
                                     {isAuthorized ? authorizationActor : pathologistDisplayName}
                                 </p>
                                 <p className="text-xs text-fg-muted">
-                                    {isAuthorized ? 'Authorized pathologist' : 'Signature pending'}
+                                    {isAuthorized ? 'Authorized pathologist' : isPathologist ? 'Signature pending' : 'Viewing as administrator'}
                                 </p>
                             </div>
                         </div>
@@ -929,6 +1034,9 @@ export default function ClinicalReviewPage() {
                                             <span className="min-w-0">
                                                 <span className="block break-words text-sm font-medium text-fg">
                                                     {formatDateTime(visit.visitedAt) ?? 'Previous visit'}
+                                                </span>
+                                                <span className="mt-0.5 block truncate font-mono text-xs text-fg-muted">
+                                                    {displayResultNo(visit.resultNo, visit.resultId)}
                                                 </span>
                                                 <span className="mt-0.5 block break-words text-xs tabular-nums text-fg-muted">
                                                     {visit.parameterCount ?? 0} parameters · {visit.abnormalCount ?? 0} abnormal · {visit.criticalCount ?? 0} critical
@@ -1011,34 +1119,38 @@ export default function ClinicalReviewPage() {
                             <CheckCircle2 className="h-4 w-4 shrink-0 text-status-verified-fg" aria-hidden="true" />
                             <span>Authorized for dispatch</span>
                         </>
+                    ) : !isPathologist ? (
+                        <span>Read-only view — only a pathologist can authorize or return this case.</span>
                     ) : canActOnCase ? (
-                        <span>Add your interpretation, then attach your signature to authorize.</span>
+                        <span>Add your interpretation, then attach your signature to authorize and release.</span>
                     ) : (
                         <span>{getStatusLabel(data.status)} — no further action available.</span>
                     )}
                 </p>
-                <div className="flex flex-wrap items-center justify-end gap-2">
-                    {canActOnCase && (
+                {isPathologist && (
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                        {canActOnCase && (
+                            <Button
+                                icon={Undo2}
+                                onClick={() => {
+                                    setActionError(null);
+                                    setShowReturnModal(true);
+                                }}
+                            >
+                                Return for recheck
+                            </Button>
+                        )}
                         <Button
-                            icon={Undo2}
-                            onClick={() => {
-                                setActionError(null);
-                                setShowReturnModal(true);
-                            }}
+                            variant="primary"
+                            icon={isAuthorized ? CheckCircle2 : BadgeCheck}
+                            onClick={handleAuthorize}
+                            disabled={!canActOnCase}
+                            loading={isSubmittingAuthorize}
                         >
-                            Return to supervisor
+                            {isAuthorized ? 'Authorized for dispatch' : 'Authorize and release'}
                         </Button>
-                    )}
-                    <Button
-                        variant="primary"
-                        icon={isAuthorized ? CheckCircle2 : BadgeCheck}
-                        onClick={handleAuthorize}
-                        disabled={!canActOnCase}
-                        loading={isSubmittingAuthorize}
-                    >
-                        {isAuthorized ? 'Authorized for dispatch' : 'Attach signature and authorize'}
-                    </Button>
-                </div>
+                    </div>
+                )}
             </div>
         </div>
     );

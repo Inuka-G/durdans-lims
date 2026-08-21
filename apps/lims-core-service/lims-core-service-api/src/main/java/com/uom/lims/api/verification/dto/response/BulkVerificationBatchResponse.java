@@ -21,6 +21,10 @@ public class BulkVerificationBatchResponse {
     private int safeForApproval;
     private int exceptions;
     private Instant updatedAt;
+    /** Anchor result ids of the cases that are safe for one-click approval. */
     private List<String> resultIds;
+    /** Anchor result ids of the cases held for case-by-case review. */
     private List<String> reviewResultIds;
+    /** One entry per case (specimen) in this test group, safe and held alike. */
+    private List<BulkVerificationCaseResponse> cases;
 }

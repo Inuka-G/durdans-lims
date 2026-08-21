@@ -28,6 +28,11 @@ public interface TestResultRepository extends JpaRepository<TestResultEntity, UU
 
     List<TestResultEntity> findByStatusInAndDraftFalse(List<ResultStatus> statuses);
 
+    /**
+     * Everything waiting on the supervisor: freshly ENTERED rows, plus returned rows
+     * (either direction) whose specimen is back in the verification queue — a
+     * returned row on a specimen still with the MLT is the MLT's, not the supervisor's.
+     */
     @Query("""
             select tr
             from TestResultEntity tr
@@ -38,14 +43,14 @@ public interface TestResultRepository extends JpaRepository<TestResultEntity, UU
               and (
                     tr.status = :enteredStatus
                     or (
-                        tr.status = :returnedStatus
+                        tr.status in (:returnedStatuses)
                         and s.status = :supervisorQueueStatus
                     )
               )
             """)
     Page<TestResultEntity> findSupervisorPendingResults(
             @Param("enteredStatus") ResultStatus enteredStatus,
-            @Param("returnedStatus") ResultStatus returnedStatus,
+            @Param("returnedStatuses") List<ResultStatus> returnedStatuses,
             @Param("supervisorQueueStatus") SampleStatus supervisorQueueStatus,
             Pageable pageable);
 
@@ -59,14 +64,14 @@ public interface TestResultRepository extends JpaRepository<TestResultEntity, UU
               and (
                     tr.status = :enteredStatus
                     or (
-                        tr.status = :returnedStatus
+                        tr.status in (:returnedStatuses)
                         and s.status = :supervisorQueueStatus
                     )
               )
             """)
     List<TestResultEntity> findSupervisorPendingResults(
             @Param("enteredStatus") ResultStatus enteredStatus,
-            @Param("returnedStatus") ResultStatus returnedStatus,
+            @Param("returnedStatuses") List<ResultStatus> returnedStatuses,
             @Param("supervisorQueueStatus") SampleStatus supervisorQueueStatus);
 
     @Query("""

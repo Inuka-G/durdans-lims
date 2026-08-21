@@ -25,6 +25,10 @@ import java.util.UUID;
 public interface SampleRepository extends JpaRepository<SampleEntity, UUID>, JpaSpecificationExecutor<SampleEntity> {
     Optional<SampleEntity> findByBarcodeAndDeletedFalse(String barcode);
 
+    /** Next value of the case-number sequence behind {@code RES<year>-<n>}; see ResultNumberService. */
+    @Query(value = "SELECT nextval('result_no_seq')", nativeQuery = true)
+    Long getNextResultSequence();
+
     boolean existsByBarcodeAndDeletedFalse(String barcode);
 
     Page<SampleEntity> findAllByStatusAndDeletedFalse(SampleStatus status, Pageable pageable);

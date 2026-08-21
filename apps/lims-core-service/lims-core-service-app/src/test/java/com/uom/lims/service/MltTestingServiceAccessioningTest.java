@@ -75,7 +75,8 @@ class MltTestingServiceAccessioningTest {
                 new ObjectMapper(),
                 mock(com.uom.lims.notification.CriticalValueNotificationService.class),
                 mock(QcGateService.class),
-                sampleService);
+                sampleService,
+                mock(ResultNumberService.class));
 
         OrderEntity order = new OrderEntity();
         order.setOrderNo("ORD-1");

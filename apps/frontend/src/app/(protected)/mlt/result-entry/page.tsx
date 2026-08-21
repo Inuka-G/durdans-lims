@@ -820,6 +820,26 @@ function ResultEntryContent() {
                                 )}
                             </div>
 
+                            {/* The supervisor sent this case back — show why before the bench re-enters it. */}
+                            {sample.returnedToMlt && (
+                                <div
+                                    role="note"
+                                    className="mb-4 flex items-start gap-3 rounded-lg border border-status-danger-edge bg-status-danger-bg p-3 text-sm text-status-danger-fg"
+                                >
+                                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                                    <div className="min-w-0">
+                                        <p className="font-semibold">
+                                            Returned by supervisor for re-run / re-entry
+                                            {sample.returnedBy && <span className="font-normal"> · {sample.returnedBy}</span>}
+                                            {sample.returnedAt && (
+                                                <span className="font-normal"> · {formatAuditTime(sample.returnedAt)}</span>
+                                            )}
+                                        </p>
+                                        <p className="mt-1 break-words">{sample.returnReason || 'No reason was recorded.'}</p>
+                                    </div>
+                                </div>
+                            )}
+
                             <div aria-live="polite" role="status">
                                 {isReadOnly && (
                                     <div className="mb-4 rounded-lg border border-status-pending-edge bg-status-pending-bg p-3 text-sm text-status-pending-fg">
