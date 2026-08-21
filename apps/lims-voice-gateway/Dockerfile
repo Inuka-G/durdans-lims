@@ -4,10 +4,17 @@
 # convention, not a mapping — keep it in sync with the compose override.
 FROM python:3.12-slim
 
+# The upgrade is deliberate, not hygiene: the slim base ships util-linux with
+# HIGH CVEs whose fixes sit in trixie-security, and the Trivy release gate (fail
+# on HIGH/CRITICAL, ignore-unfixed) rightly refuses an image that left them
+# untaken. It has to be dist-upgrade: the fixed util-linux pulls a new
+# dependency, and plain `upgrade` silently holds such packages back — which is
+# exactly what happened on the first two release attempts.
+#
 # ffmpeg: aiortc uses PyAV for Opus; the manylinux wheels bundle codecs, but a
-# resolver fallback to source needs the libs present. Small price for a build
-# that cannot be broken by a wheel gap.
+# resolver fallback to source needs the libs present.
 RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get dist-upgrade -y --no-install-recommends \
     && apt-get install -y --no-install-recommends ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
