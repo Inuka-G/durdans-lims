@@ -44,6 +44,13 @@ jobs:
       - name: Syntax-check the gateway
         run: python3 -m py_compile app/*.py
 
+      # The prompt, the clock and the language tally are plain-stdlib modules that
+      # import no pipecat, so they can be tested on the runner without the image.
+      # They are also the modules whose regressions are silent — a wrong time band
+      # or a Sinhala turn scored as English only shows up on a real call.
+      - name: Unit tests (stdlib only, no install step)
+        run: python3 -m unittest discover -s tests -t .
+
       - name: Build image
         run: docker build -t lims-voice-gateway:${{ github.sha }} .
 

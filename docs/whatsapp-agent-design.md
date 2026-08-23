@@ -159,6 +159,74 @@ A caveat on `nip.io`: the hostname contains the IP address, so changing the Elas
 changes the webhook URL. Meta's callback URL is awkward to change — re-verification has
 a window where deliveries fail — so a real domain is worth having before launch.
 
+## Phase 5a — voice, the human half
+
+Phase 5 proved the pipe: a call rings, Gemini Live answers, tools ground the answer.
+What it did not have was a manner. The complaint after the live calls was that the
+voice was flat and the agent felt like a machine, and reviewing our older Sri Lankan
+voice agent (an Asterisk/AudioSocket bridge into Gemini Live) against this one
+located why. Almost none of it was the model.
+
+- **The prompt is now written in the language it has to speak.** The first cut was
+  English prose describing warm colloquial Sinhala. A native-audio model imitates the
+  register it is *shown*, not the register it is described, so what came back was
+  Sinhala with the cadence of translated English. `app/prompt.py` now carries the
+  opening line word for word, the filler sounds ("හරි…", "ටිකක් ඉන්න, බලන්නම්"), and a
+  worked example call — including the agent stalling with a filler and then reading a
+  tool sentence, so the example teaches grounding as well as rhythm. Every safety rule
+  from the first cut survives verbatim; the tests pin the ones that must.
+- **She has a name.** `AGENT_NAME_SI` / `AGENT_NAME_EN`. A voice with a name is a
+  person; "the telephone assistant" is a system. The older agent opened with its name
+  on every call and that is most of the difference in the first three seconds.
+- **Affective dialog and proactive audio are on.** Both exist only on the
+  native-audio line and both ship off in Pipecat. Affective dialog is what lets the
+  reply to a worried caller differ from the reply to a cheerful one; proactive audio
+  lets the model decline to answer a hallway it was never addressed with. Worth
+  knowing for any future model bump: Gemini 3.x Flash Live supports *neither*, so
+  "newer model" is not automatically the warmer one here.
+- **Tools no longer produce dead air.** Registered with
+  `cancel_on_interruption=False`, which is what makes Pipecat declare them
+  `NON_BLOCKING` to Gemini: the model keeps talking while a lookup is in flight
+  instead of leaving the line silent for a second or two. The prompt teaches the
+  filler; this makes the filler possible. The trade is real and worth naming: the
+  model now speaks before the result lands, so only the never-invent rule keeps that
+  speech honest. `VOICE_ASYNC_TOOLS=false` reverts to blocking calls if a live call
+  ever shows a price spoken ahead of its tool.
+- **The clock is in the prompt.** A caller at nine at night was being wished a good
+  morning. `time_context()` computes the Colombo time band and states the greeting to
+  use — and states, explicitly, that the agent's own opening greeting is not evidence
+  of the caller's language, which is what was dragging conversations into English on
+  turn two.
+- **Turn-taking is tuned on the Gemini side.** Server-side VAD gets a longer
+  end-of-speech threshold (`VAD_SILENCE_DURATION_MS`, 800 ms default): Sinhala phone
+  speech pauses mid-sentence more than the English these defaults were set against,
+  and an agent that talks over people is the most robotic thing it can be. The local
+  Silero VAD stays — Gemini signals barge-in but emits no turn-start/-end frames, so
+  the context aggregator still needs it.
+- **She remembers the last call.** Two columns on `wa_contact` and a
+  `/internal/voice/tools/call-memory` write at hang-up. What is stored is the
+  *subject*, derived from which tools ran ("report status", "test prices (FBC)") —
+  never anything the caller said, so a NIC recited to be verified cannot come back
+  out of her mouth on the next call. Memories older than 90 days are not surfaced:
+  warmly recalling a call from four months ago is stranger than starting fresh.
+- **Language is tallied, not guessed.** Gemini Live returns spoken Sinhala as Latin
+  text constantly, so a script check scores those turns as English. `app/language.py`
+  adds the Latinised-Sinhala markers and an asymmetric tally — any real Sinhala
+  presence outweighs a plurality of English, because English turns on these calls are
+  noise ("okay", "thank you", every missed Latinisation).
+
+What did *not* transfer from the older agent: its best engineering is in the audio
+path — a 31-tap FIR low-pass before 24 kHz→8 kHz decimation (sibilants were aliasing
+into an audible buzz), a stateful upsampler to kill frame-seam clicks, 50 fps paced
+playout with a 3-frame jitter prime. All of it is telephony. WhatsApp calls are Opus
+over WebRTC with no 8 kHz decimation anywhere, and playout is the transport's job.
+Only the barge-in *idea* carries over, and Pipecat already implements it.
+
+One suspect that turned out to be innocent, recorded so nobody re-finds it: Pipecat
+hardcodes `language="en-US"` into `SpeechConfig.language_code`. Native-audio models
+choose the language themselves and do not support the field, so it is inert — not the
+cause of anything.
+
 ## Phase 2g — landed
 
 Knowing the patient from their phone — so "is my report ready" needs no order number.
