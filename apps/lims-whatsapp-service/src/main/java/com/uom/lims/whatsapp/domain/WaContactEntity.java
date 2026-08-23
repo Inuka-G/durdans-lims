@@ -42,6 +42,18 @@ public class WaContactEntity extends WaBaseEntity {
     @Column(name = "blocked", nullable = false)
     private boolean blocked = false;
 
+    /**
+     * What their last voice call was about — a topic line derived from the tools that
+     * ran ("report status", "test prices (FBC)"), never from anything the caller said.
+     * It exists so the next call can open like a second conversation instead of a first
+     * one; it is not a transcript and must never become one.
+     */
+    @Column(name = "last_call_summary", length = 255)
+    private String lastCallSummary;
+
+    @Column(name = "last_call_at")
+    private Instant lastCallAt;
+
     public boolean isIdentityVerified() {
         return patientCode != null && !patientCode.isBlank() && verifiedAt != null;
     }
