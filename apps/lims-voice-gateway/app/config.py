@@ -37,9 +37,18 @@ class Settings:
     phone_number_id: str = field(default_factory=lambda: _env("WHATSAPP_PHONE_NUMBER_ID"))
     whatsapp_secret: str = field(default_factory=lambda: _env("WHATSAPP_APP_SECRET"))
     gemini_api_key: str = field(default_factory=lambda: _env("GEMINI_API_KEY"))
-    # Empty means "use Pipecat's default Gemini Live model", which tracks the
-    # current native-audio release better than a name pinned here would.
-    gemini_live_model: str = field(default_factory=lambda: _env("GEMINI_LIVE_MODEL"))
+    # Pinned, not left to Pipecat's internal default, so that the model we probe
+    # at boot is provably the model we then call with. This is the same
+    # native-audio model Pipecat 1.7 defaults to. `gemini-2.5-flash-native-audio-latest`
+    # is the rolling alternative — also verified to accept the full setup — if
+    # this preview is ever retired.
+    gemini_live_model: str = field(
+        default_factory=lambda: _env("GEMINI_LIVE_MODEL", "models/gemini-2.5-flash-native-audio-preview-12-2025")
+    )
+    # Which API surface to open the Live session on. Empty = the SDK's default
+    # (v1beta). See resolved_api_version(): affective dialog and proactive audio
+    # do not exist on v1beta at all, and asking for them there kills the session.
+    gemini_api_version: str = field(default_factory=lambda: _env("GEMINI_API_VERSION"))
     # Aoede, by the user's ear after hearing both on real calls; what was flat was
     # the prompt's register, not the voice. Tunable without a rebuild.
     gemini_voice: str = field(default_factory=lambda: _env("GEMINI_VOICE", "Aoede"))
@@ -90,6 +99,28 @@ class Settings:
 
     def calls_configured(self) -> bool:
         return bool(self.whatsapp_token and self.phone_number_id and self.gemini_api_key)
+
+    def resolved_model(self) -> str:
+        """Always a concrete name, always prefixed the way the Live API wants it."""
+        model = self.gemini_live_model
+        return model if model.startswith("models/") else f"models/{model}"
+
+    def resolved_api_version(self) -> str:
+        """The API surface the requested features actually exist on.
+
+        `enable_affective_dialog` and `proactivity` are v1alpha-only. On v1beta
+        the server does not merely ignore them, it rejects the whole setup
+        message with `Unknown name "proactivity" at 'setup'` and closes the
+        socket — which reaches the caller as a connected, permanently silent
+        call. Verified against the live API on 2026-08-23, on both the pinned
+        preview and `-latest` native-audio models.
+
+        An explicit GEMINI_API_VERSION always wins, so this can be forced back
+        to v1beta (with both features off) without a rebuild.
+        """
+        if self.gemini_api_version:
+            return self.gemini_api_version
+        return "v1alpha" if (self.affective_dialog or self.proactive_audio) else ""
 
 
 settings = Settings()
