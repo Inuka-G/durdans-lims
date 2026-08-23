@@ -27,6 +27,7 @@ from pipecat.services.google.gemini_live.llm import GeminiLiveLLMService, Gemini
 from pipecat.transports.base_transport import TransportParams
 from pipecat.transports.smallwebrtc.transport import SmallWebRTCTransport
 
+from . import live_check
 from .config import settings
 from .language import call_locale
 from .prompt import build_system_prompt, opening_instruction
@@ -104,23 +105,23 @@ def _vad_params() -> GeminiVADParams | None:
     return params if touched else None
 
 
-def _llm_settings(system_instruction: str):
+def _llm_settings(system_instruction: str, caps):
     """The delta we apply over Pipecat's defaults.
 
-    Only fields set here move; everything else — notably the default native-audio
-    model — stays exactly as Pipecat resolved it.
+    Only fields set here move. The optional native-audio fields are sent only if
+    config asked for them AND the boot-time probe saw the server accept them —
+    an unsupported field does not degrade the session, it destroys it.
     """
     kwargs = {
+        "model": settings.resolved_model(),
         "voice": settings.gemini_voice,
         "system_instruction": system_instruction,
-        # Both of these exist only on the native-audio line, and both ship off.
-        # Affective dialog is what lets the reply to a worried caller sound
-        # different from the reply to a cheerful one.
-        "enable_affective_dialog": settings.affective_dialog,
     }
-    if settings.gemini_live_model:
-        kwargs["model"] = settings.gemini_live_model
-    if settings.proactive_audio:
+    if settings.affective_dialog and caps.affective_dialog:
+        # What lets the reply to a worried caller sound different from the reply
+        # to a cheerful one. v1alpha only — see Settings.resolved_api_version().
+        kwargs["enable_affective_dialog"] = True
+    if settings.proactive_audio and caps.proactive_audio:
         from google.genai.types import ProactivityConfig
 
         kwargs["proactivity"] = ProactivityConfig(proactive_audio=True)
@@ -128,6 +129,17 @@ def _llm_settings(system_instruction: str):
     if vad is not None:
         kwargs["vad"] = vad
     return GeminiLiveLLMService.Settings(**kwargs)
+
+
+def _http_options():
+    """Pinned only when we need a non-default API surface, so the SDK keeps its
+    own default everywhere else."""
+    api_version = settings.resolved_api_version()
+    if not api_version:
+        return None
+    from google.genai.types import HttpOptions
+
+    return HttpOptions(api_version=api_version)
 
 
 async def run_bot(connection, caller_wa_id: str) -> None:
@@ -153,12 +165,14 @@ async def run_bot(connection, caller_wa_id: str) -> None:
         profile = await fetch_caller_profile(tool_session, caller_wa_id)
         display_name = str(profile.get("displayName") or "").strip()
 
+        caps = live_check.current()
         llm = GeminiLiveLLMService(
             api_key=settings.gemini_api_key,
             settings=_llm_settings(build_system_prompt(
                 settings.agent_name_si, settings.agent_name_en, profile,
-            )),
+            ), caps),
             tools=tool_definitions(),
+            http_options=_http_options(),
         )
 
         topics: list[str] = []
@@ -170,7 +184,7 @@ async def run_bot(connection, caller_wa_id: str) -> None:
             # second or two. Dead air is the tell that gives a bot away.
             llm.register_function(
                 name, handler,
-                cancel_on_interruption=not settings.async_tools,
+                cancel_on_interruption=not (settings.async_tools and caps.async_tools),
             )
 
         context = LLMContext(
