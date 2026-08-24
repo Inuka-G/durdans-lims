@@ -20,6 +20,8 @@ import {
 } from 'lucide-react';
 import {
     approveTechnically,
+    getBulkVerificationWorklist,
+    getPendingVerificationResults,
     getVerificationResultDetails,
     rejectTechnically,
     TestResultDetail,
@@ -62,29 +64,24 @@ const CHECKBOX_CLASS =
  */
 const SUPERVISOR_CHECKLIST = [
     {
-        id: 'preAnalytical',
-        label: 'Pre-analytical check',
-        detail: 'Sample volume, hemolysis, lipemia and container integrity verified.',
+        id: 'patientAndTestMatch',
+        label: 'Patient and test group match confirmed',
     },
     {
-        id: 'deltaCheck',
-        label: 'Delta check',
-        detail: "Result compared against the patient's previous historical values.",
+        id: 'allRequiredParams',
+        label: 'All required parameters are entered',
     },
     {
-        id: 'calibration',
-        label: 'Machine calibration',
-        detail: 'Analyzer QC and calibration verified within acceptable SD limits.',
+        id: 'abnormalCriticalReviewed',
+        label: 'Abnormal and critical flags have been reviewed',
     },
     {
-        id: 'mltRemarks',
-        label: 'MLT remarks',
-        detail: 'Technical notes and instrument raw logs reviewed.',
+        id: 'qcAndInstrumentReviewed',
+        label: 'QC status and instrument output reviewed',
     },
     {
-        id: 'criticalNotification',
-        label: 'Critical notification',
-        detail: 'Panic values flagged and immediate clinical alert logged.',
+        id: 'mltNotesReviewed',
+        label: 'MLT notes and any return/recheck context reviewed',
     },
 ] as const;
 
@@ -180,7 +177,7 @@ const REVIEWED_NOTICE =
 const WITH_MLT_NOTICE =
     'This case was returned to the MLT and is awaiting re-entry. It comes back to the queue when they resubmit.';
 
-const CHECKLIST_NOTICE = 'Complete all supervisor verification checks before approving this case.';
+const CHECKLIST_NOTICE = 'Complete all checklist items before approving and releasing this case.';
 
 export default function ReviewCasePage() {
     const router = useRouter();
@@ -204,7 +201,43 @@ export default function ReviewCasePage() {
         try {
             setLoading(true);
             setError(null);
-            const response = await getVerificationResultDetails(resultId);
+
+            let targetId = resultId;
+            const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+            // If resultId in URL is not a UUID (e.g. human-readable RES2026-XXXXX), resolve its real UUID
+            if (!UUID_PATTERN.test(targetId)) {
+                try {
+                    const pendingList = await getPendingVerificationResults(0, 100);
+                    const matched = pendingList.content?.find(
+                        (item) =>
+                            item.resultNo === targetId ||
+                            displayResultNo(item.resultNo, item.resultId) === targetId ||
+                            item.resultId === targetId
+                    );
+                    if (matched?.resultId) {
+                        targetId = matched.resultId;
+                    } else {
+                        const bulkBatches = await getBulkVerificationWorklist();
+                        for (const b of bulkBatches) {
+                            const foundCase = b.cases?.find(
+                                (c) =>
+                                    c.resultNo === targetId ||
+                                    displayResultNo(c.resultNo, c.resultId) === targetId ||
+                                    c.resultId === targetId
+                            );
+                            if (foundCase?.resultId) {
+                                targetId = foundCase.resultId;
+                                break;
+                            }
+                        }
+                    }
+                } catch (resolveErr) {
+                    console.warn('Could not resolve non-UUID result identifier', resolveErr);
+                }
+            }
+
+            const response = await getVerificationResultDetails(targetId);
             setResultDetail(response);
         } catch (loadError) {
             console.error('Failed to load verification result details', loadError);
@@ -368,11 +401,6 @@ export default function ReviewCasePage() {
         }
         const trimmedSupervisorNote = approveNote.trim();
 
-        if (requiresQcOverride && trimmedSupervisorNote.length < 20) {
-            setSubmitError('A QC override reason of at least 20 characters is required.');
-            return;
-        }
-
         const supervisorNote = trimmedSupervisorNote
             ? `Added by ${reviewerName} (${reviewerRole}): ${trimmedSupervisorNote}`
             : undefined;
@@ -394,9 +422,6 @@ export default function ReviewCasePage() {
         } catch (submitError) {
             console.error('Failed to approve result', submitError);
             const message = resolveSubmitErrorMessage('approve', submitError);
-            if (message.startsWith('QC hold')) {
-                setRequiresQcOverride(true);
-            }
             setSubmitError(message);
         } finally {
             setIsSubmitting(false);
@@ -820,7 +845,6 @@ export default function ReviewCasePage() {
                                             >
                                                 {item.label}
                                             </span>
-                                            <span className="block text-xs text-fg-muted">{item.detail}</span>
                                         </label>
                                     </li>
                                 );
@@ -829,9 +853,9 @@ export default function ReviewCasePage() {
                         {!isChecklistComplete && canReviewActions && (
                             <p
                                 role="status"
-                                className="border-t border-edge bg-surface-muted px-4 py-2.5 text-xs text-status-pending-fg"
+                                className="border-t border-edge bg-surface-muted px-4 py-2.5 text-xs font-medium text-amber-700"
                             >
-                                Approve stays locked until every check is confirmed.
+                                Complete all checklist items before approving and releasing this case.
                             </p>
                         )}
                     </SectionCard>
@@ -980,11 +1004,7 @@ export default function ReviewCasePage() {
                 onClose={closeApproveModal}
                 dismissible={!isSubmitting}
                 title="Approve and release to the pathologist"
-                description={
-                    requiresQcOverride
-                        ? 'QC is on hold. Add a documented release reason of at least 20 characters.'
-                        : 'Add an optional handoff note for the pathologist.'
-                }
+                description="Add an optional handoff note for the pathologist."
                 footer={
                     <>
                         <Button onClick={closeApproveModal} disabled={isSubmitting}>
@@ -1023,33 +1043,17 @@ export default function ReviewCasePage() {
                     <TextareaField
                         id="approve-note"
                         label="Lab supervisor note"
-                        required={requiresQcOverride}
                         rows={5}
                         value={approveNote}
-                        minLength={requiresQcOverride ? 20 : undefined}
                         onChange={(event) => {
                             setApproveNote(event.target.value);
                             if (submitError) {
                                 setSubmitError(null);
                             }
                         }}
-                        placeholder={
-                            requiresQcOverride
-                                ? 'Explain why this result is being released over the QC hold.'
-                                : 'Add a note for the pathologist.'
-                        }
-                        error={
-                            submitError
-                                ? requiresQcOverride
-                                    ? `${submitError} (${approveNote.trim().length}/20)`
-                                    : submitError
-                                : undefined
-                        }
-                        hint={
-                            requiresQcOverride
-                                ? `${approveNote.trim().length}/20 characters minimum`
-                                : 'Optional. Shown to the pathologist with the case.'
-                        }
+                        placeholder="Add a note for the pathologist (optional)..."
+                        error={submitError ?? undefined}
+                        hint="Optional. Recorded against this case release."
                     />
                 </div>
             </Modal>

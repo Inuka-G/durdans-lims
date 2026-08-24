@@ -232,10 +232,12 @@ public class VerificationService {
 
     @Transactional(readOnly = true)
     public List<BulkVerificationBatchResponse> getBulkWorklist() {
+        String branchScope = SecurityUtils.resolveBranchScope();
         List<TestResultEntity> pendingResults = testResultRepository.findSupervisorPendingResults(
                 ResultStatus.ENTERED,
                 RETURNED_STATUSES,
-                SampleStatus.SENT_FOR_VERIFICATION);
+                SampleStatus.SENT_FOR_VERIFICATION,
+                branchScope);
 
         Map<UUID, TestCatalogEntity> catalogsById = testCatalogRepository.findAllByIdInAndActiveTrueAndDeletedFalse(
                         pendingResults.stream()
@@ -605,10 +607,10 @@ public class VerificationService {
         }
 
         String reason = request == null ? null : request.getQcOverrideReason();
-        if (reason == null || reason.trim().length() < MIN_OVERRIDE_REASON) {
-            throw new BusinessRuleException(
-                    "QC hold — " + summary + ". Releasing over QC requires a documented reason of at least "
-                            + MIN_OVERRIDE_REASON + " characters.");
+        if (reason == null || reason.trim().isBlank()) {
+            reason = (request != null && request.getSupervisorNote() != null && !request.getSupervisorNote().trim().isBlank())
+                    ? request.getSupervisorNote().trim()
+                    : "Technically verified and released by Lab Supervisor.";
         }
 
         String username = SecurityUtils.getCurrentUsername();
@@ -1047,12 +1049,12 @@ public class VerificationService {
             return notes;
         }
         if (ACTION_VERIFICATION_APPROVED.equals(action)) {
-            return "Technically verified by lab supervisor.";
+            return "Passed to Pathologist";
         }
         if (ACTION_RETURNED_TO_MLT.equals(action)) {
             return "Returned to MLT for correction and re-entry.";
         }
-        return notes;
+        return null;
     }
 
     private String resolveApprovalHistoryNotes(String supervisorNote) {
@@ -1060,7 +1062,7 @@ public class VerificationService {
             return sanitizeHistoryNote(supervisorNote);
         }
 
-        return resolveHistoryNotes(ACTION_VERIFICATION_APPROVED, null);
+        return "Passed to Pathologist";
     }
 
     private String composeStoredNotes(String mltNotes, String supervisorNote) {

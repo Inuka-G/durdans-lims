@@ -252,15 +252,7 @@ export default function ClinicalWorklistPage() {
                 meta={
                     <>
                         <Stethoscope className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                        <span>Technically verified results awaiting pathologist review</span>
-                        {!loading && !error && (
-                            <>
-                                <span aria-hidden="true">·</span>
-                                <span className="tabular-nums">
-                                    {results.length.toLocaleString()} {results.length === 1 ? "result" : "results"}
-                                </span>
-                            </>
-                        )}
+                        <span>Clinical authorization</span>
                     </>
                 }
                 actions={
