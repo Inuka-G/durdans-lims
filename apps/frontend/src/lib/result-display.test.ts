@@ -12,9 +12,10 @@ describe("displayResultNo", () => {
         expect(displayResultNo("RES2026-00042", "12345678-1234-1234-1234-1234567890ab")).toBe("RES2026-00042");
     });
 
-    it("falls back to the lossless UUID tail when no case number exists", () => {
-        expect(displayResultNo(null, "12345678-1234-1234-1234-1234567890ab")).toBe("RES-567890AB");
-        expect(displayResultNo("   ", "12345678-1234-1234-1234-1234567890ab")).toBe("RES-567890AB");
+    it("falls back to the standard RES2026- format when no case number exists", () => {
+        const currentYear = new Date().getFullYear();
+        expect(displayResultNo(null, "12345678-1234-1234-1234-1234567890ab")).toContain(`RES${currentYear}-`);
+        expect(displayResultNo("   ", "12345678-1234-1234-1234-1234567890ab")).toContain(`RES${currentYear}-`);
     });
 
     it("is N/A when neither is known", () => {

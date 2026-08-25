@@ -608,9 +608,12 @@ public class VerificationService {
 
         String reason = request == null ? null : request.getQcOverrideReason();
         if (reason == null || reason.trim().isBlank()) {
-            reason = (request != null && request.getSupervisorNote() != null && !request.getSupervisorNote().trim().isBlank())
-                    ? request.getSupervisorNote().trim()
-                    : "Technically verified and released by Lab Supervisor.";
+            reason = (request != null && request.getSupervisorNote() != null) ? request.getSupervisorNote().trim() : null;
+        }
+
+        if (reason == null || reason.trim().length() < 10) {
+            throw new BusinessRuleException(
+                    "QC hold — " + summary + ". A documented reason (at least 10 characters) is required to release over QC.");
         }
 
         String username = SecurityUtils.getCurrentUsername();
