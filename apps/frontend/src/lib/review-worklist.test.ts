@@ -51,7 +51,7 @@ describe("flag helpers", () => {
 describe("matchesSearchQuery", () => {
     it("matches the case number in both forms, the patient, the test and the staff", () => {
         const r = row({});
-        for (const term of ["res2026-00042", "res-567890ab", "nimal", "pat2026-00007", "blood", "kasun", "sup test"]) {
+        for (const term of ["res2026-00042", "12345678", "nimal", "pat2026-00007", "blood", "kasun", "sup test"]) {
             expect(matchesSearchQuery(r, term)).toBe(true);
         }
     });

@@ -239,7 +239,7 @@ export default function PendingVerificationPage() {
     return (
         <div className="mx-auto max-w-[1400px]">
             <PageHeader
-                title="Pending verification"
+                title="Verification dashboard"
                 crumbs={[
                     { label: 'Dashboard', href: '/dashboard' },
                     { label: 'Verification', href: '/verification' },
@@ -249,35 +249,18 @@ export default function PendingVerificationPage() {
                     <>
                         <ShieldCheck className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                         <span>Technical verification</span>
-                        <span aria-hidden="true">·</span>
-                        <span className="tabular-nums">
-                            {results.length.toLocaleString()} {results.length === 1 ? 'result' : 'results'} awaiting review
-                        </span>
-                        {criticalPending > 0 && (
-                            <>
-                                <span aria-hidden="true">·</span>
-                                <span className="tabular-nums text-status-danger-fg">
-                                    {criticalPending} critical
-                                </span>
-                            </>
-                        )}
                     </>
                 }
                 actions={
-                    <>
-                        <Button href="/verification/bulk-approval" icon={ListChecks}>
-                            Bulk approval
-                        </Button>
-                        <Button
-                            icon={RefreshCw}
-                            onClick={() => {
-                                void loadPendingResults();
-                            }}
-                            loading={loading && results.length > 0}
-                        >
-                            Refresh
-                        </Button>
-                    </>
+                    <Button
+                        icon={RefreshCw}
+                        onClick={() => {
+                            void loadPendingResults();
+                        }}
+                        loading={loading && results.length > 0}
+                    >
+                        Refresh
+                    </Button>
                 }
             />
 
@@ -369,33 +352,89 @@ export default function PendingVerificationPage() {
                         type="search"
                         value={searchQuery}
                         onChange={(event) => setSearchQuery(event.target.value)}
-                        placeholder="Search patient, patient code, result ID, test group or technician"
+                        placeholder="Search patient, patient code, result ID, test group or MLT..."
                         autoComplete="off"
                         className="min-w-[220px] flex-1"
                     />
 
                     {isFiltering && (
-                        <Button variant="ghost" size="sm" icon={X} onClick={handleClearFilters}>
-                            Clear
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            icon={X}
+                            onClick={handleClearFilters}
+                            title="Reset status, priority, flag and search filters"
+                        >
+                            Reset filters
                         </Button>
                     )}
                 </div>
 
                 {/* States live outside the table so they centre on small screens */}
                 {loading ? (
-                    <ul aria-hidden="true" className="divide-y divide-edge">
-                        {Array.from({ length: SKELETON_ROWS }).map((_, index) => (
-                            <li key={index} className="flex items-center gap-3 px-4 py-2.5">
-                                <span className="h-4 w-24 shrink-0 rounded bg-skeleton" />
-                                <span className="h-3 w-32 shrink-0 rounded bg-skeleton" />
-                                <span className="hidden h-3 w-28 rounded bg-skeleton md:block" />
-                                <span className="hidden h-3 w-24 rounded bg-skeleton lg:block" />
-                                <span className="h-4 w-12 rounded-full bg-skeleton" />
-                                <span className="h-4 w-16 rounded-full bg-skeleton" />
-                                <span className="ml-auto h-7 w-16 rounded bg-skeleton" />
-                            </li>
-                        ))}
-                    </ul>
+                    <div className="overflow-x-auto">
+                        <table className="w-full min-w-[960px] table-fixed text-left text-sm">
+                            <caption className="sr-only">Results pending technical verification</caption>
+                            <thead>
+                                <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
+                                    <th scope="col" className="w-[15%] py-2 pl-4 pr-3 font-semibold">
+                                        Result ID
+                                    </th>
+                                    <th scope="col" className="w-[17%] px-3 py-2 font-semibold">
+                                        Patient
+                                    </th>
+                                    <th scope="col" className="w-[15%] px-3 py-2 font-semibold">
+                                        Test group
+                                    </th>
+                                    <th scope="col" className="w-[13%] px-3 py-2 font-semibold">
+                                        MLT Name
+                                    </th>
+                                    <th scope="col" className="w-[9%] px-3 py-2 font-semibold">
+                                        Priority
+                                    </th>
+                                    <th scope="col" className="w-[10%] px-3 py-2 font-semibold">
+                                        QC status
+                                    </th>
+                                    <th scope="col" className="w-[13%] px-3 py-2 font-semibold">
+                                        Status
+                                    </th>
+                                    <th scope="col" className="w-[8%] py-2 pl-2 pr-3 text-right font-semibold">
+                                        <span className="sr-only">Actions</span>
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {Array.from({ length: 6 }).map((_, index) => (
+                                    <tr key={index} className="border-b border-edge">
+                                        <td className="py-2.5 pl-4 pr-3">
+                                            <span className="block h-4 w-28 rounded bg-skeleton" />
+                                        </td>
+                                        <td className="px-3 py-2.5">
+                                            <span className="block h-4 w-36 rounded bg-skeleton" />
+                                        </td>
+                                        <td className="px-3 py-2.5">
+                                            <span className="block h-4 w-24 rounded bg-skeleton" />
+                                        </td>
+                                        <td className="px-3 py-2.5">
+                                            <span className="block h-4 w-24 rounded bg-skeleton" />
+                                        </td>
+                                        <td className="px-3 py-2.5">
+                                            <span className="block h-5 w-16 rounded bg-skeleton" />
+                                        </td>
+                                        <td className="px-3 py-2.5">
+                                            <span className="block h-5 w-20 rounded bg-skeleton" />
+                                        </td>
+                                        <td className="px-3 py-2.5">
+                                            <span className="block h-5 w-24 rounded bg-skeleton" />
+                                        </td>
+                                        <td className="py-2.5 pl-2 pr-3 text-right">
+                                            <span className="ml-auto block h-7 w-16 rounded bg-skeleton" />
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
                 ) : error ? (
                     <EmptyState
                         icon={AlertTriangle}
@@ -438,25 +477,28 @@ export default function PendingVerificationPage() {
                             <caption className="sr-only">Results pending technical verification</caption>
                             <thead>
                                 <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
-                                    <th scope="col" className="w-[16%] py-2 pl-4 pr-3 font-semibold">
+                                    <th scope="col" className="w-[15%] py-2 pl-4 pr-3 font-semibold">
                                         Result ID
                                     </th>
-                                    <th scope="col" className="w-[18%] px-3 py-2 font-semibold">
+                                    <th scope="col" className="w-[17%] px-3 py-2 font-semibold">
                                         Patient
                                     </th>
-                                    <th scope="col" className="w-[17%] px-3 py-2 font-semibold">
+                                    <th scope="col" className="w-[15%] px-3 py-2 font-semibold">
                                         Test group
                                     </th>
-                                    <th scope="col" className="w-[14%] px-3 py-2 font-semibold">
-                                        Technician
+                                    <th scope="col" className="w-[13%] px-3 py-2 font-semibold">
+                                        MLT Name
                                     </th>
                                     <th scope="col" className="w-[9%] px-3 py-2 font-semibold">
                                         Priority
                                     </th>
-                                    <th scope="col" className="w-[15%] px-3 py-2 font-semibold">
+                                    <th scope="col" className="w-[10%] px-3 py-2 font-semibold">
+                                        QC status
+                                    </th>
+                                    <th scope="col" className="w-[13%] px-3 py-2 font-semibold">
                                         Status
                                     </th>
-                                    <th scope="col" className="w-[11%] py-2 pl-2 pr-3 text-right font-semibold">
+                                    <th scope="col" className="w-[8%] py-2 pl-2 pr-3 text-right font-semibold">
                                         <span className="sr-only">Actions</span>
                                     </th>
                                 </tr>
@@ -534,6 +576,13 @@ export default function PendingVerificationPage() {
 
                                                 <td className="px-3 py-2">
                                                     <PriorityBadge priority={result.priorityLevel ?? ''} />
+                                                </td>
+
+                                                <td className="px-3 py-2">
+                                                    <span className="inline-flex items-center gap-1.5 rounded-full border border-neutral-200 bg-neutral-100 px-2 py-0.5 text-xs font-semibold text-neutral-600">
+                                                        <span className="h-1.5 w-1.5 rounded-full bg-neutral-400" />
+                                                        Not linked
+                                                    </span>
                                                 </td>
 
                                                 <td className="px-3 py-2">

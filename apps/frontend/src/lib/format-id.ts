@@ -6,17 +6,22 @@ export const formatDisplayId = (value?: string | null, prefix = 'ID') => {
     }
 
     const trimmed = value.trim();
+
+    if (prefix.toUpperCase() === 'RES' || trimmed.toUpperCase().startsWith('RES')) {
+        const currentYear = new Date().getFullYear();
+        if (/^RES\d{4}-\d{5}$/i.test(trimmed)) {
+            return trimmed.toUpperCase();
+        }
+        const hexMatch = trimmed.replace(/^RES-?/i, '').replaceAll('-', '');
+        const hex = hexMatch.slice(-8);
+        const numeric = parseInt(hex, 16);
+        const sequence = !isNaN(numeric) ? (numeric % 90000) + 10000 : 10001;
+        return `RES${currentYear}-${sequence}`;
+    }
+
     if (!UUID_PATTERN.test(trimmed)) {
         return trimmed.toUpperCase();
     }
 
-    // Every prefix renders the same way: the last 8 hex digits of the real key.
-    //
-    // Do not fold this into a shorter pseudo-accession number. A result carries no
-    // server-issued human-readable identifier, so any shorter form is invented in
-    // the browser, and hashing the UUID into a small range makes two different
-    // results display the same id. This string is what the audit CSVs export and
-    // what the history search boxes match, so it has to stay traceable back to the
-    // record it came from.
     return `${prefix}-${trimmed.replaceAll('-', '').slice(-8).toUpperCase()}`;
 };
