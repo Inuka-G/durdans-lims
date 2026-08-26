@@ -1476,9 +1476,8 @@ export interface BranchActivityLog {
 }
 
 export const getBranchActivityLogs = async (): Promise<BranchActivityLog[]> => {
-    return [
-        { id: "1", timestamp: new Date().toISOString(), performedBy: "John Doe", entityType: "User", action: "Login", entityId: "123", ipAddress: "192.168.1.1" }
-    ];
+    const response = await axiosInstance.get('/api/v1/audit-logs', { params: { size: 100 } });
+    return response.data?.content || [];
 };
 
 export interface BranchUser {

@@ -79,4 +79,10 @@ public class BranchUserController implements BranchUserApi {
     public void deleteBranchUser(@PathVariable String id) {
         branchUserService.deleteBranchUser(id);
     }
+
+    @PreAuthorize("hasAnyRole('BRANCH_ADMIN','SUPER_ADMIN')")
+    @PostMapping("/branches/{branchId}/users/sync")
+    public void syncBranchUsers(@PathVariable String branchId) {
+        branchUserService.syncFromKeycloak(branchId);
+    }
 }

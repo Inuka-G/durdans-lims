@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import toast from "react-hot-toast";
+import { toast } from "sonner";
 import CreateUserModal from "@/components/branch/CreateUserModal";
 import ViewEditUserModal from "@/components/branch/ViewEditUserModal";
 
@@ -36,9 +36,10 @@ export default function BranchUserManagementPage() {
             const data = await getBranchUsers(BRANCH_ID);
             console.log("Fetched users:", data);
             setUsers(data);
-        } catch (error) {
+        } catch (error: any) {
             console.error("Failed to fetch users", error);
-            toast.error("Failed to load users. Please check if the backend is running.");
+            const msg = error.response?.data?.message || "Failed to load users. Please check if the backend is running.";
+            toast.error(msg, { position: 'top-right' });
         } finally {
             setLoading(false);
         }
@@ -71,18 +72,27 @@ export default function BranchUserManagementPage() {
 
     // Action Handlers
     const handleResetPassword = (user: BranchUser) => {
-        toast.success(`Password reset link sent to ${user.email}`);
+        toast.success(`Password reset link sent to ${user.email}`, { position: 'top-right' });
     };
 
     const handleToggleStatus = async (user: BranchUser) => {
         const userId = user.id || user.email;
         try {
-            await updateBranchUser(userId, { isActive: !user.isActive });
-            toast.success(`User ${user.isActive ? 'disabled' : 'enabled'} successfully!`);
+            const payload = {
+                fullName: user.fullName,
+                email: user.email,
+                role: user.role,
+                phone: user.phone || undefined,
+                username: user.username || undefined,
+                isActive: !user.isActive
+            };
+            await updateBranchUser(userId, payload);
+            toast.success(`User ${user.isActive ? 'disabled' : 'enabled'} successfully!`, { position: 'top-right' });
             fetchUsers(); // Refresh the list
-        } catch (error) {
+        } catch (error: any) {
             console.error("Failed to toggle user status", error);
-            toast.error("Failed to update user status.");
+            const msg = error.response?.data?.message || "Failed to update user status.";
+            toast.error(msg, { position: 'top-right' });
         }
     };
 
@@ -98,22 +108,24 @@ export default function BranchUserManagementPage() {
         const userId = updatedUserData.id || updatedUserData.email;
         try {
             await updateBranchUser(userId, updatedUserData);
-            toast.success("User updated successfully!");
+            toast.success("User updated successfully!", { position: 'top-right' });
             fetchUsers(); // Refresh the list
-        } catch (error) {
+        } catch (error: any) {
             console.error("Failed to update user", error);
-            toast.error("Failed to update user details.");
+            const msg = error.response?.data?.message || "Failed to update user details.";
+            toast.error(msg, { position: 'top-right' });
         }
     };
 
     const handleCreateUser = async (userData: any) => {
         try {
             await createBranchUser(BRANCH_ID, userData);
-            toast.success("User created successfully!");
+            toast.success("User created successfully!", { position: 'top-right' });
             fetchUsers(); // Refresh the list
-        } catch (error) {
+        } catch (error: any) {
             console.error("Failed to create user", error);
-            toast.error("Failed to create user. Please check if the backend is running.");
+            const msg = error.response?.data?.message || "Failed to create user. Please check if the backend is running.";
+            toast.error(msg, { position: 'top-right' });
         }
     };
 

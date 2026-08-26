@@ -35,6 +35,7 @@ public class QcService {
     private final QcResultRepository repository;
     private final InstrumentRepository instrumentRepository;
     private final TestParameterRepository testParameterRepository;
+    private final com.uom.lims.audit.AuditService auditService;
 
     /**
      * @param instrument must be a code from the instrument registry — the release
@@ -108,7 +109,20 @@ public class QcService {
         entity.setBranchCode(SecurityUtils.getCurrentBranchId());
         repository.save(entity);
 
+        String details = String.format("{\"analyte\":\"%s\", \"controlLevel\":\"%s\", \"status\":\"%s\"}", req.analyte(), req.controlLevel(), status);
+        auditService.log("RECORD_QC_RESULT", "QC_RESULT", entity.getId(), null, details, getCurrentIp());
+
         return new QcRunOutcome(entity.getId().toString(), status, eval.violations());
+    }
+
+    private String getCurrentIp() {
+        try {
+            return com.uom.lims.security.ClientIpResolver.resolve(
+                ((org.springframework.web.context.request.ServletRequestAttributes) 
+                    org.springframework.web.context.request.RequestContextHolder.currentRequestAttributes()).getRequest());
+        } catch (Exception e) {
+            return "SYSTEM";
+        }
     }
 
     @Transactional(readOnly = true)

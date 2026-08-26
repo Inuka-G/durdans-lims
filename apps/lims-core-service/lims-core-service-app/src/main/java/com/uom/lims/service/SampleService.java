@@ -58,6 +58,7 @@ public class SampleService {
     private final TubeColorResolver tubeColorResolver;
     private final PatientClientService patientClientService;
     private final ReferenceNumberGenerator referenceNumberGenerator;
+    private final com.uom.lims.audit.AuditService auditService;
 
     /**
      * WHY: The phlebotomy worklist only shows samples awaiting initial collection or
@@ -193,6 +194,10 @@ public class SampleService {
         sample.setLabelPrintCount(sample.getLabelPrintCount() + 1);
         SampleEntity saved = sampleRepository.save(sample);
         log.info("Specimen label print recorded for {} (count={})", saved.getBarcode(), saved.getLabelPrintCount());
+        
+        String patientId = saved.getOrderItem() != null && saved.getOrderItem().getOrder() != null ? saved.getOrderItem().getOrder().getPatientId() : null;
+        auditService.log("PRINT_LABEL", "SAMPLE", saved.getId(), patientId, "{}", getCurrentIp());
+
         return toResponse(saved);
     }
 
@@ -278,6 +283,11 @@ public class SampleService {
 
         SampleEntity saved = sampleRepository.save(sample);
         log.info("Sample {} collected by {}", saved.getBarcode(), saved.getCollectedBy());
+        
+        String patientId = saved.getOrderItem() != null && saved.getOrderItem().getOrder() != null ? saved.getOrderItem().getOrder().getPatientId() : null;
+        String details = String.format("{\"tubeType\":\"%s\", \"priority\":\"%s\"}", saved.getTubeType(), saved.getPriority());
+        auditService.log("COLLECT_SAMPLE", "SAMPLE", saved.getId(), patientId, details, getCurrentIp());
+        
         return toResponse(saved);
     }
 
@@ -351,7 +361,21 @@ public class SampleService {
         log.info("Recollection sample {} created for rejected sample {}",
                 savedRecollection.getBarcode(), rejectedSample.getBarcode());
 
+        String patientId = rejectedSample.getOrderItem() != null && rejectedSample.getOrderItem().getOrder() != null ? rejectedSample.getOrderItem().getOrder().getPatientId() : null;
+        String details = String.format("{\"reason\":\"%s\", \"notes\":\"%s\"}", rejectedSample.getRejectionReason(), rejectedSample.getRejectionNotes());
+        auditService.log("REJECT_SAMPLE", "SAMPLE", rejectedSample.getId(), patientId, details, getCurrentIp());
+
         return toResponse(savedRecollection);
+    }
+
+    private String getCurrentIp() {
+        try {
+            return com.uom.lims.security.ClientIpResolver.resolve(
+                ((org.springframework.web.context.request.ServletRequestAttributes) 
+                    org.springframework.web.context.request.RequestContextHolder.currentRequestAttributes()).getRequest());
+        } catch (Exception e) {
+            return "SYSTEM";
+        }
     }
 
     /**
