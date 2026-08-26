@@ -297,26 +297,26 @@ export default function MLTAllWorklistPage() {
                                 + 192 (Status) + 192 (Actions) = 816px of fixed columns. The auto
                                 "Test type" column takes whatever is left, so min-w must stay at
                                 816 + 160 (text-column floor) = 976 or the column collapses. */}
-                            <table className="w-full min-w-[980px] table-fixed text-left text-[13px]">
+                            <table className="w-full min-w-[980px] table-fixed text-left text-sm">
                                 <caption className="sr-only">Samples across all departments</caption>
                                 <thead>
-                                    <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
-                                        <th scope="col" className="w-36 py-2 pl-4 pr-3 font-medium">
+                                    <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
+                                        <th scope="col" className="w-36 py-2 pl-4 pr-3 font-semibold">
                                             Sample ID
                                         </th>
-                                        <th scope="col" className="w-48 px-3 py-2 font-medium">
+                                        <th scope="col" className="w-48 px-3 py-2 font-semibold">
                                             Patient
                                         </th>
-                                        <th scope="col" className="px-3 py-2 font-medium">
+                                        <th scope="col" className="px-3 py-2 font-semibold">
                                             Test type
                                         </th>
-                                        <th scope="col" className="w-24 px-3 py-2 font-medium">
+                                        <th scope="col" className="w-24 px-3 py-2 font-semibold">
                                             Priority
                                         </th>
-                                        <th scope="col" className="w-48 px-3 py-2 font-medium">
+                                        <th scope="col" className="w-48 px-3 py-2 font-semibold">
                                             Status
                                         </th>
-                                        <th scope="col" className="w-48 py-2 pl-2 pr-3 text-right font-medium">
+                                        <th scope="col" className="w-48 py-2 pl-2 pr-3 text-right font-semibold">
                                             <span className="sr-only">Actions</span>
                                         </th>
                                     </tr>

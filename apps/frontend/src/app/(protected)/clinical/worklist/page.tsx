@@ -404,29 +404,29 @@ export default function ClinicalWorklistPage() {
                     )
                 ) : (
                     <div className="overflow-x-auto">
-                        <table className="w-full min-w-[940px] table-fixed text-left text-[13px]">
+                        <table className="w-full min-w-[940px] table-fixed text-left text-sm">
                             <caption className="sr-only">Results awaiting clinical review</caption>
                             <thead>
-                                <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
-                                    <th scope="col" className="w-[16%] py-2 pl-4 pr-3 font-medium">
+                                <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
+                                    <th scope="col" className="w-[16%] py-2 pl-4 pr-3 font-semibold">
                                         Result ID
                                     </th>
-                                    <th scope="col" className="w-[19%] px-3 py-2 font-medium">
+                                    <th scope="col" className="w-[19%] px-3 py-2 font-semibold">
                                         Patient
                                     </th>
-                                    <th scope="col" className="w-[18%] px-3 py-2 font-medium">
+                                    <th scope="col" className="w-[18%] px-3 py-2 font-semibold">
                                         Test group
                                     </th>
-                                    <th scope="col" className="w-[15%] px-3 py-2 font-medium">
+                                    <th scope="col" className="w-[15%] px-3 py-2 font-semibold">
                                         Verified by
                                     </th>
-                                    <th scope="col" className="w-[9%] px-3 py-2 font-medium">
+                                    <th scope="col" className="w-[9%] px-3 py-2 font-semibold">
                                         Priority
                                     </th>
-                                    <th scope="col" className="w-[13%] px-3 py-2 font-medium">
+                                    <th scope="col" className="w-[13%] px-3 py-2 font-semibold">
                                         Status
                                     </th>
-                                    <th scope="col" className="w-[10%] py-2 pl-3 pr-4 text-right font-medium">
+                                    <th scope="col" className="w-[10%] py-2 pl-3 pr-4 text-right font-semibold">
                                         <span className="sr-only">Actions</span>
                                     </th>
                                 </tr>

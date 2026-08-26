@@ -217,10 +217,10 @@ export default function SuperAdminDashboardPage() {
                         </div>
 
                         <div className="mt-4 border-t border-edge pt-3">
-                            <p className="mb-2 text-xs font-medium text-fg-muted">Live status</p>
+                            <p className="mb-2 text-xs font-semibold text-fg-muted">Live status</p>
                             <ul className="divide-y divide-edge">
                                 {liveStatus.map((s) => (
-                                    <li key={s.label} className="flex items-center justify-between gap-2 py-1.5 text-[13px] text-fg">
+                                    <li key={s.label} className="flex items-center justify-between gap-2 py-1.5 text-sm text-fg">
                                         <span className="min-w-0 truncate">{s.label}</span>
                                         <StatusChip tone={s.tone} dot size="sm">
                                             {s.state}

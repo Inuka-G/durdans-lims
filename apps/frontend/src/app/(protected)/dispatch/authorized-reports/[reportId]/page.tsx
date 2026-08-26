@@ -845,14 +845,14 @@ export default function AuthorizedReportPage() {
                         <div className="overflow-x-auto">
                             {/* table-fixed: 140+100+110+160 = 510px of fixed columns; min-w 700 leaves the
                                 auto-width Parameter column ≥ 190px at every breakpoint. */}
-                            <table className="w-full min-w-[700px] table-fixed text-left text-[13px]">
+                            <table className="w-full min-w-[700px] table-fixed text-left text-sm">
                                 <thead>
-                                    <tr className="border-b border-edge text-xs font-medium text-fg-muted">
-                                        <th scope="col" className="py-2 pl-4 pr-3 font-medium sm:pl-6">Parameter</th>
-                                        <th scope="col" className="w-[140px] px-3 py-2 font-medium">Result</th>
-                                        <th scope="col" className="w-[100px] px-3 py-2 font-medium">Unit</th>
-                                        <th scope="col" className="w-[110px] px-3 py-2 font-medium">Flag</th>
-                                        <th scope="col" className="w-[160px] px-3 py-2 font-medium">Reference range</th>
+                                    <tr className="border-b border-edge text-xs font-semibold text-fg-muted">
+                                        <th scope="col" className="py-2 pl-4 pr-3 font-semibold sm:pl-6">Parameter</th>
+                                        <th scope="col" className="w-[140px] px-3 py-2 font-semibold">Result</th>
+                                        <th scope="col" className="w-[100px] px-3 py-2 font-semibold">Unit</th>
+                                        <th scope="col" className="w-[110px] px-3 py-2 font-semibold">Flag</th>
+                                        <th scope="col" className="w-[160px] px-3 py-2 font-semibold">Reference range</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-edge whitespace-nowrap">
@@ -910,7 +910,7 @@ export default function AuthorizedReportPage() {
                         </div>
 
                         {/* Hospital footer bar */}
-                        <div className="rounded-b-lg border-t border-edge bg-surface-muted px-4 py-2 text-center text-[11px] text-fg-muted">
+                        <div className="rounded-b-lg border-t border-edge bg-surface-muted px-4 py-2 text-center text-[12px] text-fg-muted">
                             {hospitalInfo.name} · {hospitalInfo.address} · {hospitalInfo.phone}
                         </div>
                     </SectionCard>
@@ -930,15 +930,15 @@ export default function AuthorizedReportPage() {
                                       base (<md, Updated hidden): 150+230+120+140+160        = 800px
                                       md+  (Updated shown):       150+230+120+140+120+160    = 920px
                                     min-w matches each band, so the card scrolls instead of squashing a column. */}
-                                <table className="w-full min-w-[800px] table-fixed text-left text-[13px] md:min-w-[920px]">
+                                <table className="w-full min-w-[800px] table-fixed text-left text-sm md:min-w-[920px]">
                                     <thead>
-                                        <tr className="border-b border-edge text-xs font-medium text-fg-muted">
-                                            <th scope="col" className="w-[150px] py-2 pl-4 pr-3 font-medium">Method</th>
-                                            <th scope="col" className="w-[230px] px-3 py-2 font-medium">Recipient</th>
-                                            <th scope="col" className="w-[120px] px-3 py-2 font-medium">Status</th>
-                                            <th scope="col" className="w-[140px] px-3 py-2 font-medium">Tracking</th>
-                                            <th scope="col" className="hidden w-[120px] px-3 py-2 font-medium md:table-cell">Updated</th>
-                                            <th scope="col" className="w-[160px] px-3 py-2 text-right font-medium">
+                                        <tr className="border-b border-edge text-xs font-semibold text-fg-muted">
+                                            <th scope="col" className="w-[150px] py-2 pl-4 pr-3 font-semibold">Method</th>
+                                            <th scope="col" className="w-[230px] px-3 py-2 font-semibold">Recipient</th>
+                                            <th scope="col" className="w-[120px] px-3 py-2 font-semibold">Status</th>
+                                            <th scope="col" className="w-[140px] px-3 py-2 font-semibold">Tracking</th>
+                                            <th scope="col" className="hidden w-[120px] px-3 py-2 font-semibold md:table-cell">Updated</th>
+                                            <th scope="col" className="w-[160px] px-3 py-2 text-right font-semibold">
                                                 <span className="sr-only">Actions</span>
                                             </th>
                                         </tr>
@@ -973,7 +973,7 @@ export default function AuthorizedReportPage() {
                                                         </span>
                                                         {attempt.failureReason && (
                                                             <span
-                                                                className="mt-1 block min-w-0 break-words text-[11px] text-status-danger-fg"
+                                                                className="mt-1 block min-w-0 break-words text-[12px] text-status-danger-fg"
                                                                 title={attempt.failureReason}
                                                             >
                                                                 {attempt.failureReason}
@@ -990,7 +990,7 @@ export default function AuthorizedReportPage() {
                                                             {humanizeStatus(attempt.status)}
                                                         </StatusChip>
                                                         {attempt.retryCount > 0 && (
-                                                            <span className="mt-1 block text-[11px] tabular-nums text-fg-muted">
+                                                            <span className="mt-1 block text-[12px] tabular-nums text-fg-muted">
                                                                 {attempt.retryCount} {attempt.retryCount === 1 ? "retry" : "retries"}
                                                             </span>
                                                         )}

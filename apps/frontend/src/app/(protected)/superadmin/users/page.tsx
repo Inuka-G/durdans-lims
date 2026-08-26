@@ -242,29 +242,29 @@ export default function GlobalUserControlPage() {
                             {/* min-w must cover the fixed columns plus a >=160px floor for the auto
                                 Name column at every band. lg reveals Roles (w-48) + Last login (w-32),
                                 pushing the fixed sum to 752px, so the table needs >=912px there. */}
-                            <table className="w-full min-w-[760px] table-fixed text-left text-[13px] lg:min-w-[920px]">
+                            <table className="w-full min-w-[760px] table-fixed text-left text-sm lg:min-w-[920px]">
                                 <caption className="sr-only">User directory</caption>
                                 <thead>
-                                    <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
-                                        <th scope="col" className="w-28 py-2 pl-4 pr-3 font-medium">
+                                    <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
+                                        <th scope="col" className="w-28 py-2 pl-4 pr-3 font-semibold">
                                             User ID
                                         </th>
-                                        <th scope="col" className="px-3 py-2 font-medium">
+                                        <th scope="col" className="px-3 py-2 font-semibold">
                                             Name
                                         </th>
-                                        <th scope="col" className="hidden w-28 px-3 py-2 font-medium md:table-cell">
+                                        <th scope="col" className="hidden w-28 px-3 py-2 font-semibold md:table-cell">
                                             Branch
                                         </th>
-                                        <th scope="col" className="hidden w-48 px-3 py-2 font-medium lg:table-cell">
+                                        <th scope="col" className="hidden w-48 px-3 py-2 font-semibold lg:table-cell">
                                             Roles
                                         </th>
-                                        <th scope="col" className="w-24 px-3 py-2 font-medium">
+                                        <th scope="col" className="w-24 px-3 py-2 font-semibold">
                                             Status
                                         </th>
-                                        <th scope="col" className="hidden w-32 px-3 py-2 font-medium lg:table-cell">
+                                        <th scope="col" className="hidden w-32 px-3 py-2 font-semibold lg:table-cell">
                                             Last login
                                         </th>
-                                        <th scope="col" className="w-28 py-2 pl-3 pr-4 text-right font-medium">
+                                        <th scope="col" className="w-28 py-2 pl-3 pr-4 text-right font-semibold">
                                             Actions
                                         </th>
                                     </tr>

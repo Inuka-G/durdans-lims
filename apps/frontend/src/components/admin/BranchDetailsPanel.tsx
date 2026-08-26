@@ -68,7 +68,7 @@ export default function BranchDetailsPanel({ onClose, onEditClick, onChangeAdmin
                             </svg>
                             <div className="absolute flex flex-col items-center justify-center">
                                 <span className="text-lg font-semibold leading-none tabular-nums text-fg">{BRANCH.healthScore}%</span>
-                                <span className="mt-0.5 text-[10px] text-fg-muted">health</span>
+                                <span className="mt-0.5 text-[11px] text-fg-muted">health</span>
                             </div>
                         </div>
                         <div className="min-w-0">
@@ -82,7 +82,7 @@ export default function BranchDetailsPanel({ onClose, onEditClick, onChangeAdmin
 
                 {/* Branch information */}
                 <SectionCard title="Branch information">
-                    <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-[13px]">
+                    <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
                         <div>
                             <dt className="text-xs text-fg-muted">Branch ID</dt>
                             <dd className="mt-0.5 font-medium tabular-nums text-fg">{BRANCH.id}</dd>
@@ -100,7 +100,7 @@ export default function BranchDetailsPanel({ onClose, onEditClick, onChangeAdmin
 
                 {/* Contact details */}
                 <SectionCard title="Contact details">
-                    <dl className="flex flex-col gap-3 text-[13px]">
+                    <dl className="flex flex-col gap-3 text-sm">
                         <div className="flex items-start gap-3">
                             <dt className="mt-0.5 shrink-0 text-fg-faint">
                                 <MapPin className="h-4 w-4" aria-hidden="true" />
@@ -140,7 +140,7 @@ export default function BranchDetailsPanel({ onClose, onEditClick, onChangeAdmin
                                 <User className="h-4 w-4" aria-hidden="true" />
                             </span>
                             <div className="min-w-0">
-                                <p className="truncate text-[13px] font-medium text-fg">{BRANCH.admin.name}</p>
+                                <p className="truncate text-sm font-medium text-fg">{BRANCH.admin.name}</p>
                                 <p className="truncate text-xs text-fg-muted">{BRANCH.admin.email}</p>
                             </div>
                         </div>

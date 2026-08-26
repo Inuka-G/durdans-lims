@@ -373,32 +373,32 @@ export default function PendingVerificationPage() {
                 {/* States live outside the table so they centre on small screens */}
                 {loading ? (
                     <div className="overflow-x-auto">
-                        <table className="w-full min-w-[960px] table-fixed text-left text-[13px]">
+                        <table className="w-full min-w-[960px] table-fixed text-left text-sm">
                             <caption className="sr-only">Results pending technical verification</caption>
                             <thead>
-                                <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
-                                    <th scope="col" className="w-[15%] py-2 pl-4 pr-3 font-medium">
+                                <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
+                                    <th scope="col" className="w-[15%] py-2 pl-4 pr-3 font-semibold">
                                         Result ID
                                     </th>
-                                    <th scope="col" className="w-[17%] px-3 py-2 font-medium">
+                                    <th scope="col" className="w-[17%] px-3 py-2 font-semibold">
                                         Patient
                                     </th>
-                                    <th scope="col" className="w-[15%] px-3 py-2 font-medium">
+                                    <th scope="col" className="w-[15%] px-3 py-2 font-semibold">
                                         Test group
                                     </th>
-                                    <th scope="col" className="w-[13%] px-3 py-2 font-medium">
+                                    <th scope="col" className="w-[13%] px-3 py-2 font-semibold">
                                         MLT Name
                                     </th>
-                                    <th scope="col" className="w-[9%] px-3 py-2 font-medium">
+                                    <th scope="col" className="w-[9%] px-3 py-2 font-semibold">
                                         Priority
                                     </th>
-                                    <th scope="col" className="w-[10%] px-3 py-2 font-medium">
+                                    <th scope="col" className="w-[10%] px-3 py-2 font-semibold">
                                         QC status
                                     </th>
-                                    <th scope="col" className="w-[13%] px-3 py-2 font-medium">
+                                    <th scope="col" className="w-[13%] px-3 py-2 font-semibold">
                                         Status
                                     </th>
-                                    <th scope="col" className="w-[8%] py-2 pl-2 pr-3 text-right font-medium">
+                                    <th scope="col" className="w-[8%] py-2 pl-2 pr-3 text-right font-semibold">
                                         <span className="sr-only">Actions</span>
                                     </th>
                                 </tr>
@@ -473,32 +473,32 @@ export default function PendingVerificationPage() {
                     )
                 ) : (
                     <div className="overflow-x-auto">
-                        <table className="w-full min-w-[960px] table-fixed text-left text-[13px]">
+                        <table className="w-full min-w-[960px] table-fixed text-left text-sm">
                             <caption className="sr-only">Results pending technical verification</caption>
                             <thead>
-                                <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
-                                    <th scope="col" className="w-[15%] py-2 pl-4 pr-3 font-medium">
+                                <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
+                                    <th scope="col" className="w-[15%] py-2 pl-4 pr-3 font-semibold">
                                         Result ID
                                     </th>
-                                    <th scope="col" className="w-[17%] px-3 py-2 font-medium">
+                                    <th scope="col" className="w-[17%] px-3 py-2 font-semibold">
                                         Patient
                                     </th>
-                                    <th scope="col" className="w-[15%] px-3 py-2 font-medium">
+                                    <th scope="col" className="w-[15%] px-3 py-2 font-semibold">
                                         Test group
                                     </th>
-                                    <th scope="col" className="w-[13%] px-3 py-2 font-medium">
+                                    <th scope="col" className="w-[13%] px-3 py-2 font-semibold">
                                         MLT Name
                                     </th>
-                                    <th scope="col" className="w-[9%] px-3 py-2 font-medium">
+                                    <th scope="col" className="w-[9%] px-3 py-2 font-semibold">
                                         Priority
                                     </th>
-                                    <th scope="col" className="w-[10%] px-3 py-2 font-medium">
+                                    <th scope="col" className="w-[10%] px-3 py-2 font-semibold">
                                         QC status
                                     </th>
-                                    <th scope="col" className="w-[13%] px-3 py-2 font-medium">
+                                    <th scope="col" className="w-[13%] px-3 py-2 font-semibold">
                                         Status
                                     </th>
-                                    <th scope="col" className="w-[8%] py-2 pl-2 pr-3 text-right font-medium">
+                                    <th scope="col" className="w-[8%] py-2 pl-2 pr-3 text-right font-semibold">
                                         <span className="sr-only">Actions</span>
                                     </th>
                                 </tr>
@@ -645,7 +645,7 @@ export default function PendingVerificationPage() {
                                                                     <span className="font-normal"> · Returned by {result.pathologistName}</span>
                                                                 )}
                                                             </p>
-                                                            <p className="mt-1 break-words text-[13px] text-fg">
+                                                            <p className="mt-1 break-words text-sm text-fg">
                                                                 {result.returnReason || 'No return reason provided.'}
                                                             </p>
                                                             <p className="mt-1.5 text-xs text-fg-muted">

@@ -2,12 +2,13 @@
 audio out, tools over HTTP to the shared policy layer. No transcription hop and
 no synthesis hop — the model hears Opus-decoded audio and speaks back.
 
-Carries no business logic. The strongest statement this file makes is the system
-prompt, and even that only tells the model to RELAY tool sentences, never to
-compose a price.
+Carries no business logic. The strongest statement this file makes is the choice
+of register and turn-taking; what the agent is allowed to SAY about a price or a
+report still comes from a tool sentence it did not compose (see prompt.py).
 
 Written against pipecat-ai 1.7: GeminiLiveLLMService plus the universal
-LLMContext / LLMContextAggregatorPair (the pair auto-detects a realtime service)."""
+LLMContext / LLMContextAggregatorPair (the pair auto-detects a realtime service).
+"""
 
 import asyncio
 
@@ -15,82 +16,130 @@ import aiohttp
 from loguru import logger
 
 from pipecat.audio.vad.silero import SileroVADAnalyzer
+from pipecat.frames.frames import Frame, TranscriptionFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import LLMContextAggregatorPair
-from pipecat.services.google.gemini_live.llm import GeminiLiveLLMService
+from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
+from pipecat.services.google.gemini_live.llm import GeminiLiveLLMService, GeminiVADParams
 from pipecat.transports.base_transport import TransportParams
 from pipecat.transports.smallwebrtc.transport import SmallWebRTCTransport
 
+from . import live_check
 from .config import settings
-from .tools import build_tool_handlers, fetch_caller_profile, tool_definitions
+from .language import call_locale
+from .prompt import build_system_prompt, opening_instruction
+from .tools import build_tool_handlers, fetch_caller_profile, save_call_memory, tool_definitions
 
 try:  # 1.x: "run inference on the current context" is an explicit frame.
     from pipecat.frames.frames import LLMRunFrame
 except ImportError:  # pragma: no cover - older line
     LLMRunFrame = None
 
-VOICE_PROMPT = """\
-You are the telephone assistant of Durdans Laboratory, a medical laboratory in
-Colombo, Sri Lanka, answering a WhatsApp voice call.
 
-Speak first. The moment the call connects, greet the caller warmly in Sinhala
-("Ayubowan! Durdans Laboratory") and ask how you can help. Never wait for the
-caller to speak before you have greeted them.
+class CallTranscript(FrameProcessor):
+    """Watches the caller's transcribed turns go by so the call can be remembered
+    in the language it happened in.
 
-Language: Sinhala is the default and you stay in Sinhala. Switch to English or
-Tamil ONLY if the caller clearly speaks a full sentence in that language; then
-stay in it until they change again. Sinhala mixed with English words
-("Singlish") is still Sinhala. Never switch languages on your own.
+    Gemini Live pushes user transcriptions UPSTREAM, so this sits directly after
+    the transport input, where those frames pass on their way back out. It only
+    reads; every frame is forwarded untouched.
+    """
 
-How you talk: everyday spoken Sinhala, the way a friendly receptionist actually
-talks on the phone - short, natural sentences, warm and relaxed, not formal
-written Sinhala and never like reading a notice. A smile in the voice, a little
-empathy when someone sounds worried, never rushed, never robotic. One or two
-sentences at a time. Confirm you understood before looking something up. Never
-read out markdown, symbols or URLs.
+    def __init__(self) -> None:
+        super().__init__()
+        self.utterances: list[str] = []
 
-You can help with: test prices, health packages, fasting and preparation
-instructions, whether a report is ready, and the laboratory's location and
-hours (3 Alfred Place, Colombo 3, open daily 7 in the morning to 8 at night,
-phone 011 5 410 000).
-
-Report status, two ways:
-- With an order number from the receipt: call get_order_status with it.
-- Without one ("mage report eka", "mage results awada"): address the caller by
-  their WhatsApp name if you know it and ask if it is really them, then ask for
-  their full name and NIC number, then call verify_patient with exactly what
-  they said. The phone they are calling from is checked automatically. If
-  verified, greet them by name and tell them about their most recent order the
-  way a person would - which branch, when, how far along, whether the report is
-  ready - and offer the others if there are several. If not verified, say you
-  could not verify those details for this number and suggest the laboratory
-  desk; never say which part failed, never reveal any order detail.
-
-Hard rules, no exceptions:
-- Prices, packages, preparation and report status MUST come from your tools.
-  The tools return ready-made spoken sentences - read the one matching the
-  caller's language out loud, and do not change any number in it.
-- If a tool finds nothing, say so kindly and suggest calling the laboratory desk.
-- NEVER state test results, report values, reference ranges, or any medical
-  advice. If asked, say reports are issued at the laboratory desk and that
-  report delivery over WhatsApp is coming soon.
-- Anything outside laboratory matters: politely say you can only help with the
-  laboratory, and say goodbye warmly when the caller is done."""
+    async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
+        await super().process_frame(frame, direction)
+        if isinstance(frame, TranscriptionFrame):
+            text = (frame.text or "").strip()
+            if text:
+                self.utterances.append(text)
+        await self.push_frame(frame, direction)
 
 
-def _opening_instruction(display_name: str) -> str:
-    if display_name:
-        return (f"The call has just connected. The caller's WhatsApp profile name is "
-                f"\"{display_name}\" - a display name they chose, not a verified identity. "
-                f"Open the call yourself right now, in spoken Sinhala: a warm greeting from "
-                f"Durdans Laboratory that uses their name, and an offer to help. Do not wait "
-                f"for the caller to speak first.")
-    return ("The call has just connected. Open the call yourself right now, in spoken "
-            "Sinhala: a warm greeting from Durdans Laboratory and an offer to help. Do not "
-            "wait for the caller to speak first.")
+def _sensitivity(enum_cls, prefix: str, value: str):
+    """Map a HIGH/LOW env string onto a google-genai sensitivity enum.
+
+    Deliberately forgiving: a mistyped environment variable should cost us the
+    tuning, not the call.
+    """
+    name = f"{prefix}_{value.strip().upper()}"
+    member = getattr(enum_cls, name, None)
+    if member is None and value.strip():
+        logger.warning("Unknown VAD sensitivity {!r}; leaving Google's default", value)
+    return member
+
+
+def _vad_params() -> GeminiVADParams | None:
+    """Gemini's own server-side VAD, which is what decides turn-taking on this path.
+
+    Google's defaults are tuned for a headset in a quiet room. A Sinhala speaker on
+    a phone pauses mid-sentence more often than the American English these were set
+    against, so the end-of-speech threshold is the knob worth moving: too short and
+    the agent talks over people, which is the single most robotic thing it can do.
+    """
+    from google.genai.types import EndSensitivity, StartSensitivity
+
+    params = GeminiVADParams()
+    touched = False
+    if settings.vad_start_sensitivity:
+        member = _sensitivity(StartSensitivity, "START_SENSITIVITY", settings.vad_start_sensitivity)
+        if member is not None:
+            params.start_sensitivity = member
+            touched = True
+    if settings.vad_end_sensitivity:
+        member = _sensitivity(EndSensitivity, "END_SENSITIVITY", settings.vad_end_sensitivity)
+        if member is not None:
+            params.end_sensitivity = member
+            touched = True
+    if settings.vad_prefix_padding_ms is not None:
+        params.prefix_padding_ms = settings.vad_prefix_padding_ms
+        touched = True
+    if settings.vad_silence_duration_ms is not None:
+        params.silence_duration_ms = settings.vad_silence_duration_ms
+        touched = True
+    return params if touched else None
+
+
+def _llm_settings(system_instruction: str, caps):
+    """The delta we apply over Pipecat's defaults.
+
+    Only fields set here move. The optional native-audio fields are sent only if
+    config asked for them AND the boot-time probe saw the server accept them —
+    an unsupported field does not degrade the session, it destroys it.
+    """
+    kwargs = {
+        "model": settings.resolved_model(),
+        "voice": settings.gemini_voice,
+        "system_instruction": system_instruction,
+    }
+    if settings.affective_dialog and caps.affective_dialog:
+        # What lets the reply to a worried caller sound different from the reply
+        # to a cheerful one. v1alpha only — see Settings.resolved_api_version().
+        kwargs["enable_affective_dialog"] = True
+    if settings.proactive_audio and caps.proactive_audio:
+        from google.genai.types import ProactivityConfig
+
+        kwargs["proactivity"] = ProactivityConfig(proactive_audio=True)
+    vad = _vad_params()
+    if vad is not None:
+        kwargs["vad"] = vad
+    return GeminiLiveLLMService.Settings(**kwargs)
+
+
+def _http_options():
+    """Pinned only when we need a non-default API surface, so the SDK keeps its
+    own default everywhere else."""
+    api_version = settings.resolved_api_version()
+    if not api_version:
+        return None
+    from google.genai.types import HttpOptions
+
+    return HttpOptions(api_version=api_version)
 
 
 async def run_bot(connection, caller_wa_id: str) -> None:
@@ -102,35 +151,54 @@ async def run_bot(connection, caller_wa_id: str) -> None:
         params=TransportParams(
             audio_in_enabled=True,
             audio_out_enabled=True,
+            # Kept alongside Gemini's server-side VAD on purpose: Gemini signals
+            # barge-in but emits no turn-start/-end frames, so the context
+            # aggregator needs a local VAD to track turns. Turn-taking *timing*
+            # is tuned on the Gemini side, in _vad_params().
             vad_analyzer=SileroVADAnalyzer(),
         ),
     )
 
     async with aiohttp.ClientSession() as tool_session:
-        # Best effort, bounded: a known caller gets greeted by name, an unknown one
-        # just gets greeted. The lookup must never delay the opening line.
-        display_name = await fetch_caller_profile(tool_session, caller_wa_id)
+        # Best effort, bounded: a known caller gets greeted by name and in the
+        # language they last used. The lookup must never delay the opening line.
+        profile = await fetch_caller_profile(tool_session, caller_wa_id)
+        display_name = str(profile.get("displayName") or "").strip()
 
-        llm_kwargs = {
-            "api_key": settings.gemini_api_key,
-            "voice_id": settings.gemini_voice,
-            "system_instruction": VOICE_PROMPT,
-            "tools": tool_definitions(),
-        }
-        if settings.gemini_live_model:
-            llm_kwargs["model"] = settings.gemini_live_model
-        llm = GeminiLiveLLMService(**llm_kwargs)
+        caps = live_check.current()
+        llm = GeminiLiveLLMService(
+            api_key=settings.gemini_api_key,
+            settings=_llm_settings(build_system_prompt(
+                settings.agent_name_si, settings.agent_name_en, profile,
+            ), caps),
+            tools=tool_definitions(),
+            http_options=_http_options(),
+        )
 
-        for name, handler in build_tool_handlers(tool_session, caller_wa_id).items():
-            llm.register_function(name, handler)
+        topics: list[str] = []
+        for name, handler in build_tool_handlers(tool_session, caller_wa_id, topics).items():
+            # cancel_on_interruption=False marks the tool asynchronous, which is
+            # what makes Pipecat declare it NON_BLOCKING to Gemini: the model
+            # keeps the conversation going ("ටිකක් ඉන්න, බලන්නම්") while the
+            # lookup is in flight instead of leaving the line silent for a
+            # second or two. Dead air is the tell that gives a bot away.
+            llm.register_function(
+                name, handler,
+                cancel_on_interruption=not (settings.async_tools and caps.async_tools),
+            )
 
         context = LLMContext(
-            messages=[{"role": "user", "content": _opening_instruction(display_name)}],
+            messages=[{
+                "role": "user",
+                "content": opening_instruction(settings.agent_name_si, display_name),
+            }],
         )
         context_aggregator = LLMContextAggregatorPair(context)
+        transcript = CallTranscript()
 
         pipeline = Pipeline([
             transport.input(),
+            transcript,
             context_aggregator.user(),
             llm,
             transport.output(),
@@ -157,5 +225,16 @@ async def run_bot(connection, caller_wa_id: str) -> None:
 
         runner = PipelineRunner(handle_sigint=False)
         await runner.run(task)
+
+        # The call is over; leave one line behind for the next one. Topics only —
+        # nothing the caller said is stored. A caller who never spoke gets no
+        # language recorded either: silence is not evidence of Sinhala, and a
+        # guess here would overwrite what they actually typed to us last time.
+        if topics:
+            await save_call_memory(
+                tool_session, caller_wa_id,
+                summary=", ".join(topics[:3])[:180],
+                locale=call_locale(transcript.utterances) if transcript.utterances else "",
+            )
 
     logger.info("Voice pipeline finished")

@@ -351,26 +351,26 @@ export default function BranchUserManagementPage() {
                             base 224+112+176+48 = 560 (+200 auto);
                             md   +96  = 656 -> min-w 820 (+164 auto);
                             lg   +128 = 784 -> min-w 950 (+166 auto). */}
-                        <table className="w-full min-w-[760px] table-fixed text-left text-[13px] md:min-w-[820px] lg:min-w-[950px]">
+                        <table className="w-full min-w-[760px] table-fixed text-left text-sm md:min-w-[820px] lg:min-w-[950px]">
                             <caption className="sr-only">Branch users observed from audit activity</caption>
                             <thead>
-                                <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
-                                    <th scope="col" className="w-56 py-2 pl-4 pr-3 font-medium">
+                                <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
+                                    <th scope="col" className="w-56 py-2 pl-4 pr-3 font-semibold">
                                         Actor
                                     </th>
-                                    <th scope="col" className="px-3 py-2 font-medium">
+                                    <th scope="col" className="px-3 py-2 font-semibold">
                                         Observed roles
                                     </th>
-                                    <th scope="col" className="hidden w-24 px-3 py-2 font-medium md:table-cell">
+                                    <th scope="col" className="hidden w-24 px-3 py-2 font-semibold md:table-cell">
                                         Branch
                                     </th>
-                                    <th scope="col" className="w-28 px-3 py-2 text-right font-medium">
+                                    <th scope="col" className="w-28 px-3 py-2 text-right font-semibold">
                                         Actions logged
                                     </th>
-                                    <th scope="col" className="w-44 px-3 py-2 font-medium">
+                                    <th scope="col" className="w-44 px-3 py-2 font-semibold">
                                         Last activity
                                     </th>
-                                    <th scope="col" className="hidden w-32 px-3 py-2 font-medium lg:table-cell">
+                                    <th scope="col" className="hidden w-32 px-3 py-2 font-semibold lg:table-cell">
                                         Last IP
                                     </th>
                                     <th scope="col" className="w-12 py-2 pl-2 pr-3">
@@ -388,7 +388,7 @@ export default function BranchUserManagementPage() {
                                                 <div className="flex min-w-0 items-center gap-3">
                                                     <span
                                                         aria-hidden="true"
-                                                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-muted text-[11px] font-semibold text-fg-secondary ring-1 ring-inset ring-edge"
+                                                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-muted text-[12px] font-semibold text-fg-secondary ring-1 ring-inset ring-edge"
                                                     >
                                                         {user.initials}
                                                     </span>

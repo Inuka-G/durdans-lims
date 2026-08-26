@@ -162,7 +162,7 @@ function MetricDelta({ delta }: { delta: string }) {
     const up = !delta.startsWith('-');
     const Icon = up ? ArrowUpRight : ArrowDownRight;
     return (
-        <span className="inline-flex items-center gap-0.5 text-[11px] text-fg-secondary tabular-nums">
+        <span className="inline-flex items-center gap-0.5 text-[12px] text-fg-secondary tabular-nums">
             <Icon className="h-3 w-3 shrink-0" aria-hidden="true" />
             <span className="sr-only">{up ? 'Up' : 'Down'} </span>
             {delta.replace(/^[+-]/, '')}
@@ -529,12 +529,12 @@ export default function SuperadminReportsPage() {
                                 </ResponsiveContainer>
                                 <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
                                     <span className="text-[22px] font-semibold leading-none tabular-nums text-fg">{pieTotal}%</span>
-                                    <span className="mt-1 text-[11px] text-fg-muted">Lab tests</span>
+                                    <span className="mt-1 text-[12px] text-fg-muted">Lab tests</span>
                                 </div>
                             </div>
                             <ul className="mt-4 flex flex-col gap-2">
                                 {pieData.map((item) => (
-                                    <li key={item.name} className="flex items-center justify-between gap-2 text-[13px]">
+                                    <li key={item.name} className="flex items-center justify-between gap-2 text-sm">
                                         <span className="flex min-w-0 items-center gap-2 text-fg-secondary">
                                             <span
                                                 className="h-2.5 w-2.5 shrink-0 rounded-full"
