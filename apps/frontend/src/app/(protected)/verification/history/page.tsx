@@ -307,15 +307,7 @@ export default function VerificationHistoryPage() {
                 meta={
                     <>
                         <History className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                        <span>Supervisor approvals, returns to MLT and cases returned from clinical review</span>
-                        {!loading && !error && (
-                            <>
-                                <span aria-hidden="true">·</span>
-                                <span className="tabular-nums">
-                                    {totalElements.toLocaleString()} {totalElements === 1 ? "entry" : "entries"}
-                                </span>
-                            </>
-                        )}
+                        <span>Audit trail & verification tracking</span>
                     </>
                 }
                 actions={
@@ -459,33 +451,30 @@ export default function VerificationHistoryPage() {
                     )
                 ) : (
                     <div className="overflow-x-auto">
-                        <table className="w-full min-w-[960px] table-fixed text-left text-sm md:min-w-[1060px] lg:min-w-[1200px] xl:min-w-[1400px]">
+                        <table className="w-full table-fixed text-left text-sm">
                             <caption className="sr-only">Verification history entries</caption>
                             <thead>
                                 <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
-                                    <th scope="col" className="w-44 py-2 pl-4 pr-3 font-semibold">
+                                    <th scope="col" className="w-[15%] py-2 pl-4 pr-3 font-semibold">
                                         Result ID
                                     </th>
-                                    <th scope="col" className="w-44 px-3 py-2 font-semibold">
+                                    <th scope="col" className="w-[18%] px-3 py-2 font-semibold">
                                         Patient
                                     </th>
-                                    <th scope="col" className="w-44 px-3 py-2 font-semibold">
+                                    <th scope="col" className="w-[15%] px-3 py-2 font-semibold">
                                         Test group
                                     </th>
-                                    <th scope="col" className="w-44 px-3 py-2 font-semibold">
+                                    <th scope="col" className="w-[16%] px-3 py-2 font-semibold">
                                         Action
                                     </th>
-                                    <th scope="col" className="hidden w-24 px-3 py-2 font-semibold md:table-cell">
-                                        Priority
-                                    </th>
-                                    <th scope="col" className="hidden w-36 px-3 py-2 font-semibold lg:table-cell">
+                                    <th scope="col" className="w-[14%] px-3 py-2 font-semibold">
                                         Performed by
                                     </th>
-                                    <th scope="col" className="hidden w-56 px-3 py-2 font-semibold xl:table-cell">
+                                    <th scope="col" className="w-[14%] px-3 py-2 font-semibold">
                                         Notes
                                     </th>
-                                    <th scope="col" className="w-32 py-2 pl-3 pr-4 text-right font-semibold">
-                                        Case
+                                    <th scope="col" className="w-[8%] py-2 pl-2 pr-4 text-right font-semibold">
+                                        <span className="sr-only">Actions</span>
                                     </th>
                                 </tr>
                             </thead>
@@ -500,8 +489,7 @@ export default function VerificationHistoryPage() {
                                             key={`${item.resultId}-${item.actionAt ?? item.updatedAt ?? actionType ?? "event"}`}
                                             className="transition-colors hover:bg-surface-hover"
                                         >
-                                            {/* Result ID with the action time beneath — the raw id stays on the
-                                                element so a pasted UUID is still findable. */}
+                                            {/* Result ID with the action time beneath */}
                                             <td className="py-2 pl-4 pr-3">
                                                 <span
                                                     className="block max-w-full truncate font-mono text-xs font-medium text-fg"
@@ -540,23 +528,15 @@ export default function VerificationHistoryPage() {
                                                     {item.actionSummary || ACTION_LABELS[actionType] || "Workflow updated"}
                                                 </StatusChip>
                                             </td>
-                                            {/* Priority — sits after the action, as the audit layout specifies */}
-                                            <td className="hidden px-3 py-2 md:table-cell">
-                                                {item.specimenPriority ? (
-                                                    <PriorityBadge priority={item.specimenPriority} />
-                                                ) : (
-                                                    <span className="text-fg-faint">—</span>
-                                                )}
-                                            </td>
                                             {/* Performed by */}
                                             <td
-                                                className="hidden truncate px-3 py-2 text-fg-secondary lg:table-cell"
+                                                className="truncate px-3 py-2 text-fg-secondary"
                                                 title={item.performedBy || undefined}
                                             >
                                                 {item.performedBy || <span className="text-fg-faint">—</span>}
                                             </td>
-                                            {/* Notes — truncated to one line; the full text opens in a dialog. */}
-                                            <td className="hidden px-3 py-2 text-fg-muted xl:table-cell">
+                                            {/* Notes */}
+                                            <td className="px-3 py-2 text-fg-muted">
                                                 {item.notes ? (
                                                     <button
                                                         type="button"
@@ -571,14 +551,14 @@ export default function VerificationHistoryPage() {
                                                 )}
                                             </td>
                                             {/* Case */}
-                                            <td className="py-2 pl-3 pr-4 text-right">
+                                            <td className="py-2 pl-2 pr-4 text-right">
                                                 <Button
                                                     size="sm"
                                                     variant="primary"
                                                     onClick={() => openCase(item.resultId)}
                                                     aria-label={`Review case ${displayId}`}
                                                 >
-                                                    Review case
+                                                    Review
                                                 </Button>
                                             </td>
                                         </tr>

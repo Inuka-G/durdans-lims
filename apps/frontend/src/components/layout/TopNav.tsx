@@ -32,8 +32,8 @@ const SHORT_LABELS: Record<string, string> = {
     "/phlebotomy": "Sampling",
     "/lab-reception": "Reception",
     "/lab-testing": "MLT",
-    "/lab-supervision": "Supervisor",
-    "/pathology": "Pathology",
+    "/lab-supervision": "Lab Supervisor",
+    "/pathology": "Pathologist",
     "/report-dispatch": "Dispatch",
     "/branch": "Branch",
     "/superadmin": "Admin",
@@ -104,13 +104,19 @@ export default function TopNav() {
     // Use fallback values if token parsing fails
     const userName = user?.name || user?.preferred_username || "User";
 
-    /**
-     * The account chip names who is signed in, nothing more. It used to swap in a
-     * role title per module ("Lab Supervisor · Verification" on /verification,
-     * "Pathologist · Clinical Approval" on /clinical), which read as a second
-     * identity next to the name — and the active module tab already says where you are.
-     */
-    const subtitleLine = "Active User";
+    const subtitleLine = useMemo(() => {
+        if (pathname.startsWith("/verification")) return "Lab Supervisor";
+        if (pathname.startsWith("/clinical")) return "Consultant Pathologist";
+        if (pathname.startsWith("/dispatch")) return "Dispatch Officer";
+        if (pathname.startsWith("/mlt")) return "Medical Laboratory Technologist";
+        if (pathname.startsWith("/sampling")) return "Phlebotomist";
+        if (pathname.startsWith("/reception")) return "Receptionist";
+        if (pathname.startsWith("/branch")) return "Branch Admin";
+        if (user?.roles?.includes("LAB_SUPERVISOR") || user?.roles?.includes("SUPERVISOR")) return "Lab Supervisor";
+        if (user?.roles?.includes("PATHOLOGIST")) return "Consultant Pathologist";
+        if (user?.roles?.includes("DISPATCH")) return "Dispatch Officer";
+        return "Lab Supervisor";
+    }, [pathname, user]);
 
     const isActive = (url: string) => {
         const prefixes = MODULE_PREFIXES[url] ?? [resolveUrl(url)];

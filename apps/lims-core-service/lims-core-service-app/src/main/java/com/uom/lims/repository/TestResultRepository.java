@@ -58,21 +58,23 @@ public interface TestResultRepository extends JpaRepository<TestResultEntity, UU
             select tr
             from TestResultEntity tr
             join tr.sample s
+            join s.orderItem oi
+            join oi.order o
             where tr.draft = false
               and tr.deleted = false
               and s.deleted = false
+              and s.status = :supervisorQueueStatus
               and (
                     tr.status = :enteredStatus
-                    or (
-                        tr.status in (:returnedStatuses)
-                        and s.status = :supervisorQueueStatus
-                    )
+                    or tr.status in (:returnedStatuses)
               )
+              and (:branch is null or o.branchCode = :branch)
             """)
     List<TestResultEntity> findSupervisorPendingResults(
             @Param("enteredStatus") ResultStatus enteredStatus,
             @Param("returnedStatuses") List<ResultStatus> returnedStatuses,
-            @Param("supervisorQueueStatus") SampleStatus supervisorQueueStatus);
+            @Param("supervisorQueueStatus") SampleStatus supervisorQueueStatus,
+            @Param("branch") String branch);
 
     @Query("""
             select tr

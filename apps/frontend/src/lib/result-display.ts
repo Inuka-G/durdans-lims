@@ -9,7 +9,7 @@ import { formatDisplayId } from "@/lib/format-id";
 export function displayResultNo(resultNo?: string | null, resultId?: string | null): string {
     const trimmed = resultNo?.trim();
     if (trimmed) {
-        return trimmed;
+        return formatDisplayId(trimmed, "RES");
     }
     return formatDisplayId(resultId, "RES");
 }
