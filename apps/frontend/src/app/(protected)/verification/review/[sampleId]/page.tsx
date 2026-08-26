@@ -684,25 +684,25 @@ export default function ReviewCasePage() {
                         />
                     ) : (
                         <div className="overflow-x-auto">
-                            <table className="w-full min-w-[820px] table-fixed text-left text-[13px]">
+                            <table className="w-full min-w-[820px] table-fixed text-left text-sm">
                                 <thead>
-                                    <tr className="border-b border-edge text-xs font-medium text-fg-muted">
-                                        <th scope="col" className="py-2 pl-4 pr-3 font-medium">
+                                    <tr className="border-b border-edge text-xs font-semibold text-fg-muted">
+                                        <th scope="col" className="py-2 pl-4 pr-3 font-semibold">
                                             Parameter
                                         </th>
-                                        <th scope="col" className="w-24 px-3 py-2 font-medium">
+                                        <th scope="col" className="w-24 px-3 py-2 font-semibold">
                                             Result
                                         </th>
-                                        <th scope="col" className="w-20 px-3 py-2 font-medium">
+                                        <th scope="col" className="w-20 px-3 py-2 font-semibold">
                                             Unit
                                         </th>
-                                        <th scope="col" className="w-32 px-3 py-2 font-medium">
+                                        <th scope="col" className="w-32 px-3 py-2 font-semibold">
                                             Flag
                                         </th>
-                                        <th scope="col" className="w-32 px-3 py-2 font-medium">
+                                        <th scope="col" className="w-32 px-3 py-2 font-semibold">
                                             Reference range
                                         </th>
-                                        <th scope="col" className="w-48 px-3 py-2 font-medium">
+                                        <th scope="col" className="w-48 px-3 py-2 font-semibold">
                                             Delta / previous visit
                                         </th>
                                     </tr>
@@ -814,7 +814,7 @@ export default function ReviewCasePage() {
                                             }`}
                                         >
                                             <span
-                                                className={`block text-[13px] font-medium ${
+                                                className={`block text-sm font-medium ${
                                                     checked ? 'text-status-verified-fg' : 'text-fg'
                                                 }`}
                                             >
@@ -882,7 +882,7 @@ export default function ReviewCasePage() {
                         <div className="flex gap-3">
                             <span
                                 aria-hidden="true"
-                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary-soft text-[11px] font-semibold text-primary-strong"
+                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary-soft text-[12px] font-semibold text-primary-strong"
                             >
                                 {initialsFor(mltNotesAuthor, 'ML')}
                             </span>
@@ -893,7 +893,7 @@ export default function ReviewCasePage() {
                                         <span className="ml-1 font-normal text-fg-muted">Performed by</span>
                                     </span>
                                     <span
-                                        className="shrink-0 text-[11px] text-fg-muted"
+                                        className="shrink-0 text-[12px] text-fg-muted"
                                         title={formatExact(resultDetail.measuredAt ?? resultDetail.updatedAt)}
                                     >
                                         {formatRelative(resultDetail.measuredAt ?? resultDetail.updatedAt)}
@@ -911,7 +911,7 @@ export default function ReviewCasePage() {
                             <div className="flex gap-3">
                                 <span
                                     aria-hidden="true"
-                                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-status-pending-bg text-[11px] font-semibold text-status-pending-fg"
+                                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-status-pending-bg text-[12px] font-semibold text-status-pending-fg"
                                 >
                                     {initialsFor(resultDetail.pathologistName, 'CL')}
                                 </span>
@@ -921,7 +921,7 @@ export default function ReviewCasePage() {
                                             <Stethoscope className="h-4 w-4 shrink-0 text-fg-faint" aria-hidden="true" />
                                             <span className="truncate">{resultDetail.pathologistName ?? 'Pathologist'}</span>
                                         </span>
-                                        <span className="shrink-0 text-[11px] text-fg-muted">
+                                        <span className="shrink-0 text-[12px] text-fg-muted">
                                             {formatRelative(resultDetail.updatedAt)}
                                         </span>
                                     </div>

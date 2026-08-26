@@ -248,7 +248,7 @@ export default function DeliveryStatusPage() {
                                     title={`${bucket.count} delivery record(s)`}
                                 />
                             </div>
-                            <div className="text-center text-[11px] font-medium tabular-nums text-fg-muted">{bucket.label}</div>
+                            <div className="text-center text-[12px] font-medium tabular-nums text-fg-muted">{bucket.label}</div>
                         </div>
                     ))}
                 </div>
@@ -324,19 +324,19 @@ export default function DeliveryStatusPage() {
                     <div className="overflow-x-auto">
                         {/* Fixed-width columns: 864px base, +144px Tracking at lg = 1008px.
                             min-w must leave >= 160px for the auto-width Test column in each band. */}
-                        <table className="w-full min-w-[900px] table-fixed text-left text-[13px] md:min-w-[1030px] lg:min-w-[1180px]">
+                        <table className="w-full min-w-[900px] table-fixed text-left text-sm md:min-w-[1030px] lg:min-w-[1180px]">
                             <caption className="sr-only">Delivery records</caption>
                             <thead>
-                                <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
-                                    <th scope="col" className="w-32 py-2 pl-4 pr-3 font-medium">Report ID</th>
-                                    <th scope="col" className="w-40 px-3 py-2 font-medium">Patient</th>
-                                    <th scope="col" className="hidden px-3 py-2 font-medium md:table-cell">Test</th>
-                                    <th scope="col" className="w-36 px-3 py-2 font-medium">Methods</th>
-                                    <th scope="col" className="w-28 px-3 py-2 font-medium">Status</th>
-                                    <th scope="col" className="w-28 px-3 py-2 font-medium">Dispatched</th>
-                                    <th scope="col" className="w-28 px-3 py-2 font-medium">Delivered</th>
-                                    <th scope="col" className="hidden w-36 px-3 py-2 font-medium lg:table-cell">Tracking</th>
-                                    <th scope="col" className="w-24 py-2 pl-3 pr-4 text-right font-medium">Actions</th>
+                                <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
+                                    <th scope="col" className="w-32 py-2 pl-4 pr-3 font-semibold">Report ID</th>
+                                    <th scope="col" className="w-40 px-3 py-2 font-semibold">Patient</th>
+                                    <th scope="col" className="hidden px-3 py-2 font-semibold md:table-cell">Test</th>
+                                    <th scope="col" className="w-36 px-3 py-2 font-semibold">Methods</th>
+                                    <th scope="col" className="w-28 px-3 py-2 font-semibold">Status</th>
+                                    <th scope="col" className="w-28 px-3 py-2 font-semibold">Dispatched</th>
+                                    <th scope="col" className="w-28 px-3 py-2 font-semibold">Delivered</th>
+                                    <th scope="col" className="hidden w-36 px-3 py-2 font-semibold lg:table-cell">Tracking</th>
+                                    <th scope="col" className="w-24 py-2 pl-3 pr-4 text-right font-semibold">Actions</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-edge whitespace-nowrap">

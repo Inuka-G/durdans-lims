@@ -60,7 +60,7 @@ function StatusChip({ label, tone }: { label: string; tone: ChipTone }) {
         <span
             title={label}
             className={cn(
-                "inline-flex max-w-full items-center gap-1.5 rounded px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset",
+                "inline-flex max-w-full items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[12px] font-semibold ring-1 ring-inset",
                 t.chip
             )}
         >
@@ -211,15 +211,15 @@ export default function PatientOrdersTab() {
                 />
             ) : (
                 <div className="overflow-x-auto">
-                    <table className="w-full min-w-[760px] table-fixed text-left text-[13px]">
+                    <table className="w-full min-w-[760px] table-fixed text-left text-sm">
                         <thead>
-                            <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
+                            <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
                                 {/* Percentages sum to 94% so the 40px chevron column fits at the 760px minimum */}
-                                <th scope="col" className="w-[15%] py-2 pl-4 pr-3 font-medium">Order no</th>
-                                <th scope="col" className="w-[15%] px-3 py-2 font-medium">Date</th>
-                                <th scope="col" className="w-[32%] px-3 py-2 font-medium">Tests</th>
-                                <th scope="col" className="w-[19%] px-3 py-2 font-medium">Status</th>
-                                <th scope="col" className="w-[13%] px-3 py-2 font-medium">Payment</th>
+                                <th scope="col" className="w-[15%] py-2 pl-4 pr-3 font-semibold">Order no</th>
+                                <th scope="col" className="w-[15%] px-3 py-2 font-semibold">Date</th>
+                                <th scope="col" className="w-[32%] px-3 py-2 font-semibold">Tests</th>
+                                <th scope="col" className="w-[19%] px-3 py-2 font-semibold">Status</th>
+                                <th scope="col" className="w-[13%] px-3 py-2 font-semibold">Payment</th>
                                 <th scope="col" className="w-10 py-2 pl-2 pr-3">
                                     <span className="sr-only">Open</span>
                                 </th>

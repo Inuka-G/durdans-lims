@@ -272,12 +272,12 @@ export default function CreateTestOrderPage() {
             <button type="button" onClick={() => handleSelectPatient(patient)} className={ROW_BUTTON_CLASS}>
                 <span
                     aria-hidden="true"
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-skeleton text-[11px] font-semibold text-fg-secondary"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-skeleton text-[12px] font-semibold text-fg-secondary"
                 >
                     {patientInitials(patient.fullName)}
                 </span>
                 <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[13px] font-medium text-fg">{patient.fullName || 'Unnamed patient'}</span>
+                    <span className="block truncate text-sm font-medium text-fg">{patient.fullName || 'Unnamed patient'}</span>
                     <span className="block truncate text-xs text-fg-muted">
                         <span className="font-mono">{patient.patientId || '—'}</span>
                         <span className="text-fg-faint"> · </span>
@@ -354,7 +354,7 @@ export default function CreateTestOrderPage() {
                                         />
                                     ) : patientResults.length > 0 ? (
                                         <div className="overflow-hidden rounded-lg border border-edge">
-                                            <p className="border-b border-edge bg-surface-muted px-3 py-1.5 text-xs font-medium text-fg-muted">
+                                            <p className="border-b border-edge bg-surface-muted px-3 py-1.5 text-xs font-semibold text-fg-muted">
                                                 {patientResults.length} {patientResults.length === 1 ? 'match' : 'matches'}
                                             </p>
                                             <ul className="divide-y divide-edge">{patientResults.map(renderPatientRow)}</ul>
@@ -372,7 +372,7 @@ export default function CreateTestOrderPage() {
                                 {/* Recent patients */}
                                 {trimmedQuery.length === 0 && (
                                     <div className="overflow-hidden rounded-lg border border-edge" aria-busy={recentPatientsLoading}>
-                                        <p className="border-b border-edge bg-surface-muted px-3 py-1.5 text-xs font-medium text-fg-muted">
+                                        <p className="border-b border-edge bg-surface-muted px-3 py-1.5 text-xs font-semibold text-fg-muted">
                                             Recently registered
                                         </p>
                                         {recentPatientsLoading ? (
@@ -518,17 +518,17 @@ export default function CreateTestOrderPage() {
                                 )
                             ) : (
                                 <div className="overflow-x-auto">
-                                    <table className="w-full min-w-[720px] table-fixed text-left text-[13px]">
+                                    <table className="w-full min-w-[720px] table-fixed text-left text-sm">
                                         <thead>
-                                            <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
+                                            <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
                                                 <th scope="col" className="w-10 py-2 pl-4 pr-2">
                                                     <span className="sr-only">Select</span>
                                                 </th>
-                                                <th scope="col" className="w-[13%] px-3 py-2 font-medium">Code</th>
-                                                <th scope="col" className="px-3 py-2 font-medium">Test</th>
-                                                <th scope="col" className="hidden w-[16%] px-3 py-2 font-medium lg:table-cell">Category</th>
-                                                <th scope="col" className="w-[19%] px-3 py-2 font-medium">Priority</th>
-                                                <th scope="col" className="w-[15%] px-3 py-2 pr-4 text-right font-medium">Price (LKR)</th>
+                                                <th scope="col" className="w-[13%] px-3 py-2 font-semibold">Code</th>
+                                                <th scope="col" className="px-3 py-2 font-semibold">Test</th>
+                                                <th scope="col" className="hidden w-[16%] px-3 py-2 font-semibold lg:table-cell">Category</th>
+                                                <th scope="col" className="w-[19%] px-3 py-2 font-semibold">Priority</th>
+                                                <th scope="col" className="w-[15%] px-3 py-2 pr-4 text-right font-semibold">Price (LKR)</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-edge whitespace-nowrap">
@@ -629,7 +629,7 @@ export default function CreateTestOrderPage() {
                 <div>
                     <SectionCard title="Order summary" count={selectedTests.length} flush className="lg:sticky lg:top-20">
                         {/* Patient line */}
-                        <div className="flex items-center gap-2 border-b border-edge px-4 py-2.5 text-[13px]">
+                        <div className="flex items-center gap-2 border-b border-edge px-4 py-2.5 text-sm">
                             <UserRound className="h-4 w-4 shrink-0 text-fg-faint" aria-hidden="true" />
                             {selectedPatient ? (
                                 <span className="min-w-0 truncate text-fg">
@@ -655,7 +655,7 @@ export default function CreateTestOrderPage() {
                                 {selectedTests.map((test) => (
                                     <li key={test.id} className="flex items-start gap-2 px-4 py-2">
                                         <div className="min-w-0 flex-1">
-                                            <p className="truncate text-[13px] font-medium text-fg">{test.testName}</p>
+                                            <p className="truncate text-sm font-medium text-fg">{test.testName}</p>
                                             <p className="truncate text-xs text-fg-muted">
                                                 <span className="font-mono">{test.testCode}</span>
                                                 <span className="text-fg-faint"> · </span>
@@ -667,7 +667,7 @@ export default function CreateTestOrderPage() {
                                                 <PriorityBadge priority={test.priority} />
                                             </div>
                                         </div>
-                                        <span className="shrink-0 text-[13px] tabular-nums text-fg">{test.price.toLocaleString()}</span>
+                                        <span className="shrink-0 text-sm tabular-nums text-fg">{test.price.toLocaleString()}</span>
                                         <button
                                             type="button"
                                             onClick={() => handleTestToggle(test)}

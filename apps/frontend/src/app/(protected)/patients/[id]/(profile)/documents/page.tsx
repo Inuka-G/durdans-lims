@@ -439,15 +439,15 @@ export default function PatientDocumentsTab() {
                                 base (Uploaded by hidden): 34+16+9+13 = 72% -> 0.72*720 + 120 = 638 <= 720 OK.
                                 lg  (Uploaded by shown):   +14% = 86% -> needs 0.86W + 120 <= W, i.e. W >= 857px,
                                 so the min width steps up to 880px when that column appears. */}
-                            <table className="w-full min-w-[720px] table-fixed text-left text-[13px] lg:min-w-[880px]">
+                            <table className="w-full min-w-[720px] table-fixed text-left text-sm lg:min-w-[880px]">
                                 <thead>
-                                    <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
-                                        <th scope="col" className="w-[34%] py-2 pl-4 pr-3 font-medium">Document</th>
-                                        <th scope="col" className="w-[16%] px-3 py-2 font-medium">Type</th>
-                                        <th scope="col" className="w-[9%] px-3 py-2 font-medium">Size</th>
-                                        <th scope="col" className="w-[13%] px-3 py-2 font-medium">Uploaded</th>
-                                        <th scope="col" className="hidden w-[14%] px-3 py-2 font-medium lg:table-cell">Uploaded by</th>
-                                        <th scope="col" className="w-[120px] py-2 pl-3 pr-4 text-right font-medium">
+                                    <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
+                                        <th scope="col" className="w-[34%] py-2 pl-4 pr-3 font-semibold">Document</th>
+                                        <th scope="col" className="w-[16%] px-3 py-2 font-semibold">Type</th>
+                                        <th scope="col" className="w-[9%] px-3 py-2 font-semibold">Size</th>
+                                        <th scope="col" className="w-[13%] px-3 py-2 font-semibold">Uploaded</th>
+                                        <th scope="col" className="hidden w-[14%] px-3 py-2 font-semibold lg:table-cell">Uploaded by</th>
+                                        <th scope="col" className="w-[120px] py-2 pl-3 pr-4 text-right font-semibold">
                                             <span className="sr-only">Actions</span>
                                         </th>
                                     </tr>
@@ -485,7 +485,7 @@ export default function PatientDocumentsTab() {
                                                 <td className="px-3 py-2">
                                                     <span
                                                         title={typeLabel}
-                                                        className="inline-block max-w-full truncate rounded-full bg-surface-muted px-2 py-0.5 align-middle text-[11px] font-medium text-fg-secondary ring-1 ring-inset ring-edge"
+                                                        className="inline-block max-w-full truncate rounded-full bg-surface-muted px-2 py-0.5 align-middle text-[12px] font-medium text-fg-secondary ring-1 ring-inset ring-edge"
                                                     >
                                                         {typeLabel}
                                                     </span>

@@ -191,6 +191,10 @@ export type ActivityKind = "create" | "update" | "verify" | "delete" | "notify" 
 export type ActivityFeedItem = {
     id: string;
     message: string;
+    /** Machine reference (order no, report id) shown as a mono chip, not prose. */
+    ref?: string;
+    /** Full value behind a shortened ref, for the title tooltip. */
+    refFull?: string;
     actor?: string;
     time: string;
     kind: ActivityKind;
@@ -260,6 +264,20 @@ function getAuditSubject(log: AuditLog): string {
     );
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ID_LIKE_RE = /^[\w#-]*\d[\w#-]*$/;
+
+/**
+ * Audit subjects are either people ("Nimal Perera") or machine ids
+ * (UUIDs, "DN-20260821-00100009"). People belong in the sentence; ids go in a
+ * mono chip, and raw UUIDs are shortened to their first block.
+ */
+function splitSubjectRef(subject: string): { text?: string; ref?: string; refFull?: string } {
+    if (UUID_RE.test(subject)) return { ref: subject.slice(0, 8), refFull: subject };
+    if (ID_LIKE_RE.test(subject)) return { ref: subject, refFull: subject };
+    return { text: subject };
+}
+
 function formatActionLabel(action: string): string {
     return action
         .toLowerCase()
@@ -285,9 +303,16 @@ export function toActivityFeedItem(log: AuditLog, now: Date = new Date()): Activ
         SEND_EMAIL_VERIFICATION: `Verification email sent to ${subject}`,
     };
 
+    const named = actionMessages[action];
+    const fallback = named ? undefined : splitSubjectRef(subject);
+
     return {
         id: log.id || `${action}-${log.timestamp}`,
-        message: actionMessages[action] || `${formatActionLabel(action)} — ${subject}`,
+        message:
+            named ||
+            (fallback?.text ? `${formatActionLabel(action)} · ${fallback.text}` : formatActionLabel(action)),
+        ref: fallback?.ref,
+        refFull: fallback?.refFull,
         actor: log.performedBy || undefined,
         time: formatAuditTime(log.timestamp, now),
         kind: ACTION_KIND[action] || "other",

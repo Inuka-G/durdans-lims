@@ -237,7 +237,7 @@ export default function BranchDashboard() {
                                             style={{ height: `${item.percent}%` }}
                                         />
                                     </div>
-                                    <span className="text-[11px] font-medium text-fg-muted">
+                                    <span className="text-[12px] font-medium text-fg-muted">
                                         {item.label}
                                         <span className="sr-only">: {item.percent}% of capacity</span>
                                     </span>
@@ -257,7 +257,7 @@ export default function BranchDashboard() {
                                     <li key={alert.id} className="flex gap-3 px-4 py-3">
                                         <Icon className={cn("mt-0.5 h-4 w-4 shrink-0", ALERT_ICON_TONE[alert.tone])} aria-hidden="true" />
                                         <div className="min-w-0">
-                                            <h3 className="text-[13px] font-semibold text-fg">{alert.title}</h3>
+                                            <h3 className="text-sm font-semibold text-fg">{alert.title}</h3>
                                             <p className="mt-0.5 text-xs leading-snug text-fg-muted">{alert.body}</p>
                                             {alert.action && (
                                                 <button type="button" className={cn(LINK_CLASS, "mt-1.5")}>
@@ -323,7 +323,7 @@ export default function BranchDashboard() {
                     Live monitoring of blood and bone marrow tests processing across this branch.
                 </p>
                 <div className="overflow-x-auto">
-                    <table className="w-full min-w-[640px] table-fixed text-left text-[13px]">
+                    <table className="w-full min-w-[640px] table-fixed text-left text-sm">
                         <colgroup>
                             <col className="w-[36%]" />
                             <col className="w-[14%]" />
@@ -332,12 +332,12 @@ export default function BranchDashboard() {
                             <col className="w-[14%]" />
                         </colgroup>
                         <thead>
-                            <tr className="border-b border-edge text-xs font-medium text-fg-muted">
-                                <th scope="col" className="py-2 pl-4 pr-3 font-medium">Test</th>
-                                <th scope="col" className="px-3 py-2 font-medium">Code</th>
-                                <th scope="col" className="px-3 py-2 font-medium">Mode</th>
-                                <th scope="col" className="px-3 py-2 text-right font-medium">Orders today</th>
-                                <th scope="col" className="px-3 py-2 font-medium">Status</th>
+                            <tr className="border-b border-edge text-xs font-semibold text-fg-muted">
+                                <th scope="col" className="py-2 pl-4 pr-3 font-semibold">Test</th>
+                                <th scope="col" className="px-3 py-2 font-semibold">Code</th>
+                                <th scope="col" className="px-3 py-2 font-semibold">Mode</th>
+                                <th scope="col" className="px-3 py-2 text-right font-semibold">Orders today</th>
+                                <th scope="col" className="px-3 py-2 font-semibold">Status</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-edge whitespace-nowrap">
@@ -347,7 +347,7 @@ export default function BranchDashboard() {
                                         <div className="flex items-center gap-3">
                                             <span
                                                 aria-hidden="true"
-                                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-muted text-[11px] font-semibold text-fg-secondary"
+                                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-muted text-[12px] font-semibold text-fg-secondary"
                                             >
                                                 {test.abbr}
                                             </span>

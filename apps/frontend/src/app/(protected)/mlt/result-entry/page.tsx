@@ -512,26 +512,26 @@ function ResultEntryContent() {
                         <div className="overflow-x-auto">
                             {/* table-fixed: 144+96+160+80 = 480px of fixed columns, so the table needs
                                 480 + 2*160 = 800px before Patient and Test clear a 160px floor. */}
-                            <table className="w-full min-w-[800px] table-fixed text-left text-[13px]">
+                            <table className="w-full min-w-[800px] table-fixed text-left text-sm">
                                 <caption className="sr-only">MLT worklist samples</caption>
                                 <thead>
-                                    <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
-                                        <th scope="col" className="w-36 py-2 pl-4 pr-3 font-medium">
+                                    <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
+                                        <th scope="col" className="w-36 py-2 pl-4 pr-3 font-semibold">
                                             Barcode
                                         </th>
-                                        <th scope="col" className="px-3 py-2 font-medium">
+                                        <th scope="col" className="px-3 py-2 font-semibold">
                                             Patient
                                         </th>
-                                        <th scope="col" className="px-3 py-2 font-medium">
+                                        <th scope="col" className="px-3 py-2 font-semibold">
                                             Test
                                         </th>
-                                        <th scope="col" className="w-24 px-3 py-2 font-medium">
+                                        <th scope="col" className="w-24 px-3 py-2 font-semibold">
                                             Priority
                                         </th>
-                                        <th scope="col" className="w-40 px-3 py-2 font-medium">
+                                        <th scope="col" className="w-40 px-3 py-2 font-semibold">
                                             Status
                                         </th>
-                                        <th scope="col" className="w-20 py-2 pl-3 pr-4 text-right font-medium">
+                                        <th scope="col" className="w-20 py-2 pl-3 pr-4 text-right font-semibold">
                                             <span className="sr-only">Action</span>
                                         </th>
                                     </tr>
@@ -797,7 +797,7 @@ function ResultEntryContent() {
                                                 </div>
                                                 <p className="mt-0.5 text-xs text-fg-muted">By {item.performedBy}</p>
                                                 {item.details && (
-                                                    <pre className="mt-2 overflow-x-auto whitespace-pre-wrap rounded-md border border-edge bg-surface-muted p-3 font-mono text-[11px] text-fg-secondary">
+                                                    <pre className="mt-2 overflow-x-auto whitespace-pre-wrap rounded-md border border-edge bg-surface-muted p-3 font-mono text-[12px] text-fg-secondary">
                                                         {formatActivityDetails(item.details)}
                                                     </pre>
                                                 )}
@@ -873,29 +873,29 @@ function ResultEntryContent() {
                                     <div className="overflow-x-auto">
                                         {/* table-fixed: 96+80+128+80+112+128 = 624px of fixed columns, so the
                                             table needs 624 + 160 = 784px before Parameter clears a 160px floor. */}
-                                        <table className="w-full min-w-[790px] table-fixed text-left text-[13px]">
+                                        <table className="w-full min-w-[790px] table-fixed text-left text-sm">
                                             <caption className="sr-only">Result parameters for {sample.testName}</caption>
                                             <thead>
-                                                <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
-                                                    <th scope="col" className="py-2 pl-4 pr-3 font-medium">
+                                                <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
+                                                    <th scope="col" className="py-2 pl-4 pr-3 font-semibold">
                                                         Parameter
                                                     </th>
-                                                    <th scope="col" className="w-24 px-3 py-2 text-right font-medium">
+                                                    <th scope="col" className="w-24 px-3 py-2 text-right font-semibold">
                                                         Previous
                                                     </th>
-                                                    <th scope="col" className="w-20 px-3 py-2 text-right font-medium">
+                                                    <th scope="col" className="w-20 px-3 py-2 text-right font-semibold">
                                                         Δ %
                                                     </th>
-                                                    <th scope="col" className="w-32 px-3 py-2 font-medium">
+                                                    <th scope="col" className="w-32 px-3 py-2 font-semibold">
                                                         Result
                                                     </th>
-                                                    <th scope="col" className="w-20 px-3 py-2 font-medium">
+                                                    <th scope="col" className="w-20 px-3 py-2 font-semibold">
                                                         Unit
                                                     </th>
-                                                    <th scope="col" className="w-28 px-3 py-2 font-medium">
+                                                    <th scope="col" className="w-28 px-3 py-2 font-semibold">
                                                         Reference
                                                     </th>
-                                                    <th scope="col" className="w-32 py-2 pl-3 pr-4 font-medium">
+                                                    <th scope="col" className="w-32 py-2 pl-3 pr-4 font-semibold">
                                                         Flag
                                                     </th>
                                                 </tr>

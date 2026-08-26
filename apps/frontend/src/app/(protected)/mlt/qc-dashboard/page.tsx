@@ -148,35 +148,35 @@ export default function QCDashboardPage() {
                             (44+40+16+24+24+16+20+36+20 = 240 spacing units = 960px);
                             below that `table-fixed` scales every column down and clips
                             the nowrap headers. */}
-                        <table className="w-full min-w-[960px] table-fixed text-left text-[13px]">
+                        <table className="w-full min-w-[960px] table-fixed text-left text-sm">
                             <caption className="sr-only">Today&apos;s QC runs</caption>
                             <thead>
-                                <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
-                                    <th scope="col" className="w-44 py-2 pl-4 pr-3 font-medium">
+                                <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
+                                    <th scope="col" className="w-44 py-2 pl-4 pr-3 font-semibold">
                                         Instrument
                                     </th>
-                                    <th scope="col" className="w-40 px-3 py-2 font-medium">
+                                    <th scope="col" className="w-40 px-3 py-2 font-semibold">
                                         Test group
                                     </th>
-                                    <th scope="col" className="w-16 px-3 py-2 font-medium">
+                                    <th scope="col" className="w-16 px-3 py-2 font-semibold">
                                         Level
                                     </th>
-                                    <th scope="col" className="w-24 px-3 py-2 font-medium">
+                                    <th scope="col" className="w-24 px-3 py-2 font-semibold">
                                         Result
                                     </th>
-                                    <th scope="col" className="w-24 px-3 py-2 font-medium">
+                                    <th scope="col" className="w-24 px-3 py-2 font-semibold">
                                         Expected
                                     </th>
-                                    <th scope="col" className="w-16 px-3 py-2 font-medium">
+                                    <th scope="col" className="w-16 px-3 py-2 font-semibold">
                                         SD
                                     </th>
-                                    <th scope="col" className="w-20 px-3 py-2 font-medium">
+                                    <th scope="col" className="w-20 px-3 py-2 font-semibold">
                                         Status
                                     </th>
-                                    <th scope="col" className="w-36 px-3 py-2 font-medium">
+                                    <th scope="col" className="w-36 px-3 py-2 font-semibold">
                                         By
                                     </th>
-                                    <th scope="col" className="w-20 px-3 py-2 font-medium">
+                                    <th scope="col" className="w-20 px-3 py-2 font-semibold">
                                         Time
                                     </th>
                                 </tr>

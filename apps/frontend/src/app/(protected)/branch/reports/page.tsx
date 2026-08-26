@@ -431,17 +431,17 @@ export default function BranchReportsPage() {
                             </ResponsiveContainer>
                             <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center pt-4" aria-hidden="true">
                                 <span className="text-[22px] font-semibold leading-none tabular-nums text-fg">{pieTotal}%</span>
-                                <span className="mt-1 text-[11px] text-fg-muted">Lab tests</span>
+                                <span className="mt-1 text-[12px] text-fg-muted">Lab tests</span>
                             </div>
                         </div>
 
                         <div className="mt-3 overflow-x-auto">
-                            <table className="w-full table-fixed text-left text-[13px]">
+                            <table className="w-full table-fixed text-left text-sm">
                                 <caption className="sr-only">Revenue share by category</caption>
                                 <thead>
-                                    <tr className="border-b border-edge text-xs font-medium text-fg-muted">
-                                        <th scope="col" className="px-3 py-2 pl-4 font-medium">Category</th>
-                                        <th scope="col" className="w-24 px-3 py-2 pr-4 text-right font-medium">Share</th>
+                                    <tr className="border-b border-edge text-xs font-semibold text-fg-muted">
+                                        <th scope="col" className="px-3 py-2 pl-4 font-semibold">Category</th>
+                                        <th scope="col" className="w-24 px-3 py-2 pr-4 text-right font-semibold">Share</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-edge whitespace-nowrap">

@@ -30,7 +30,7 @@ export default function SectionCard({
             <header className="flex min-h-[44px] flex-wrap items-center gap-x-2 gap-y-1 border-b border-edge px-4 py-2">
                 <h2 className="min-w-0 truncate text-sm font-semibold text-fg">{title}</h2>
                 {count !== undefined && (
-                    <span className="rounded-full bg-surface-hover px-2 py-0.5 text-[11px] font-medium tabular-nums text-fg-secondary">
+                    <span className="rounded-full bg-surface-hover px-2 py-0.5 text-[12px] font-medium tabular-nums text-fg-secondary">
                         {count}
                     </span>
                 )}

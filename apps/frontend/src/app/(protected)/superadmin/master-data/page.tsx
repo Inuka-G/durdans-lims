@@ -262,26 +262,26 @@ export default function MasterDataPage() {
                         {/* table-fixed budget: fixed cols are 544px (Code 128 + Category 160 + Price 144
                             + Status 112), rising to 720px at lg when Specimen (176) appears. The min-w
                             per band keeps the auto-width Test column at >= 160px in both cases. */}
-                        <table className="w-full min-w-[760px] table-fixed text-left text-[13px] lg:min-w-[890px]">
+                        <table className="w-full min-w-[760px] table-fixed text-left text-sm lg:min-w-[890px]">
                             <caption className="sr-only">Lab test catalog</caption>
                             <thead>
-                                <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
-                                    <th scope="col" className="w-32 py-2 pl-4 pr-3 font-medium">
+                                <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
+                                    <th scope="col" className="w-32 py-2 pl-4 pr-3 font-semibold">
                                         Code
                                     </th>
-                                    <th scope="col" className="px-3 py-2 font-medium">
+                                    <th scope="col" className="px-3 py-2 font-semibold">
                                         Test
                                     </th>
-                                    <th scope="col" className="w-40 px-3 py-2 font-medium">
+                                    <th scope="col" className="w-40 px-3 py-2 font-semibold">
                                         Category
                                     </th>
-                                    <th scope="col" className="w-36 px-3 py-2 text-right font-medium">
+                                    <th scope="col" className="w-36 px-3 py-2 text-right font-semibold">
                                         Price (LKR)
                                     </th>
-                                    <th scope="col" className="hidden w-44 px-3 py-2 font-medium lg:table-cell">
+                                    <th scope="col" className="hidden w-44 px-3 py-2 font-semibold lg:table-cell">
                                         Specimen
                                     </th>
-                                    <th scope="col" className="w-28 py-2 pl-3 pr-4 font-medium">
+                                    <th scope="col" className="w-28 py-2 pl-3 pr-4 font-semibold">
                                         Status
                                     </th>
                                 </tr>

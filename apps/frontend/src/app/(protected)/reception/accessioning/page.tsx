@@ -236,16 +236,16 @@ export default function ReceptionAccessioningPage() {
                     ) : (
                         <>
                             <div className="overflow-x-auto">
-                                <table className="w-full min-w-[760px] table-fixed text-left text-[13px]">
+                                <table className="w-full min-w-[760px] table-fixed text-left text-sm">
                                     <thead>
-                                        <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
-                                            <th scope="col" className="w-[16%] py-2 pl-4 pr-3 font-medium">Barcode</th>
-                                            <th scope="col" className="w-[18%] px-3 py-2 font-medium">Patient / order</th>
-                                            <th scope="col" className="w-[16%] px-3 py-2 font-medium">Test</th>
-                                            <th scope="col" className="w-[16%] px-3 py-2 font-medium">Collected</th>
-                                            <th scope="col" className="w-[10%] px-3 py-2 font-medium">Priority</th>
-                                            <th scope="col" className="w-[12%] px-3 py-2 font-medium">Status</th>
-                                            <th scope="col" className="w-24 py-2 pl-2 pr-3 text-right font-medium">
+                                        <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
+                                            <th scope="col" className="w-[16%] py-2 pl-4 pr-3 font-semibold">Barcode</th>
+                                            <th scope="col" className="w-[18%] px-3 py-2 font-semibold">Patient / order</th>
+                                            <th scope="col" className="w-[16%] px-3 py-2 font-semibold">Test</th>
+                                            <th scope="col" className="w-[16%] px-3 py-2 font-semibold">Collected</th>
+                                            <th scope="col" className="w-[10%] px-3 py-2 font-semibold">Priority</th>
+                                            <th scope="col" className="w-[12%] px-3 py-2 font-semibold">Status</th>
+                                            <th scope="col" className="w-24 py-2 pl-2 pr-3 text-right font-semibold">
                                                 <span className="sr-only">Actions</span>
                                             </th>
                                         </tr>

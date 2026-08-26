@@ -396,10 +396,10 @@ export default function FailedDeliveriesPage() {
                           lg +144 = 952 (Failed at). Reason is free text, so it needs a >=160px
                           floor: base 960-648=312, md 970-808=162, lg 1120-952=168.
                         */}
-                        <table className="w-full min-w-[960px] table-fixed text-left text-[13px] md:min-w-[970px] lg:min-w-[1120px]">
+                        <table className="w-full min-w-[960px] table-fixed text-left text-sm md:min-w-[970px] lg:min-w-[1120px]">
                             <caption className="sr-only">Failed deliveries</caption>
                             <thead>
-                                <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
+                                <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
                                     <th scope="col" className="w-10 py-2 pl-4 pr-2">
                                         <input
                                             type="checkbox"
@@ -409,14 +409,14 @@ export default function FailedDeliveriesPage() {
                                             className="h-4 w-4 rounded border-edge-strong accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-surface"
                                         />
                                     </th>
-                                    <th scope="col" className="w-32 px-3 py-2 font-medium">Report ID</th>
-                                    <th scope="col" className="w-40 px-3 py-2 font-medium">Patient</th>
-                                    <th scope="col" className="hidden w-40 px-3 py-2 font-medium md:table-cell">Test</th>
-                                    <th scope="col" className="w-32 px-3 py-2 font-medium">Method</th>
-                                    <th scope="col" className="px-3 py-2 font-medium">Failure reason</th>
-                                    <th scope="col" className="hidden w-36 px-3 py-2 font-medium lg:table-cell">Failed at</th>
-                                    <th scope="col" className="w-20 px-3 py-2 font-medium">Retries</th>
-                                    <th scope="col" className="w-28 py-2 pl-3 pr-4 text-right font-medium">Actions</th>
+                                    <th scope="col" className="w-32 px-3 py-2 font-semibold">Report ID</th>
+                                    <th scope="col" className="w-40 px-3 py-2 font-semibold">Patient</th>
+                                    <th scope="col" className="hidden w-40 px-3 py-2 font-semibold md:table-cell">Test</th>
+                                    <th scope="col" className="w-32 px-3 py-2 font-semibold">Method</th>
+                                    <th scope="col" className="px-3 py-2 font-semibold">Failure reason</th>
+                                    <th scope="col" className="hidden w-36 px-3 py-2 font-semibold lg:table-cell">Failed at</th>
+                                    <th scope="col" className="w-20 px-3 py-2 font-semibold">Retries</th>
+                                    <th scope="col" className="w-28 py-2 pl-3 pr-4 text-right font-semibold">Actions</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-edge whitespace-nowrap">

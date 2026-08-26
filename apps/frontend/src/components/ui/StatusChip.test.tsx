@@ -108,7 +108,7 @@ describe('StatusChip', () => {
 
   it('uses the dense type scale at size="sm"', () => {
     render(<StatusChip size="sm">Pending</StatusChip>);
-    expect(screen.getByText('Pending').parentElement).toHaveClass('text-[11px]');
+    expect(screen.getByText('Pending').parentElement).toHaveClass('text-[12px]');
   });
 
   it('passes through title and className', () => {

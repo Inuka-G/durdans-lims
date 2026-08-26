@@ -371,29 +371,29 @@ export default function GlobalAuditTrailsPage() {
                     <div className="overflow-x-auto">
                         {/* table-fixed: min-w must clear the fixed columns + a 160px floor for the auto
                             Action column at every band (base/md 544, lg 688, xl 832). */}
-                        <table className="w-full min-w-[760px] table-fixed text-left text-[13px] lg:min-w-[860px] xl:min-w-[1000px]">
+                        <table className="w-full min-w-[760px] table-fixed text-left text-sm lg:min-w-[860px] xl:min-w-[1000px]">
                             <caption className="sr-only">System audit trail entries</caption>
                             <thead>
-                                <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
-                                    <th scope="col" className="w-32 py-2 pl-4 pr-3 font-medium">
+                                <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
+                                    <th scope="col" className="w-32 py-2 pl-4 pr-3 font-semibold">
                                         Time
                                     </th>
-                                    <th scope="col" className="w-48 px-3 py-2 font-medium">
+                                    <th scope="col" className="w-48 px-3 py-2 font-semibold">
                                         User
                                     </th>
-                                    <th scope="col" className="hidden w-28 px-3 py-2 font-medium md:table-cell">
+                                    <th scope="col" className="hidden w-28 px-3 py-2 font-semibold md:table-cell">
                                         Branch
                                     </th>
-                                    <th scope="col" className="px-3 py-2 font-medium">
+                                    <th scope="col" className="px-3 py-2 font-semibold">
                                         Action
                                     </th>
-                                    <th scope="col" className="hidden w-36 px-3 py-2 font-medium lg:table-cell">
+                                    <th scope="col" className="hidden w-36 px-3 py-2 font-semibold lg:table-cell">
                                         Entity id
                                     </th>
-                                    <th scope="col" className="w-28 px-3 py-2 font-medium">
+                                    <th scope="col" className="w-28 px-3 py-2 font-semibold">
                                         Status
                                     </th>
-                                    <th scope="col" className="hidden w-36 px-3 py-2 font-medium xl:table-cell">
+                                    <th scope="col" className="hidden w-36 px-3 py-2 font-semibold xl:table-cell">
                                         IP address
                                     </th>
                                 </tr>

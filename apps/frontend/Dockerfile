@@ -41,6 +41,13 @@ RUN pnpm build
 # --- Runtime ---
 FROM node:22-alpine AS runner
 WORKDIR /app
+
+# Patch OS packages in the shipped layer. The Trivy release gate runs with
+# ignore-unfixed:true, so it only fails on HIGH/CRITICAL vulns that HAVE a fix
+# upstream (e.g. an openssl/libcrypto3 advisory Alpine has already patched).
+# Only this stage ships, so upgrading here is what the scan actually sees.
+RUN apk upgrade --no-cache
+
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     PORT=3000 \

@@ -629,7 +629,7 @@ export default function ClinicalReviewPage() {
                         </div>
                     </div>
                     <div className="mt-4 rounded-md border border-edge bg-surface p-3">
-                        <p className="text-xs font-medium text-fg-muted">Digital signature</p>
+                        <p className="text-xs font-semibold text-fg-muted">Digital signature</p>
                         <p className="mt-1 break-words font-serif text-lg italic text-primary-strong">{pathologistDisplayName}</p>
                     </div>
                 </div>
@@ -774,15 +774,15 @@ export default function ClinicalReviewPage() {
                             <EmptyState icon={FileText} title="No parameters recorded" description="This result has no parameter values yet." compact />
                         ) : (
                             <div className="overflow-x-auto">
-                                <table className="w-full min-w-[820px] table-fixed text-left text-[13px]">
+                                <table className="w-full min-w-[820px] table-fixed text-left text-sm">
                                     <thead>
-                                        <tr className="border-b border-edge text-xs font-medium text-fg-muted">
-                                            <th scope="col" className="w-[22%] px-3 py-2 pl-4 font-medium">Parameter</th>
-                                            <th scope="col" className="w-[12%] px-3 py-2 font-medium">Result</th>
-                                            <th scope="col" className="w-[10%] px-3 py-2 font-medium">Unit</th>
-                                            <th scope="col" className="w-[14%] px-3 py-2 font-medium">Flag</th>
-                                            <th scope="col" className="w-[16%] px-3 py-2 font-medium">Reference range</th>
-                                            <th scope="col" className="w-[26%] px-3 py-2 font-medium">Delta / previous visit</th>
+                                        <tr className="border-b border-edge text-xs font-semibold text-fg-muted">
+                                            <th scope="col" className="w-[22%] px-3 py-2 pl-4 font-semibold">Parameter</th>
+                                            <th scope="col" className="w-[12%] px-3 py-2 font-semibold">Result</th>
+                                            <th scope="col" className="w-[10%] px-3 py-2 font-semibold">Unit</th>
+                                            <th scope="col" className="w-[14%] px-3 py-2 font-semibold">Flag</th>
+                                            <th scope="col" className="w-[16%] px-3 py-2 font-semibold">Reference range</th>
+                                            <th scope="col" className="w-[26%] px-3 py-2 font-semibold">Delta / previous visit</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-edge whitespace-nowrap">
@@ -999,7 +999,7 @@ export default function ClinicalReviewPage() {
                                     : 'border-edge bg-surface-muted'
                             )}
                         >
-                            <p className="text-xs font-medium text-fg-muted">
+                            <p className="text-xs font-semibold text-fg-muted">
                                 {isAuthorized ? 'Digitally authorized' : 'Signature preview'}
                             </p>
                             <p
@@ -1056,7 +1056,7 @@ export default function ClinicalReviewPage() {
                         <div className="flex gap-3">
                             <div
                                 aria-hidden="true"
-                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary-soft text-[10px] font-semibold text-primary-strong"
+                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary-soft text-[11px] font-semibold text-primary-strong"
                             >
                                 ML
                             </div>
@@ -1085,7 +1085,7 @@ export default function ClinicalReviewPage() {
                             <div className="flex gap-3">
                                 <div
                                     aria-hidden="true"
-                                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-status-pending-bg text-[10px] font-semibold text-status-pending-fg"
+                                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-status-pending-bg text-[11px] font-semibold text-status-pending-fg"
                                 >
                                     LS
                                 </div>

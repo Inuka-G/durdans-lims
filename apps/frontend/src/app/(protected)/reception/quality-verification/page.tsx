@@ -489,7 +489,7 @@ export default function QualityVerificationPage() {
                                                         <p className="truncate font-mono text-xs font-semibold text-primary-strong">
                                                             {sample.barcode}
                                                         </p>
-                                                        <p className="mt-0.5 truncate text-[13px] font-medium text-fg">
+                                                        <p className="mt-0.5 truncate text-sm font-medium text-fg">
                                                             {sample.patientId}
                                                         </p>
                                                         <p className="truncate text-xs text-fg-muted">{sample.orderId}</p>
@@ -528,7 +528,7 @@ export default function QualityVerificationPage() {
                             <h3 className="mt-0.5 break-all font-mono text-lg font-semibold text-fg">{selectedSample.barcode}</h3>
 
                             <div className="mt-4 border-t border-edge pt-4">
-                                <p className="mb-2 text-xs font-medium text-fg-muted">Patient</p>
+                                <p className="mb-2 text-xs font-semibold text-fg-muted">Patient</p>
                                 <div className="flex items-center gap-3">
                                     <div
                                         aria-hidden="true"
@@ -561,7 +561,7 @@ export default function QualityVerificationPage() {
                             </div>
 
                             <div className="mt-4 border-t border-edge pt-4">
-                                <p className="mb-2 text-xs font-medium text-fg-muted">Specimen</p>
+                                <p className="mb-2 text-xs font-semibold text-fg-muted">Specimen</p>
                                 <div className="flex items-start gap-3">
                                     {/* Specimen tube colour is physical (cap colour) so it stays literal in both themes */}
                                     <span aria-hidden="true" className="mt-0.5 h-10 w-2.5 shrink-0 rounded-full bg-purple-500" />
