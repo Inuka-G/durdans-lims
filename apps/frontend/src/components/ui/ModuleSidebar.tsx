@@ -61,14 +61,14 @@ export default function ModuleSidebar({
                 {groups.map((group, gi) => (
                     <div key={group.label ?? gi} className={cn(gi > 0 && "mt-6")}>
                         {group.label && (
-                            <p className="mb-1 px-2 text-[11px] font-medium uppercase tracking-wide text-fg-muted">{group.label}</p>
+                            <p className="mb-1 px-2 text-xs font-semibold uppercase tracking-wide text-fg-muted">{group.label}</p>
                         )}
                         <ul className="space-y-0.5">
                             {group.items.map((item) => {
                                 const active = item.isActive ? item.isActive(pathname) : defaultActive(pathname, item.href);
                                 const Icon = item.icon;
                                 const className = cn(
-                                    "group flex items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                                    "group flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
                                     active ? "bg-primary-soft text-primary-strong" : "text-fg-secondary hover:bg-surface-hover hover:text-fg"
                                 );
                                 const content = (
@@ -118,7 +118,7 @@ export default function ModuleSidebar({
                     {!hideHelp && (
                         <a
                             href="mailto:support@durdans.com"
-                            className="flex items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] font-medium text-fg-secondary transition-colors hover:bg-surface-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                            className="flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm font-medium text-fg-secondary transition-colors hover:bg-surface-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                         >
                             <LifeBuoy className="h-4 w-4 text-fg-faint" aria-hidden="true" />
                             Help and support

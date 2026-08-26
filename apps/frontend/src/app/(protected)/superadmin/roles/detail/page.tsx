@@ -198,7 +198,7 @@ export default function DetailedRolePermissionsPage() {
                                     >
                                         <Icon className="h-5 w-5 shrink-0 text-fg-faint" aria-hidden="true" />
                                         <span className="min-w-0 flex-1 truncate text-sm font-semibold text-fg">{group.name}</span>
-                                        <span className="rounded-full bg-surface-hover px-2 py-0.5 text-[11px] font-medium tabular-nums text-fg-secondary">
+                                        <span className="rounded-full bg-surface-hover px-2 py-0.5 text-[12px] font-medium tabular-nums text-fg-secondary">
                                             {group.count} {group.count === 1 ? "permission" : "permissions"}
                                         </span>
                                         <ChevronDown

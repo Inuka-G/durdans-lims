@@ -284,26 +284,26 @@ export default function MLTWorklistPage() {
                 ) : (
                     <>
                         <div className="overflow-x-auto">
-                            <table className="w-full min-w-[850px] table-fixed text-left text-[13px]">
+                            <table className="w-full min-w-[850px] table-fixed text-left text-sm">
                                 <caption className="sr-only">Samples waiting for testing</caption>
                                 <thead>
-                                    <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
-                                        <th scope="col" className="w-36 py-2 pl-4 pr-3 font-medium">
+                                    <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
+                                        <th scope="col" className="w-36 py-2 pl-4 pr-3 font-semibold">
                                             Barcode
                                         </th>
-                                        <th scope="col" className="w-44 px-3 py-2 font-medium">
+                                        <th scope="col" className="w-44 px-3 py-2 font-semibold">
                                             Patient / order
                                         </th>
-                                        <th scope="col" className="px-3 py-2 font-medium">
+                                        <th scope="col" className="px-3 py-2 font-semibold">
                                             Test type
                                         </th>
-                                        <th scope="col" className="w-24 px-3 py-2 font-medium">
+                                        <th scope="col" className="w-24 px-3 py-2 font-semibold">
                                             Priority
                                         </th>
-                                        <th scope="col" className="w-44 px-3 py-2 font-medium">
+                                        <th scope="col" className="w-44 px-3 py-2 font-semibold">
                                             Status
                                         </th>
-                                        <th scope="col" className="w-24 py-2 pl-2 pr-3 text-right font-medium">
+                                        <th scope="col" className="w-24 py-2 pl-2 pr-3 text-right font-semibold">
                                             <span className="sr-only">Actions</span>
                                         </th>
                                     </tr>

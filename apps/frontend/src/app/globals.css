@@ -49,6 +49,14 @@
 
   --color-background-light: #f6f7f8;
   --color-background-dark: #101922;
+
+  /* Type scale: one notch up from the Tailwind default at the small end.
+     Most of this app's reading text is meta/labels (`text-xs`) and branch
+     users flagged 12px as hard to read, so `text-xs` renders at 13px.
+     Table body text is `text-sm` (14px); 12px arbitrary values are for
+     badges only. Line-height ratios come from the default theme. */
+  --text-xs: 0.8125rem; /* 13px */
+
   --font-display: "Inter", "Segoe UI", Arial, sans-serif;
   --radius-DEFAULT: 0.25rem;
   --radius-lg: 0.5rem;
@@ -67,8 +75,8 @@
   --edge-strong: #cbd5e1;     /* slate-300 */
   --fg: #0f172a;              /* slate-900 */
   --fg-secondary: #334155;    /* slate-700 */
-  --fg-muted: #64748b;        /* slate-500 (4.8:1 on white) */
-  --fg-faint: #94a3b8;        /* slate-400 — icons/placeholders only */
+  --fg-muted: #475569;        /* slate-600 (7.2:1 on white) — supporting text */
+  --fg-faint: #64748b;        /* slate-500 (4.8:1) — icons/placeholders only */
   --primary-strong: #0b5fc2;
   --primary-soft: rgba(19, 127, 236, 0.08);
 
@@ -84,7 +92,7 @@
 
   /* legacy aliases still used by body + older pages */
   --background: var(--canvas);
-  --foreground: #1e293b;
+  --foreground: var(--fg);
 }
 
 .dark {

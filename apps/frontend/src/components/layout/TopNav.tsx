@@ -248,7 +248,7 @@ export default function TopNav() {
                             <span className="block truncate text-sm font-semibold leading-tight text-fg" title={userName}>
                                 {userName}
                             </span>
-                            <span className="block truncate text-[11px] leading-tight text-fg-muted">{subtitleLine}</span>
+                            <span className="block truncate text-[12px] leading-tight text-fg-muted">{subtitleLine}</span>
                         </span>
                         <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary-soft text-sm font-semibold text-primary-strong">
                             {userName.charAt(0).toUpperCase()}
@@ -260,10 +260,10 @@ export default function TopNav() {
                         <div className="absolute right-0 mt-1.5 w-60 overflow-hidden rounded-md border border-edge bg-surface py-1 shadow-lg shadow-black/10">
                             <div className="border-b border-edge px-3 py-2">
                                 <p className="truncate text-sm font-medium text-fg">{userName}</p>
-                                <p className="truncate text-[11px] text-fg-muted">{subtitleLine}</p>
+                                <p className="truncate text-[12px] text-fg-muted">{subtitleLine}</p>
                             </div>
                             <div role="menu" aria-label="Account">
-                                <div className="px-3 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wide text-fg-muted" id="theme-group-label">
+                                <div className="px-3 pb-1 pt-2 text-[12px] font-medium uppercase tracking-wide text-fg-muted" id="theme-group-label">
                                     Theme
                                 </div>
                                 <div role="group" aria-labelledby="theme-group-label" className="px-1 pb-1">

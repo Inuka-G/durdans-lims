@@ -143,7 +143,7 @@ export default function SecurityConfigurationPage() {
                 <div className="space-y-4">
                     <div
                         role="note"
-                        className="flex items-start gap-2 rounded-md border border-status-pending-edge bg-status-pending-bg px-4 py-2.5 text-[13px] text-status-pending-fg"
+                        className="flex items-start gap-2 rounded-md border border-status-pending-edge bg-status-pending-bg px-4 py-2.5 text-sm text-status-pending-fg"
                     >
                         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
                         <span>
@@ -264,7 +264,7 @@ export default function SecurityConfigurationPage() {
                                         aria-valuetext={`${otpLength} digits`}
                                         className={RANGE_CLASS}
                                     />
-                                    <div className="mt-1 flex justify-between text-[11px] tabular-nums text-fg-faint" aria-hidden="true">
+                                    <div className="mt-1 flex justify-between text-[12px] tabular-nums text-fg-faint" aria-hidden="true">
                                         <span>4</span>
                                         <span>8</span>
                                     </div>
@@ -314,7 +314,7 @@ export default function SecurityConfigurationPage() {
                                         aria-valuetext={`${minPasswordLength} characters`}
                                         className={RANGE_CLASS}
                                     />
-                                    <div className="mt-1 flex justify-between text-[11px] tabular-nums text-fg-faint" aria-hidden="true">
+                                    <div className="mt-1 flex justify-between text-[12px] tabular-nums text-fg-faint" aria-hidden="true">
                                         <span>8</span>
                                         <span>24</span>
                                     </div>

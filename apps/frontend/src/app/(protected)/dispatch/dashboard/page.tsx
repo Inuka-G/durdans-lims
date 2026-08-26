@@ -320,7 +320,7 @@ export default function DispatchDashboardPage() {
                             )}
                         </div>
                         {!loading && reports.length > 0 && (
-                            <p className="px-2 pt-1 text-[11px] text-fg-muted">Reports dispatched per hour.</p>
+                            <p className="px-2 pt-1 text-[12px] text-fg-muted">Reports dispatched per hour.</p>
                         )}
                     </figure>
                 </SectionCard>
@@ -332,7 +332,7 @@ export default function DispatchDashboardPage() {
                             const Icon = m.icon;
                             const count = reports.filter((r) => r.deliveryMethods.includes(method)).length;
                             return (
-                                <li key={method} className="flex items-center gap-2.5 px-4 py-2 text-[13px]">
+                                <li key={method} className="flex items-center gap-2.5 px-4 py-2 text-sm">
                                     <Icon className="h-4 w-4 shrink-0 text-fg-faint" aria-hidden="true" />
                                     <span className="text-fg-secondary">{m.label}</span>
                                     {loading ? (
@@ -433,29 +433,29 @@ export default function DispatchDashboardPage() {
                           * 0.87 * 920 + 112 = 912.4 <= the 920px md floor. Below md the Test column
                           * is hidden, leaving 69% + 112px inside the 760px floor.
                           */}
-                        <table className="w-full min-w-[760px] table-fixed text-left text-[13px] md:min-w-[920px]">
+                        <table className="w-full min-w-[760px] table-fixed text-left text-sm md:min-w-[920px]">
                             <caption className="sr-only">Authorized reports awaiting dispatch</caption>
                             <thead>
-                                <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
-                                    <th scope="col" className="w-[13%] py-2 pl-4 pr-3 font-medium">
+                                <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
+                                    <th scope="col" className="w-[13%] py-2 pl-4 pr-3 font-semibold">
                                         Report ID
                                     </th>
-                                    <th scope="col" className="w-[20%] px-3 py-2 font-medium">
+                                    <th scope="col" className="w-[20%] px-3 py-2 font-semibold">
                                         Patient
                                     </th>
-                                    <th scope="col" className="hidden w-[18%] px-3 py-2 font-medium md:table-cell">
+                                    <th scope="col" className="hidden w-[18%] px-3 py-2 font-semibold md:table-cell">
                                         Test
                                     </th>
-                                    <th scope="col" className="w-[12%] px-3 py-2 font-medium">
+                                    <th scope="col" className="w-[12%] px-3 py-2 font-semibold">
                                         Authorized
                                     </th>
-                                    <th scope="col" className="w-[12%] px-3 py-2 font-medium">
+                                    <th scope="col" className="w-[12%] px-3 py-2 font-semibold">
                                         Methods
                                     </th>
-                                    <th scope="col" className="w-[12%] px-3 py-2 font-medium">
+                                    <th scope="col" className="w-[12%] px-3 py-2 font-semibold">
                                         Status
                                     </th>
-                                    <th scope="col" className="w-28 py-2 pl-2 pr-4 text-right font-medium">
+                                    <th scope="col" className="w-28 py-2 pl-2 pr-4 text-right font-semibold">
                                         <span className="sr-only">Actions</span>
                                     </th>
                                 </tr>
@@ -476,7 +476,7 @@ export default function DispatchDashboardPage() {
                                                 <div className="truncate font-medium text-fg" title={report.patientName}>
                                                     {report.patientName || "—"}
                                                 </div>
-                                                <div className="truncate font-mono text-[11px] text-fg-muted" title={report.patientId || undefined}>
+                                                <div className="truncate font-mono text-[12px] text-fg-muted" title={report.patientId || undefined}>
                                                     {report.patientId || "—"}
                                                 </div>
                                             </td>
@@ -490,7 +490,7 @@ export default function DispatchDashboardPage() {
                                             <td className="px-3 py-2 tabular-nums" title={`${report.authorizedDate} ${report.authorizedTime}`.trim()}>
                                                 <div className="truncate text-fg-secondary">{authorized.primary}</div>
                                                 {authorized.secondary && (
-                                                    <div className="truncate text-[11px] text-fg-muted">{authorized.secondary}</div>
+                                                    <div className="truncate text-[12px] text-fg-muted">{authorized.secondary}</div>
                                                 )}
                                             </td>
 

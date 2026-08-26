@@ -232,15 +232,15 @@ export default function RolePermissionsPage() {
                     />
                 ) : (
                     <div className="overflow-x-auto">
-                        <table className="w-full min-w-[800px] table-fixed text-left text-[13px]">
+                        <table className="w-full min-w-[800px] table-fixed text-left text-sm">
                             <caption className="sr-only">Permissions for {selectedRole} by module and action</caption>
                             <thead>
-                                <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
-                                    <th scope="col" className="w-56 py-2 pl-4 pr-3 font-medium">
+                                <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
+                                    <th scope="col" className="w-56 py-2 pl-4 pr-3 font-semibold">
                                         System module
                                     </th>
                                     {PERMISSION_COLUMNS.map((col) => (
-                                        <th key={col.field} scope="col" className="px-3 py-2 text-center font-medium">
+                                        <th key={col.field} scope="col" className="px-3 py-2 text-center font-semibold">
                                             {col.label}
                                         </th>
                                     ))}

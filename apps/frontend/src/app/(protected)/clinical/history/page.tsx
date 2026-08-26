@@ -317,7 +317,7 @@ export default function ClinicalHistoryPage() {
             {exportNotice && (
                 <div
                     role={exportNotice.tone === "error" ? "alert" : "status"}
-                    className={`mb-4 flex items-start gap-2 rounded-md border px-4 py-2.5 text-[13px] ${EXPORT_NOTICE_STYLES[exportNotice.tone]}`}
+                    className={`mb-4 flex items-start gap-2 rounded-md border px-4 py-2.5 text-sm ${EXPORT_NOTICE_STYLES[exportNotice.tone]}`}
                 >
                     {exportNotice.tone === "error" ? (
                         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
@@ -363,7 +363,7 @@ export default function ClinicalHistoryPage() {
                         </SelectField>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-xs font-medium text-fg-muted">Period</span>
+                        <span className="text-xs font-semibold text-fg-muted">Period</span>
                         <SegmentedControl
                             ariaLabel="Period"
                             size="sm"
@@ -432,32 +432,32 @@ export default function ClinicalHistoryPage() {
                             group + Priority) / 1152 (lg, adds Performed by), the Case action column
                             included. min-w must stay >= sum + 160 so the auto Notes column keeps a
                             readable floor; the card's overflow-x-auto scrolls below that. */}
-                        <table className="w-full min-w-[960px] table-fixed text-left text-[13px] md:min-w-[1200px] lg:min-w-[1340px]">
+                        <table className="w-full min-w-[960px] table-fixed text-left text-sm md:min-w-[1200px] lg:min-w-[1340px]">
                             <caption className="sr-only">Clinical history entries</caption>
                             <thead>
-                                <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
-                                    <th scope="col" className="w-44 py-2 pl-4 pr-3 font-medium">
+                                <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
+                                    <th scope="col" className="w-44 py-2 pl-4 pr-3 font-semibold">
                                         Result ID
                                     </th>
-                                    <th scope="col" className="w-44 px-3 py-2 font-medium">
+                                    <th scope="col" className="w-44 px-3 py-2 font-semibold">
                                         Patient
                                     </th>
-                                    <th scope="col" className="hidden w-36 px-3 py-2 font-medium md:table-cell">
+                                    <th scope="col" className="hidden w-36 px-3 py-2 font-semibold md:table-cell">
                                         Test group
                                     </th>
-                                    <th scope="col" className="w-48 px-3 py-2 font-medium">
+                                    <th scope="col" className="w-48 px-3 py-2 font-semibold">
                                         Action
                                     </th>
-                                    <th scope="col" className="hidden w-24 px-3 py-2 font-medium md:table-cell">
+                                    <th scope="col" className="hidden w-24 px-3 py-2 font-semibold md:table-cell">
                                         Priority
                                     </th>
-                                    <th scope="col" className="hidden w-32 px-3 py-2 font-medium lg:table-cell">
+                                    <th scope="col" className="hidden w-32 px-3 py-2 font-semibold lg:table-cell">
                                         Performed by
                                     </th>
-                                    <th scope="col" className="px-3 py-2 font-medium">
+                                    <th scope="col" className="px-3 py-2 font-semibold">
                                         Notes
                                     </th>
-                                    <th scope="col" className="w-36 py-2 pl-3 pr-4 font-medium">
+                                    <th scope="col" className="w-36 py-2 pl-3 pr-4 font-semibold">
                                         Case
                                     </th>
                                 </tr>

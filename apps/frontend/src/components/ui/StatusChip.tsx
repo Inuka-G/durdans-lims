@@ -45,8 +45,8 @@ export default function StatusChip({
         <span
             title={title}
             className={cn(
-                "inline-flex max-w-full items-center gap-1.5 whitespace-nowrap rounded font-medium ring-1 ring-inset",
-                size === "sm" ? "px-1.5 py-px text-[11px]" : "px-2 py-0.5 text-xs",
+                "inline-flex max-w-full items-center gap-1.5 whitespace-nowrap rounded-full font-semibold ring-1 ring-inset",
+                size === "sm" ? "px-1.5 py-px text-[12px]" : "px-2 py-0.5 text-xs",
                 t.chip,
                 className
             )}

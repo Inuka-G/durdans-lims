@@ -66,7 +66,7 @@ function AdoptionMeter({ label, value, tone }: { label: string; value: number; t
     return (
         <div>
             <div className="mb-1.5 flex items-end justify-between gap-2">
-                <span id={labelId} className="text-[13px] font-medium text-fg-secondary">
+                <span id={labelId} className="text-sm font-medium text-fg-secondary">
                     {label}
                 </span>
                 <span className="text-sm font-semibold tabular-nums text-fg">{value}%</span>
@@ -263,7 +263,7 @@ export default function TwoFactorPolicyPage() {
                     <div role="note" className="flex items-start gap-3 rounded-lg border border-edge bg-primary-soft p-4">
                         <Info className="mt-0.5 h-5 w-5 shrink-0 text-primary-strong" aria-hidden="true" />
                         <div className="min-w-0">
-                            <p className="text-[13px] font-semibold text-fg">Policy synchronisation</p>
+                            <p className="text-sm font-semibold text-fg">Policy synchronisation</p>
                             <p className="mt-1 text-xs leading-relaxed text-fg-secondary">
                                 2FA enforcements take immediate effect and may terminate active workflow sessions for non-compliant users.
                             </p>

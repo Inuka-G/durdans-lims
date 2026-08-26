@@ -91,7 +91,7 @@ export default function SegmentedControl<T extends string>({
                         onClick={() => onChange(opt.value)}
                         className={cn(
                             "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[5px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
-                            size === "sm" ? "px-2 py-0.5 text-xs" : "px-2.5 py-1 text-[13px]",
+                            size === "sm" ? "px-2 py-0.5 text-xs" : "px-2.5 py-1 text-sm",
                             active
                                 ? "bg-surface text-fg shadow-[0_1px_0_rgba(15,23,42,0.06)] ring-1 ring-edge"
                                 : "text-fg-muted hover:text-fg"
@@ -101,7 +101,7 @@ export default function SegmentedControl<T extends string>({
                         {opt.count !== undefined && (
                             <span
                                 className={cn(
-                                    "rounded-full px-1.5 text-[11px] tabular-nums",
+                                    "rounded-full px-1.5 text-[12px] tabular-nums",
                                     active ? "bg-surface-hover text-fg-secondary" : "bg-edge text-fg-secondary"
                                 )}
                             >

@@ -61,7 +61,7 @@ function ReportStatusChip({ status }: { status?: string | null }) {
         <span
             title={label}
             className={cn(
-                "inline-flex items-center gap-1.5 whitespace-nowrap rounded px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset",
+                "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-0.5 text-[12px] font-semibold ring-1 ring-inset",
                 chip
             )}
         >
@@ -213,19 +213,19 @@ export default function PatientReportsTab() {
                      * id 108.8px, test 173.6px, "16 Aug 2026 09:12" 128px, "Partially delivered"
                      * chip 143px, View button 76px.
                      */}
-                    <table className="w-full min-w-[760px] table-fixed text-left text-[13px]">
+                    <table className="w-full min-w-[760px] table-fixed text-left text-sm">
                         <thead>
-                            <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
-                                <th scope="col" className="w-[18%] py-2 pl-4 pr-3 font-medium">
+                            <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
+                                <th scope="col" className="w-[18%] py-2 pl-4 pr-3 font-semibold">
                                     Report id
                                 </th>
-                                <th scope="col" className="w-[26%] px-3 py-2 font-medium">
+                                <th scope="col" className="w-[26%] px-3 py-2 font-semibold">
                                     Test
                                 </th>
-                                <th scope="col" className="w-[20%] px-3 py-2 font-medium">
+                                <th scope="col" className="w-[20%] px-3 py-2 font-semibold">
                                     Authorised
                                 </th>
-                                <th scope="col" className="w-[22%] px-3 py-2 font-medium">
+                                <th scope="col" className="w-[22%] px-3 py-2 font-semibold">
                                     Status
                                 </th>
                                 <th scope="col" className="w-24 py-2 pl-2 pr-3 text-right">
