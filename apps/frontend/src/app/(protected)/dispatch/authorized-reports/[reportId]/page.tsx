@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter, useParams } from "next/navigation";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -30,6 +30,7 @@ import {
     dispatchReport,
     markDispatchAttemptDelivered,
     type ApiDeliveryMethod,
+    type DeliveryAttempt,
     type DispatchItemDetail,
 } from "@/lib/api";
 import { formatDisplayId } from "@/lib/format-id";
@@ -42,13 +43,22 @@ import StatusChip, { humanizeStatus, toneForStatus } from "@/components/ui/Statu
 import { InputField, TextareaField } from "@/components/ui/Field";
 import { formatAuditTime, formatPhone, formatRegistered } from "@/components/patient-dashboard/dashboard-data";
 
+const AVAILABLE_DELIVERY_METHODS: ApiDeliveryMethod[] = [
+    "EMAIL",
+    "SMS",
+    "PRINT",
+    "POST",
+    "WHATSAPP",
+    "PORTAL",
+];
+
 const methodConfig: Record<ApiDeliveryMethod, { icon: LucideIcon; label: string; detail: string }> = {
     EMAIL: { icon: Mail, label: "Email", detail: "Patient's email address" },
-    SMS: { icon: Smartphone, label: "SMS", detail: "Text message" },
-    WHATSAPP: { icon: MessageCircle, label: "WhatsApp", detail: "Document link" },
-    POST: { icon: Truck, label: "Post", detail: "Tracked delivery" },
-    PRINT: { icon: Printer, label: "Print", detail: "Lab printer 2" },
-    PORTAL: { icon: Globe, label: "Patient portal", detail: "portal.durdans.lk" },
+    SMS: { icon: Smartphone, label: "SMS", detail: "Text message delivery" },
+    PRINT: { icon: Printer, label: "Print", detail: "Front-desk counter pickup" },
+    POST: { icon: Truck, label: "Post", detail: "Tracked postal delivery" },
+    WHATSAPP: { icon: MessageCircle, label: "WhatsApp", detail: "WhatsApp document link" },
+    PORTAL: { icon: Globe, label: "Patient portal", detail: "portal.durdans.lk release" },
 };
 
 const DISPATCH_CRUMBS: Crumb[] = [
@@ -293,6 +303,17 @@ export default function AuthorizedReportPage() {
     const [markingAttemptId, setMarkingAttemptId] = useState<string | null>(null);
     const [dispatchNotice, setDispatchNotice] = useState<DispatchNotice | null>(null);
 
+    // Show the latest attempt per delivery channel for a clean and clear view (placed at top before early returns)
+    const rawAttempts = detail?.attempts;
+    const attempts = useMemo(() => {
+        if (!rawAttempts || rawAttempts.length === 0) return [];
+        const map = new Map<ApiDeliveryMethod, DeliveryAttempt>();
+        rawAttempts.forEach((attempt) => {
+            map.set(attempt.method, attempt);
+        });
+        return Array.from(map.values());
+    }, [rawAttempts]);
+
     const load = useCallback(async () => {
         setLoadError("");
         try {
@@ -344,11 +365,14 @@ export default function AuthorizedReportPage() {
             });
             setDetail(updated);
             setReportData(mapDetailToReportData(updated));
-            setDispatched(updated.overallStatus === "DELIVERED");
-            setDispatchFailed(false);
             const notice = buildDispatchNotice(updated, selectedMethods);
             setDispatchNotice(notice);
             showDispatchNotice(notice);
+
+            // Redirect back to Dispatch worklist
+            setTimeout(() => {
+                router.push("/dispatch/dashboard");
+            }, 800);
         } catch (e) {
             console.error(e);
             setDispatchFailed(true);
@@ -465,78 +489,89 @@ export default function AuthorizedReportPage() {
     }
 
     // ── PDF Download ──────────────────────────────────────────
+    // ── PDF Download ──────────────────────────────────────────
     const handleDownloadPDF = () => {
+        if (!reportData) return;
         const doc = new jsPDF();
         const pageWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
 
-        // ── Header Background ──
-        doc.setFillColor(30, 111, 217);
-        doc.rect(0, 0, pageWidth, 38, "F");
+        // ── Top Header Banner ──
+        doc.setFillColor(11, 31, 58); // Professional Durdans Navy
+        doc.rect(0, 0, pageWidth, 36, "F");
 
-        // ── Hospital Name ──
+        // ── Hospital Brand ──
         doc.setTextColor(255, 255, 255);
         doc.setFontSize(16);
         doc.setFont("helvetica", "bold");
         doc.text(hospitalInfo.name.toUpperCase(), 14, 13);
 
-        // ── Tagline ──
+        // ── Tagline & Accreditation ──
         doc.setFontSize(8);
         doc.setFont("helvetica", "normal");
-        doc.setTextColor(200, 220, 255);
-        doc.text(hospitalInfo.tagline, 14, 19);
+        doc.setTextColor(190, 215, 250);
+        doc.text(hospitalInfo.tagline, 14, 18.5);
 
-        // ── Lab Name ──
-        doc.setFontSize(9);
+        doc.setFontSize(8.5);
+        doc.setFont("helvetica", "bold");
         doc.setTextColor(255, 255, 255);
-        doc.text(hospitalInfo.labName, 14, 26);
-        doc.setFontSize(7);
-        doc.setTextColor(200, 220, 255);
-        doc.text(hospitalInfo.labAccreditation, 14, 31);
+        doc.text(hospitalInfo.labName, 14, 25);
 
-        // ── Report ID on right ──
+        doc.setFontSize(7);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(190, 215, 250);
+        doc.text(hospitalInfo.labAccreditation, 14, 30);
+
+        // ── Report ID & Reg No on Right ──
         doc.setFontSize(8);
+        doc.setFont("helvetica", "bold");
         doc.setTextColor(255, 255, 255);
         doc.text(`Report ID: ${reportData.reportId}`, pageWidth - 14, 13, { align: "right" });
-        doc.text(`Reg No: ${hospitalInfo.regNo}`, pageWidth - 14, 19, { align: "right" });
+        doc.setFontSize(7.5);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(190, 215, 250);
+        doc.text(`Reg No: ${hospitalInfo.regNo}`, pageWidth - 14, 18.5, { align: "right" });
 
-        // ── AUTHORIZED badge ──
-        doc.setFillColor(255, 255, 255, 0.3);
-        doc.setDrawColor(255, 255, 255);
-        doc.roundedRect(pageWidth - 46, 23, 32, 8, 2, 2, "S");
-        doc.setFontSize(7);
+        // ── AUTHORIZED Badge (Clean ASCII) ──
+        doc.setFillColor(255, 255, 255, 0.15);
+        doc.setDrawColor(59, 130, 246);
+        doc.roundedRect(pageWidth - 52, 22, 38, 9, 2, 2, "FD");
+        doc.setFontSize(7.5);
         doc.setFont("helvetica", "bold");
-        doc.text("✓ AUTHORIZED", pageWidth - 30, 28.5, { align: "center" });
+        doc.setTextColor(255, 255, 255);
+        doc.text("AUTHORIZED", pageWidth - 33, 27.5, { align: "center" });
 
-        // ── Contact info row ──
-        doc.setFillColor(240, 246, 255);
-        doc.rect(0, 38, pageWidth, 10, "F");
+        // ── Contact Info Strip (Strict ASCII to avoid glyph corruptions) ──
+        doc.setFillColor(241, 245, 249);
+        doc.rect(0, 36, pageWidth, 9, "F");
         doc.setFontSize(7);
         doc.setFont("helvetica", "normal");
-        doc.setTextColor(70, 100, 150);
-        doc.text(`📍 ${hospitalInfo.address}`, 14, 44);
-        doc.text(`📞 ${hospitalInfo.phone}  |  🌐 ${hospitalInfo.website}  |  ✉ ${hospitalInfo.email}`, pageWidth / 2, 44, { align: "center" });
+        doc.setTextColor(51, 65, 85);
+        const contactLine = `${hospitalInfo.address}   |   Tel: ${hospitalInfo.phone}   |   Web: ${hospitalInfo.website}   |   Email: ${hospitalInfo.email}`;
+        doc.text(contactLine, pageWidth / 2, 42, { align: "center" });
 
         // ── Divider ──
-        doc.setDrawColor(226, 232, 240);
-        doc.setLineWidth(0.3);
-        doc.line(14, 50, pageWidth - 14, 50);
+        doc.setDrawColor(203, 213, 225);
+        doc.setLineWidth(0.4);
+        doc.line(14, 47, pageWidth - 14, 47);
 
         // ── Test Name Title ──
-        doc.setFontSize(12);
+        doc.setFontSize(13);
         doc.setFont("helvetica", "bold");
-        doc.setTextColor(30, 41, 59);
-        doc.text(reportData.testName, 14, 58);
+        doc.setTextColor(11, 31, 58);
+        doc.text(reportData.testName, 14, 55);
 
-        // ── Patient Info Box ──
+        // ── Patient Info Box (Left Column) ──
+        const colWidth = (pageWidth - 34) / 2;
         doc.setFillColor(248, 250, 252);
-        doc.roundedRect(14, 62, (pageWidth - 32) / 2 - 4, 44, 2, 2, "F");
+        doc.roundedRect(14, 59, colWidth, 44, 2, 2, "F");
         doc.setDrawColor(226, 232, 240);
-        doc.roundedRect(14, 62, (pageWidth - 32) / 2 - 4, 44, 2, 2, "S");
+        doc.roundedRect(14, 59, colWidth, 44, 2, 2, "S");
 
-        doc.setFontSize(7);
+        doc.setFontSize(7.5);
         doc.setFont("helvetica", "bold");
-        doc.setTextColor(100, 116, 139);
-        doc.text("PATIENT INFORMATION", 18, 68);
+        doc.setTextColor(71, 85, 105);
+        doc.text("PATIENT INFORMATION", 18, 65);
 
         const patientFields = [
             ["Name", reportData.patientName],
@@ -547,28 +582,30 @@ export default function AuthorizedReportPage() {
             ["Ward / Dept", reportData.ward],
         ];
 
-        doc.setFont("helvetica", "normal");
         patientFields.forEach(([label, value], i) => {
-            const y = 74 + i * 5.5;
-            doc.setTextColor(148, 163, 184);
+            const y = 71 + i * 5.3;
+            doc.setFont("helvetica", "normal");
+            doc.setTextColor(100, 116, 139);
             doc.setFontSize(7);
             doc.text(label, 18, y);
-            doc.setTextColor(30, 41, 59);
+
+            doc.setFont("helvetica", i < 2 ? "bold" : "normal");
+            doc.setTextColor(15, 23, 42);
             doc.setFontSize(7.5);
             doc.text(value, 52, y);
         });
 
-        // ── Report Info Box ──
-        const col2X = 14 + (pageWidth - 32) / 2 + 4;
+        // ── Report Info Box (Right Column) ──
+        const col2X = 14 + colWidth + 6;
         doc.setFillColor(248, 250, 252);
-        doc.roundedRect(col2X, 62, (pageWidth - 32) / 2 - 4, 44, 2, 2, "F");
+        doc.roundedRect(col2X, 59, colWidth, 44, 2, 2, "F");
         doc.setDrawColor(226, 232, 240);
-        doc.roundedRect(col2X, 62, (pageWidth - 32) / 2 - 4, 44, 2, 2, "S");
+        doc.roundedRect(col2X, 59, colWidth, 44, 2, 2, "S");
 
-        doc.setFontSize(7);
+        doc.setFontSize(7.5);
         doc.setFont("helvetica", "bold");
-        doc.setTextColor(100, 116, 139);
-        doc.text("REPORT INFORMATION", col2X + 4, 68);
+        doc.setTextColor(71, 85, 105);
+        doc.text("REPORT INFORMATION", col2X + 4, 65);
 
         const reportFields = [
             ["Sample ID", reportData.sampleId],
@@ -579,25 +616,27 @@ export default function AuthorizedReportPage() {
             ["Auth. Time", reportData.authorizedTime],
         ];
 
-        doc.setFont("helvetica", "normal");
         reportFields.forEach(([label, value], i) => {
-            const y = 74 + i * 5.5;
-            doc.setTextColor(148, 163, 184);
+            const y = 71 + i * 5.3;
+            doc.setFont("helvetica", "normal");
+            doc.setTextColor(100, 116, 139);
             doc.setFontSize(7);
             doc.text(label, col2X + 4, y);
-            doc.setTextColor(30, 41, 59);
+
+            doc.setFont("helvetica", i === 0 || i === 4 ? "bold" : "normal");
+            doc.setTextColor(15, 23, 42);
             doc.setFontSize(7.5);
             doc.text(value, col2X + 28, y);
         });
 
-        // ── Results Table ──
+        // ── Results Table Header ──
         doc.setFontSize(9);
         doc.setFont("helvetica", "bold");
-        doc.setTextColor(30, 41, 59);
-        doc.text("TEST RESULTS", 14, 116);
+        doc.setTextColor(11, 31, 58);
+        doc.text("TEST RESULTS", 14, 112);
 
         autoTable(doc, {
-            startY: 119,
+            startY: 115,
             head: [["Parameter", "Result", "Unit", "Flag", "Reference Range"]],
             body: reportData.results.map((r) => [
                 r.parameter,
@@ -608,7 +647,7 @@ export default function AuthorizedReportPage() {
             ]),
             theme: "grid",
             headStyles: {
-                fillColor: [30, 111, 217],
+                fillColor: [11, 31, 58],
                 textColor: [255, 255, 255],
                 fontSize: 8,
                 fontStyle: "bold",
@@ -620,6 +659,7 @@ export default function AuthorizedReportPage() {
                 textColor: [30, 41, 59],
             },
             columnStyles: {
+                0: { fontStyle: "bold" },
                 1: { fontStyle: "bold" },
                 3: { halign: "center" },
             },
@@ -628,7 +668,7 @@ export default function AuthorizedReportPage() {
                     const row = reportData.results[data.row.index];
                     if (row?.isAbnormal) {
                         data.cell.styles.textColor = [220, 38, 38];
-                        data.cell.styles.fillColor = [255, 248, 248];
+                        data.cell.styles.fillColor = [254, 242, 242];
                     }
                 }
             },
@@ -636,55 +676,58 @@ export default function AuthorizedReportPage() {
         });
 
         // ── Clinical Note ──
-        const finalY = ((doc as JsPdfWithAutoTable).lastAutoTable?.finalY ?? 119) + 8;
-        doc.setFillColor(255, 251, 235);
-        doc.setDrawColor(253, 230, 138);
-        doc.roundedRect(14, finalY, pageWidth - 28, 20, 2, 2, "FD");
+        const finalY = ((doc as JsPdfWithAutoTable).lastAutoTable?.finalY ?? 115) + 6;
+        if (reportData.clinicalNote && reportData.clinicalNote !== "N/A") {
+            doc.setFillColor(255, 251, 235);
+            doc.setDrawColor(253, 230, 138);
+            doc.roundedRect(14, finalY, pageWidth - 28, 18, 2, 2, "FD");
 
-        doc.setFontSize(7);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(146, 64, 14);
-        doc.text("CLINICAL NOTE", 18, finalY + 6);
+            doc.setFontSize(7);
+            doc.setFont("helvetica", "bold");
+            doc.setTextColor(146, 64, 14);
+            doc.text("CLINICAL NOTE", 18, finalY + 5.5);
 
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(8);
-        doc.setTextColor(120, 53, 15);
-        const splitNote = doc.splitTextToSize(reportData.clinicalNote, pageWidth - 36);
-        doc.text(splitNote, 18, finalY + 12);
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(7.5);
+            doc.setTextColor(120, 53, 15);
+            const splitNote = doc.splitTextToSize(reportData.clinicalNote, pageWidth - 36);
+            doc.text(splitNote, 18, finalY + 11.5);
+        }
 
-        // ── Signature ──
-        const sigY = finalY + 30;
+        // ── Signature & Authorization Stamp ──
+        const sigY = pageHeight - 34;
         doc.setDrawColor(226, 232, 240);
+        doc.setLineWidth(0.4);
         doc.line(14, sigY, pageWidth - 14, sigY);
 
         doc.setFontSize(7);
         doc.setFont("helvetica", "normal");
-        doc.setTextColor(148, 163, 184);
+        doc.setTextColor(100, 116, 139);
         doc.text("This report is digitally authorized and is valid without a physical signature.", 14, sigY + 6);
+        doc.text("Interpret results in conjunction with patient history and clinical findings.", 14, sigY + 10.5);
 
-        doc.setFont("helvetica", "italic");
-        doc.setFontSize(12);
-        doc.setTextColor(30, 111, 217);
-        doc.text(reportData.authorizedBy, pageWidth - 14, sigY + 5, { align: "right" });
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(11);
+        doc.setTextColor(11, 31, 58);
+        doc.text(reportData.authorizedBy, pageWidth - 14, sigY + 6, { align: "right" });
 
         doc.setFont("helvetica", "normal");
-        doc.setFontSize(7);
-        doc.setTextColor(148, 163, 184);
-        doc.text("Authorized Pathologist", pageWidth - 14, sigY + 10, { align: "right" });
+        doc.setFontSize(7.5);
+        doc.setTextColor(100, 116, 139);
+        doc.text("Authorized Pathologist & Head of Lab", pageWidth - 14, sigY + 11, { align: "right" });
 
         // ── Footer ──
-        const footerY = doc.internal.pageSize.getHeight() - 10;
-        doc.setFillColor(30, 111, 217);
-        doc.rect(0, footerY - 4, pageWidth, 14, "F");
-        doc.setFontSize(7);
+        const footerY = pageHeight - 9;
+        doc.setFillColor(11, 31, 58);
+        doc.rect(0, footerY - 3, pageWidth, 12, "F");
+        doc.setFontSize(6.5);
         doc.setFont("helvetica", "normal");
         doc.setTextColor(255, 255, 255);
-        doc.text(`${hospitalInfo.name}  •  ${hospitalInfo.address}  •  ${hospitalInfo.phone}`, pageWidth / 2, footerY + 3, { align: "center" });
+        doc.text(`${hospitalInfo.name}   |   ${hospitalInfo.address}   |   ${hospitalInfo.phone}   |   Confidential Medical Report`, pageWidth / 2, footerY + 3, { align: "center" });
 
         doc.save(`${reportData.reportId}_${reportData.patientName.replace(/ /g, "_")}.pdf`);
     };
 
-    const attempts = detail?.attempts ?? [];
     const overallStatus = detail?.overallStatus ?? "PENDING";
     const authorizedDate = toDate(detail?.authorizedAt);
     const dispatchLabel = dispatching
@@ -1053,7 +1096,7 @@ export default function AuthorizedReportPage() {
                         <fieldset>
                             <legend className="sr-only">Select delivery methods</legend>
                             <div className="flex flex-col gap-2">
-                                {(["SMS", "EMAIL"] as ApiDeliveryMethod[]).map((method) => {
+                                {AVAILABLE_DELIVERY_METHODS.map((method) => {
                                     const m = methodConfig[method];
                                     const MethodIcon = m.icon;
                                     const isSelected = selectedMethods.includes(method);
@@ -1100,55 +1143,99 @@ export default function AuthorizedReportPage() {
                         </fieldset>
 
                         <div className="mt-4 space-y-3 border-t border-edge pt-4">
-                            {selectedMethods.includes("EMAIL") && (
-                                <InputField
-                                    label="Email override"
-                                    type="email"
-                                    value={overrideEmail}
-                                    onChange={(e) => setOverrideEmail(e.target.value)}
-                                    hint="Uses the patient's email if blank"
-                                />
+                            {/* PRINT details & Action */}
+                            {selectedMethods.includes("PRINT") && (
+                                <div className="rounded-md border border-edge bg-surface-muted p-3">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <div className="min-w-0">
+                                            <span className="block text-xs font-semibold text-fg">Physical Report Printout</span>
+                                            <span className="block text-xs text-fg-muted">Durdans Hospital Official Letterhead</span>
+                                        </div>
+                                        <Button size="sm" icon={Printer} onClick={handleDownloadPDF}>
+                                            Print report
+                                        </Button>
+                                    </div>
+                                </div>
                             )}
-                            {selectedMethods.includes("SMS") && (
-                                <InputField
-                                    label="SMS number"
-                                    type="tel"
-                                    value={overridePhone}
-                                    onChange={(e) => setOverridePhone(e.target.value)}
-                                    hint="Uses the patient's phone if blank"
-                                />
-                            )}
-                            {selectedMethods.includes("WHATSAPP") && (
-                                <InputField
-                                    label="WhatsApp number"
-                                    type="tel"
-                                    value={overrideWhatsappPhone}
-                                    onChange={(e) => setOverrideWhatsappPhone(e.target.value)}
-                                    hint="Uses the SMS or patient phone if blank"
-                                />
-                            )}
+
+                            {/* POST details & Action */}
                             {selectedMethods.includes("POST") && (
-                                <div className="space-y-3">
+                                <div className="space-y-3 rounded-md border border-edge bg-surface-muted p-3">
+                                    <div className="flex items-center justify-between gap-2 border-b border-edge pb-2.5">
+                                        <div className="min-w-0">
+                                            <span className="block text-xs font-semibold text-fg">Postal / Courier Package</span>
+                                            <span className="block text-xs text-fg-muted">Print physical copy for envelope</span>
+                                        </div>
+                                        <Button size="sm" icon={Printer} onClick={handleDownloadPDF}>
+                                            Print report
+                                        </Button>
+                                    </div>
                                     <TextareaField
-                                        label="Postal address"
+                                        label="Delivery postal address"
                                         value={postalAddress}
                                         onChange={(e) => setPostalAddress(e.target.value)}
-                                        rows={3}
-                                        hint="Uses the patient's address if blank"
+                                        rows={2}
+                                        placeholder="e.g. No. 45, Alfred Place, Colombo 03"
+                                        hint="Uses patient registered address if blank"
                                     />
                                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                                         <InputField
-                                            label="Post service"
+                                            label="Postal / Courier service"
                                             value={postalService}
                                             onChange={(e) => setPostalService(e.target.value)}
+                                            placeholder="e.g. Sri Lanka Post / Pronto"
                                         />
                                         <InputField
-                                            label="Tracking number"
+                                            label="Tracking / Waybill number"
                                             value={trackingNumber}
                                             onChange={(e) => setTrackingNumber(e.target.value)}
-                                            hint="Generated automatically if blank"
+                                            placeholder="e.g. SLP-2026-9812"
+                                            hint="Auto-generated if blank"
                                         />
                                     </div>
+                                </div>
+                            )}
+
+                            {/* EMAIL override */}
+                            {selectedMethods.includes("EMAIL") && (
+                                <InputField
+                                    label="Alternate / Override Email"
+                                    type="email"
+                                    value={overrideEmail}
+                                    onChange={(e) => setOverrideEmail(e.target.value)}
+                                    placeholder="e.g. alternate@example.com"
+                                    hint="Uses registered patient email if blank"
+                                />
+                            )}
+
+                            {/* SMS override */}
+                            {selectedMethods.includes("SMS") && (
+                                <InputField
+                                    label="Alternate / Override Phone Number"
+                                    type="tel"
+                                    value={overridePhone}
+                                    onChange={(e) => setOverridePhone(e.target.value)}
+                                    placeholder="e.g. +94 77 123 4567"
+                                    hint="Uses registered patient phone if blank"
+                                />
+                            )}
+
+                            {/* WHATSAPP override */}
+                            {selectedMethods.includes("WHATSAPP") && (
+                                <InputField
+                                    label="Alternate / Override WhatsApp Number"
+                                    type="tel"
+                                    value={overrideWhatsappPhone}
+                                    onChange={(e) => setOverrideWhatsappPhone(e.target.value)}
+                                    placeholder="e.g. +94 77 123 4567"
+                                    hint="Uses patient phone if blank"
+                                />
+                            )}
+
+                            {/* PORTAL note */}
+                            {selectedMethods.includes("PORTAL") && (
+                                <div className="rounded-md border border-edge bg-surface-muted p-2.5 text-xs text-fg-secondary">
+                                    🌐 Report will be released to the <span className="font-semibold text-fg">portal.durdans.lk</span> patient account.
                                 </div>
                             )}
                         </div>

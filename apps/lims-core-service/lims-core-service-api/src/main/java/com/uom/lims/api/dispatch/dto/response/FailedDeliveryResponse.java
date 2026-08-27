@@ -18,9 +18,12 @@ public class FailedDeliveryResponse {
     private UUID attemptId;
     private String reportId;
     private String patientName;
+    private String patientCode;
     private String testName;
     private DeliveryMethod method;
     private String failureReason;
     private String failedDateTime;
     private int retryCount;
+    private String dispatchedBy;
+    private String recipientContact;
 }

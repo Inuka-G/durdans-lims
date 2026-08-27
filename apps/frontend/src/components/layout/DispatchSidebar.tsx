@@ -1,6 +1,6 @@
 "use client";
 
-import { BadgeCheck, CircleAlert, LayoutDashboard, Truck } from "lucide-react";
+import { BadgeCheck, CircleAlert, History, LayoutDashboard } from "lucide-react";
 import ModuleSidebar, { type SidebarGroup } from "@/components/ui/ModuleSidebar";
 
 /** Report dispatch module navigation. */
@@ -8,10 +8,30 @@ const GROUPS: SidebarGroup[] = [
     {
         label: "Report dispatch",
         items: [
-            { name: "Dispatch dashboard", icon: LayoutDashboard, href: "/dispatch/dashboard" },
-            { name: "Delivery status", icon: Truck, href: "/dispatch/delivery-status" },
-            { name: "Failed deliveries", icon: CircleAlert, href: "/dispatch/failed-deliveries" },
-            { name: "Authorized reports", icon: BadgeCheck, href: "/dispatch/authorized-reports" },
+            {
+                name: "Dispatch worklist",
+                icon: LayoutDashboard,
+                href: "/dispatch/dashboard",
+                isActive: (pathname) => pathname === "/dispatch/dashboard" || pathname === "/dispatch",
+            },
+            {
+                name: "Review report",
+                icon: BadgeCheck,
+                href: "/dispatch/authorized-reports",
+                isActive: (pathname) => pathname.startsWith("/dispatch/authorized-reports"),
+            },
+            {
+                name: "Delivery history",
+                icon: History,
+                href: "/dispatch/delivery-status",
+                isActive: (pathname) => pathname === "/dispatch/delivery-status",
+            },
+            {
+                name: "Failed deliveries",
+                icon: CircleAlert,
+                href: "/dispatch/failed-deliveries",
+                isActive: (pathname) => pathname === "/dispatch/failed-deliveries",
+            },
         ],
     },
 ];

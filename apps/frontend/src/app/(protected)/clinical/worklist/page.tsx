@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { getPendingClinicalResults, TestResultSummary } from "@/lib/api";
 import { displayResultNo } from "@/lib/result-display";
+import { formatDisplayId } from "@/lib/format-id";
 import {
     FLAG_FILTER_OPTIONS,
     PRIORITY_FILTER_OPTIONS,
@@ -452,7 +453,7 @@ export default function ClinicalWorklistPage() {
                                             <td className="py-2 pl-4 pr-3">
                                                 <div
                                                     className="flex items-center gap-1.5 truncate font-mono text-xs font-medium text-fg"
-                                                    title={result.resultId}
+                                                    title={displayId}
                                                 >
                                                     {critical && (
                                                         <>
@@ -482,8 +483,8 @@ export default function ClinicalWorklistPage() {
                                                     {result.patientName || "Unknown patient"}
                                                 </p>
                                                 {result.patientCode && (
-                                                    <p className="truncate font-mono text-xs text-fg-muted" title={result.patientCode}>
-                                                        {result.patientCode}
+                                                    <p className="truncate font-mono text-xs text-fg-muted" title={formatDisplayId(result.patientCode, "PAT")}>
+                                                        {formatDisplayId(result.patientCode, "PAT")}
                                                     </p>
                                                 )}
                                             </td>
