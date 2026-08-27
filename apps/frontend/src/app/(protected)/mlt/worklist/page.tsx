@@ -7,16 +7,19 @@ import {
     ArrowRight,
     CheckCircle2,
     ClipboardList,
+    Clock,
     FlaskConical,
     Microscope,
     RefreshCw,
     SearchX,
+    Siren,
     X,
 } from 'lucide-react';
 import { getMltWorklist, type MltWorklistItem } from '@/lib/api';
 import Button from '@/components/ui/Button';
 import PageHeader from '@/components/ui/PageHeader';
 import { InputField, SelectField } from '@/components/ui/Field';
+import SegmentedControl, { type SegmentOption } from '@/components/ui/SegmentedControl';
 import SectionCard from '@/components/ui/SectionCard';
 import EmptyState from '@/components/ui/EmptyState';
 import Pagination from '@/components/ui/Pagination';
@@ -26,6 +29,13 @@ import PriorityBadge from '@/components/shared/PriorityBadge';
 
 const PAGE_SIZE = 8;
 const SKELETON_ROWS = 6;
+
+const PRIORITY_OPTIONS: SegmentOption<string>[] = [
+    { value: 'ALL', label: 'All priorities' },
+    { value: 'STAT', label: 'STAT' },
+    { value: 'URGENT', label: 'Urgent' },
+    { value: 'NORMAL', label: 'Normal' },
+];
 
 /** Option values stay unchanged so the filter logic keeps matching; only the label is sentence case. */
 const OPTION_LABELS: Record<string, string> = {
@@ -49,6 +59,41 @@ function sampleStatusTone(status: string): ChipTone {
     return MLT_STATUS_TONE[key] ?? toneForStatus(key);
 }
 
+/**
+ * Clinical Priority Score with Dynamic Aging & Starvation Prevention:
+ * Tier 0-49:   STAT Emergency samples (ICU/ETU) - Always Top Priority
+ * Tier 50-89:  Aged/Overdue samples (Normal > 4h or Urgent > 1.5h - Specimen stability risk)
+ * Tier 100-199: Standard Urgent samples
+ * Tier 200+:   Standard Routine Normal samples
+ */
+function getClinicalPriorityScore(sample: MltWorklistItem, now: number): number {
+    const collectedTime = sample.collectedAt ? new Date(sample.collectedAt).getTime() : 0;
+    const elapsedMinutes = collectedTime > 0 ? Math.max(0, Math.floor((now - collectedTime) / 60000)) : 0;
+
+    if (sample.priority === 'STAT') {
+        return 0;
+    }
+
+    if (sample.priority === 'URGENT') {
+        // Urgent approaching SLA (> 90 mins) escalates to near-STAT tier
+        if (elapsedMinutes >= 90) {
+            return 50;
+        }
+        return 100;
+    }
+
+    // NORMAL samples: Specimen stability risk (> 360 mins / 6h) escalates to Tier 40 (Critical stability)
+    if (elapsedMinutes >= 360) {
+        return 40;
+    }
+    // Specimen delay risk (> 240 mins / 4h) escalates to Tier 80 (Urgent Aging)
+    if (elapsedMinutes >= 240) {
+        return 80;
+    }
+
+    return 200;
+}
+
 export default function MLTWorklistPage() {
     const router = useRouter();
     const pathname = usePathname();
@@ -56,6 +101,7 @@ export default function MLTWorklistPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
+    const [priorityFilter, setPriorityFilter] = useState('ALL');
     const [testTypeFilter, setTestTypeFilter] = useState('All Test Types');
     const [currentPage, setCurrentPage] = useState(1);
 
@@ -85,8 +131,9 @@ export default function MLTWorklistPage() {
 
     const filteredSamples = useMemo(() => {
         const query = searchQuery.trim().toLowerCase();
+        const now = Date.now();
 
-        return samples.filter((sample) => {
+        const filtered = samples.filter((sample) => {
             const matchesSearch =
                 query.length === 0 ||
                 sample.barcode.toLowerCase().includes(query) ||
@@ -97,9 +144,25 @@ export default function MLTWorklistPage() {
             const matchesTestType =
                 testTypeFilter === 'All Test Types' || sample.testName === testTypeFilter;
 
-            return matchesSearch && matchesTestType;
+            const matchesPriority =
+                priorityFilter === 'ALL' || sample.priority === priorityFilter;
+
+            return matchesSearch && matchesTestType && matchesPriority;
         });
-    }, [samples, searchQuery, testTypeFilter]);
+
+        // Priority Queue with Dynamic Aging & Starvation Prevention Sorting
+        return filtered.sort((a, b) => {
+            const scoreA = getClinicalPriorityScore(a, now);
+            const scoreB = getClinicalPriorityScore(b, now);
+            if (scoreA !== scoreB) {
+                return scoreA - scoreB;
+            }
+            // Secondary tie-breaker: FIFO (oldest collected / registered first)
+            const timeA = a.collectedAt ? new Date(a.collectedAt).getTime() : 0;
+            const timeB = b.collectedAt ? new Date(b.collectedAt).getTime() : 0;
+            return timeA - timeB;
+        });
+    }, [samples, searchQuery, testTypeFilter, priorityFilter]);
 
     const totalPages = Math.max(1, Math.ceil(filteredSamples.length / PAGE_SIZE));
     const paginatedSamples = filteredSamples.slice(
@@ -114,16 +177,15 @@ export default function MLTWorklistPage() {
     }, [currentPage, totalPages]);
 
     const pendingTests = samples.length;
-    const urgentSamples = samples.filter(
-        (sample) => sample.priority === 'URGENT' || sample.priority === 'STAT'
-    ).length;
+    const statCount = samples.filter((sample) => sample.priority === 'STAT').length;
+    const urgentCount = samples.filter((sample) => sample.priority === 'URGENT').length;
     const inTestingCount = samples.filter((sample) => sample.status === 'IN_TESTING').length;
-    const acceptedCount = samples.filter((sample) => sample.status === 'ACCEPTED').length;
 
-    const hasFilters = searchQuery.trim().length > 0 || testTypeFilter !== 'All Test Types';
+    const hasFilters = searchQuery.trim().length > 0 || testTypeFilter !== 'All Test Types' || priorityFilter !== 'ALL';
 
     const clearFilters = () => {
         setSearchQuery('');
+        setPriorityFilter('ALL');
         setTestTypeFilter('All Test Types');
         setCurrentPage(1);
     };
@@ -169,15 +231,22 @@ export default function MLTWorklistPage() {
             <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
                 <StatCard label="Pending tests" value={pendingTests} icon={FlaskConical} color="blue" loading={loading} />
                 <StatCard
-                    label="Urgent samples"
-                    value={urgentSamples}
+                    label="STAT priority"
+                    value={statCount}
+                    icon={Siren}
+                    color="red"
+                    sub={!loading && statCount > 0 ? 'Action needed' : undefined}
+                    loading={loading}
+                />
+                <StatCard
+                    label="Urgent priority"
+                    value={urgentCount}
                     icon={AlertTriangle}
                     color="orange"
-                    sub={!loading && urgentSamples > 0 ? 'STAT or urgent priority' : undefined}
+                    sub={!loading && urgentCount > 0 ? 'Priority testing' : undefined}
                     loading={loading}
                 />
                 <StatCard label="In testing" value={inTestingCount} icon={Microscope} color="violet" loading={loading} />
-                <StatCard label="Accepted samples" value={acceptedCount} icon={CheckCircle2} color="emerald" loading={loading} />
             </div>
 
             {/* Worklist */}
@@ -197,6 +266,16 @@ export default function MLTWorklistPage() {
                         autoComplete="off"
                         className="min-w-[200px] flex-1"
                     />
+                    <SegmentedControl
+                        value={priorityFilter}
+                        onChange={(val) => {
+                            setPriorityFilter(val);
+                            setCurrentPage(1);
+                        }}
+                        options={PRIORITY_OPTIONS}
+                        ariaLabel="Filter by priority"
+                        size="sm"
+                    />
                     <SelectField
                         label="Test type"
                         hideLabel
@@ -205,7 +284,7 @@ export default function MLTWorklistPage() {
                             setTestTypeFilter(event.target.value);
                             setCurrentPage(1);
                         }}
-                        className="w-full sm:w-56"
+                        className="w-full sm:w-48"
                     >
                         {testTypes.map((testType) => (
                             <option key={testType} value={testType}>
@@ -273,7 +352,7 @@ export default function MLTWorklistPage() {
                         <EmptyState
                             icon={SearchX}
                             title="No samples match"
-                            description="Try a different search term or test type."
+                            description="Try a different search term, priority, or test type."
                             action={
                                 <Button size="sm" icon={X} onClick={clearFilters}>
                                     Clear filters

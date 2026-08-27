@@ -197,11 +197,6 @@ export default function ReceptionSampleDetailPage() {
                                 <DetailItem label="Barcode">
                                     <span className="break-all font-mono font-semibold text-primary-strong">{detail.sampleId}</span>
                                 </DetailItem>
-                                <DetailItem label="Internal ID">
-                                    <span className="block truncate font-mono text-xs text-fg-secondary" title={detail.id}>
-                                        {detail.id}
-                                    </span>
-                                </DetailItem>
                                 <DetailItem label="Order">
                                     <span className="font-medium tabular-nums">{detail.orderId ?? '—'}</span>
                                 </DetailItem>

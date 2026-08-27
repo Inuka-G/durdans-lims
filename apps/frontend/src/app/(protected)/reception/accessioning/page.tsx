@@ -4,11 +4,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { AxiosError } from 'axios';
-import { AlertTriangle, ClipboardList, Inbox, RefreshCw, SearchX, X } from 'lucide-react';
+import { AlertTriangle, ClipboardList, Clock, Inbox, RefreshCw, SearchX, Siren, X } from 'lucide-react';
 import { getReceptionSamples, type MltWorklistItem } from '@/lib/api';
 import Button from '@/components/ui/Button';
 import PageHeader from '@/components/ui/PageHeader';
 import { InputField, SelectField } from '@/components/ui/Field';
+import SegmentedControl, { type SegmentOption } from '@/components/ui/SegmentedControl';
 import SectionCard from '@/components/ui/SectionCard';
 import EmptyState from '@/components/ui/EmptyState';
 import Pagination from '@/components/ui/Pagination';
@@ -22,6 +23,13 @@ const SKELETON_ROWS = 6;
 /** Sentinel value of the test-type filter (kept as-is so the filter semantics do not change). */
 const ALL_TEST_TYPES = 'All Test Types';
 
+const PRIORITY_OPTIONS: SegmentOption<string>[] = [
+    { value: 'ALL', label: 'All priorities' },
+    { value: 'STAT', label: 'STAT' },
+    { value: 'URGENT', label: 'Urgent' },
+    { value: 'NORMAL', label: 'Normal' },
+];
+
 /** "Today 09:12", "Yesterday 14:02", otherwise "16 Aug 2026 09:12". */
 function formatCollectedAt(iso?: string | null) {
     if (!iso) return '—';
@@ -33,12 +41,48 @@ function formatCollectedAt(iso?: string | null) {
     return `${label} ${time}`;
 }
 
+/**
+ * Clinical Priority Score with Dynamic Aging & Starvation Prevention:
+ * Tier 0-49:   STAT Emergency samples (ICU/ETU) - Always Top Priority
+ * Tier 50-89:  Aged/Overdue samples (Normal > 4h or Urgent > 1.5h - Pre-analytical stability risk)
+ * Tier 100-199: Standard Urgent samples
+ * Tier 200+:   Standard Routine Normal samples
+ */
+function getClinicalPriorityScore(sample: MltWorklistItem, now: number): number {
+    const collectedTime = sample.collectedAt ? new Date(sample.collectedAt).getTime() : 0;
+    const elapsedMinutes = collectedTime > 0 ? Math.max(0, Math.floor((now - collectedTime) / 60000)) : 0;
+
+    if (sample.priority === 'STAT') {
+        return 0;
+    }
+
+    if (sample.priority === 'URGENT') {
+        // Urgent approaching SLA (> 90 mins) escalates to near-STAT tier
+        if (elapsedMinutes >= 90) {
+            return 50;
+        }
+        return 100;
+    }
+
+    // NORMAL samples: Specimen stability risk (> 360 mins / 6h) escalates to Tier 40 (Critical stability)
+    if (elapsedMinutes >= 360) {
+        return 40;
+    }
+    // Specimen delay risk (> 240 mins / 4h) escalates to Tier 80 (Urgent Aging)
+    if (elapsedMinutes >= 240) {
+        return 80;
+    }
+
+    return 200;
+}
+
 export default function ReceptionAccessioningPage() {
     const pathname = usePathname();
     const [samples, setSamples] = useState<MltWorklistItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
+    const [priorityFilter, setPriorityFilter] = useState('ALL');
     const [testTypeFilter, setTestTypeFilter] = useState(ALL_TEST_TYPES);
     const [currentPage, setCurrentPage] = useState(1);
 
@@ -68,8 +112,9 @@ export default function ReceptionAccessioningPage() {
 
     const filteredSamples = useMemo(() => {
         const query = searchQuery.trim().toLowerCase();
+        const now = Date.now();
 
-        return samples.filter((sample) => {
+        const filtered = samples.filter((sample) => {
             const matchesSearch =
                 query.length === 0 ||
                 sample.barcode.toLowerCase().includes(query) ||
@@ -80,18 +125,35 @@ export default function ReceptionAccessioningPage() {
             const matchesTestType =
                 testTypeFilter === ALL_TEST_TYPES || sample.testName === testTypeFilter;
 
-            return matchesSearch && matchesTestType;
+            const matchesPriority =
+                priorityFilter === 'ALL' || sample.priority === priorityFilter;
+
+            return matchesSearch && matchesTestType && matchesPriority;
         });
-    }, [samples, searchQuery, testTypeFilter]);
+
+        // Priority Queue with Dynamic Aging & Starvation Prevention Sorting
+        return filtered.sort((a, b) => {
+            const scoreA = getClinicalPriorityScore(a, now);
+            const scoreB = getClinicalPriorityScore(b, now);
+            if (scoreA !== scoreB) {
+                return scoreA - scoreB;
+            }
+            // Secondary tie-breaker: FIFO (oldest collected / registered first)
+            const timeA = a.collectedAt ? new Date(a.collectedAt).getTime() : 0;
+            const timeB = b.collectedAt ? new Date(b.collectedAt).getTime() : 0;
+            return timeA - timeB;
+        });
+    }, [samples, searchQuery, testTypeFilter, priorityFilter]);
 
     const totalPages = Math.max(1, Math.ceil(filteredSamples.length / PAGE_SIZE));
     const paginatedSamples = filteredSamples.slice(
         (currentPage - 1) * PAGE_SIZE,
         currentPage * PAGE_SIZE
     );
-    const urgentSamples = samples.filter(
-        (sample) => sample.priority === 'URGENT' || sample.priority === 'STAT'
-    ).length;
+    const pendingCount = samples.length;
+    const statCount = samples.filter((sample) => sample.priority === 'STAT').length;
+    const urgentCount = samples.filter((sample) => sample.priority === 'URGENT').length;
+    const normalCount = samples.filter((sample) => sample.priority === 'NORMAL').length;
 
     useEffect(() => {
         if (currentPage > totalPages) {
@@ -99,10 +161,11 @@ export default function ReceptionAccessioningPage() {
         }
     }, [currentPage, totalPages]);
 
-    const hasFilters = searchQuery.trim().length > 0 || testTypeFilter !== ALL_TEST_TYPES;
+    const hasFilters = searchQuery.trim().length > 0 || testTypeFilter !== ALL_TEST_TYPES || priorityFilter !== 'ALL';
 
     const clearFilters = () => {
         setSearchQuery('');
+        setPriorityFilter('ALL');
         setTestTypeFilter(ALL_TEST_TYPES);
         setCurrentPage(1);
     };
@@ -145,9 +208,25 @@ export default function ReceptionAccessioningPage() {
                 </div>
             )}
 
-            <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <StatCard label="Samples pending" value={samples.length} icon={ClipboardList} color="blue" loading={loading} />
-                <StatCard label="Urgent samples" value={urgentSamples} icon={AlertTriangle} color="orange" loading={loading} />
+            <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+                <StatCard label="Samples pending" value={pendingCount} icon={ClipboardList} color="blue" loading={loading} />
+                <StatCard
+                    label="STAT priority"
+                    value={statCount}
+                    icon={Siren}
+                    color="red"
+                    sub={statCount > 0 ? 'Action needed' : undefined}
+                    loading={loading}
+                />
+                <StatCard
+                    label="Urgent priority"
+                    value={urgentCount}
+                    icon={AlertTriangle}
+                    color="orange"
+                    sub={urgentCount > 0 ? 'Action needed' : undefined}
+                    loading={loading}
+                />
+                <StatCard label="Normal priority" value={normalCount} icon={Clock} color="blue" loading={loading} />
             </div>
 
             <SectionCard title="Received samples" count={loading ? undefined : filteredSamples.length} flush>
@@ -166,6 +245,16 @@ export default function ReceptionAccessioningPage() {
                         placeholder="Search barcode, patient ID, order ID or test"
                         className="min-w-[200px] flex-1"
                     />
+                    <SegmentedControl
+                        value={priorityFilter}
+                        onChange={(val) => {
+                            setPriorityFilter(val);
+                            setCurrentPage(1);
+                        }}
+                        options={PRIORITY_OPTIONS}
+                        ariaLabel="Filter by priority"
+                        size="sm"
+                    />
                     <SelectField
                         label="Test type"
                         hideLabel
@@ -174,7 +263,7 @@ export default function ReceptionAccessioningPage() {
                             setTestTypeFilter(event.target.value);
                             setCurrentPage(1);
                         }}
-                        className="w-full sm:w-56"
+                        className="w-full sm:w-48"
                     >
                         {testTypes.map((testType) => (
                             <option key={testType} value={testType}>
@@ -225,7 +314,7 @@ export default function ReceptionAccessioningPage() {
                             <EmptyState
                                 icon={SearchX}
                                 title="No samples match your filters"
-                                description="Try a different barcode, patient ID, order ID or test type."
+                                description="Try a different barcode, patient ID, order ID, priority or test type."
                                 action={
                                     <Button size="sm" icon={X} onClick={clearFilters}>
                                         Clear filters
