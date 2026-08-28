@@ -39,6 +39,10 @@ public class BranchUserService {
             throw new InvalidRequestException("User with this email already exists");
         }
 
+        if (request.getUsername() != null && repository.existsByUsername(request.getUsername())) {
+            throw new InvalidRequestException("User with this username already exists");
+        }
+
         BranchUserEntity entity = new BranchUserEntity();
         entity.setBranchId(request.getBranchId());
         entity.setFullName(request.getFullName());
@@ -86,8 +90,12 @@ public class BranchUserService {
         
         validateBranchAccess(entity.getBranchId());
 
-        if (repository.existsByEmailAndIdNot(request.getEmail(), uuid)) {
+        if (repository.existsByEmailAndIdNot(request.getEmail(), entity.getId())) {
             throw new InvalidRequestException("User with this email already exists");
+        }
+
+        if (request.getUsername() != null && repository.existsByUsernameAndIdNot(request.getUsername(), entity.getId())) {
+            throw new InvalidRequestException("User with this username already exists");
         }
 
         boolean wasActive = Boolean.TRUE.equals(entity.getIsActive());

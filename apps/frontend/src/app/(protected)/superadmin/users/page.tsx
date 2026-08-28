@@ -7,8 +7,10 @@ type UserStatus = "ACTIVE" | "INACTIVE";
 
 interface UserRecord {
     id: string;
+    username: string;
     name: string;
     email: string;
+    branchId: string;
     branch: string;
     roles: string[];
     status: UserStatus;
@@ -16,20 +18,14 @@ interface UserRecord {
 }
 import UserCreateModal from "@/components/admin/UserCreateModal";
 import UserEditModal from "@/components/admin/UserEditModal";
+import ResetPasswordModal from "@/components/admin/ResetPasswordModal";
 
-import toast from "react-hot-toast";
-
-const getSuperadminUsers = async (): Promise<any[]> => {
-    return [
-        { id: "1", fullName: "Super Admin", email: "super@admin.com", branchId: 1, role: "SUPERADMIN", isActive: true }
-    ];
-};
-
-const updateSuperadminUser = async (id: string, data: any): Promise<any> => {
-    return { ...data, id };
-};
+import { toast } from "sonner";
+import { getSuperadminUsers, updateSuperadminUser, resetSuperadminUserPassword, getBranches, getSuperadminRoles, BranchResponse } from "@/lib/api";
+import { useAuth } from "@/hooks/useAuth";
 
 export default function GlobalUserControlPage() {
+    const { user: authUser } = useAuth();
     const [activeTab, setActiveTab] = useState<"directory" | "matrix">("directory");
     const [users, setUsers] = useState<UserRecord[]>([]);
     const [loading, setLoading] = useState(true);
@@ -37,30 +33,51 @@ export default function GlobalUserControlPage() {
     // Modal states
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const [isResetPasswordModalOpen, setIsResetPasswordModalOpen] = useState(false);
     const [selectedUser, setSelectedUser] = useState<UserRecord | null>(null);
+
+    // Search & Filter states
+    const [searchQuery, setSearchQuery] = useState("");
+    const [branchFilter, setBranchFilter] = useState("All Branches");
+    const [roleFilter, setRoleFilter] = useState("All Roles");
+    
+    // Data states for filters
+    const [branches, setBranches] = useState<BranchResponse[]>([]);
+    const [roles, setRoles] = useState<string[]>([]);
 
     const fetchUsers = async () => {
         setLoading(true);
         try {
-            const data = await getSuperadminUsers();
-            
-            let rawData: any[] = [];
-            if (Array.isArray(data)) {
-                rawData = data;
-            } else if (data && typeof data === 'object' && 'content' in data && Array.isArray((data as any).content)) {
-                rawData = (data as any).content;
-            }
-            
-            const mappedUsers: UserRecord[] = rawData.map(u => ({
-                id: u.id ? String(u.id) : "",
-                name: u.fullName || u.username || "Unknown",
-                email: u.email || "",
-                branch: u.branchId ? `Branch ${u.branchId}` : "Colombo",
-                roles: u.role ? [u.role] : [],
-                status: u.isActive ? "ACTIVE" : "INACTIVE",
-                lastLogin: "N/A"
-            }));
-            
+            const [usersData, branchesData, rolesData] = await Promise.all([
+                getSuperadminUsers(),
+                getBranches().catch(() => ({ content: [] as BranchResponse[] })),
+                getSuperadminRoles().catch(() => [])
+            ]);
+
+            const fetchedBranches = branchesData.content || [];
+            setBranches(fetchedBranches);
+            setRoles(rolesData);
+
+            const mappedUsers: UserRecord[] = usersData.map(u => {
+                let branchName = "Not Assigned";
+                if (u.branchId) {
+                    const foundBranch = fetchedBranches.find((b: BranchResponse) => b.id.toString() === u.branchId);
+                    branchName = foundBranch ? foundBranch.name : `Branch ${u.branchId}`;
+                }
+
+                return {
+                    id: u.id,
+                    username: u.username || "Unknown",
+                    name: u.fullName || u.username || "Unknown",
+                    email: u.email || "",
+                    branchId: u.branchId || "",
+                    branch: branchName,
+                    roles: u.roles || [],
+                    status: u.isActive ? "ACTIVE" : "INACTIVE",
+                    lastLogin: "N/A"
+                };
+            });
+
             setUsers(mappedUsers);
         } catch (error) {
             console.error("Failed to load users", error);
@@ -74,42 +91,65 @@ export default function GlobalUserControlPage() {
         fetchUsers();
     }, []);
 
+    const filteredUsers = users.filter(u => {
+        const query = searchQuery.toLowerCase();
+        const matchesSearch = !query || 
+            u.name.toLowerCase().includes(query) || 
+            u.username.toLowerCase().includes(query) || 
+            u.email.toLowerCase().includes(query);
+            
+        const matchesBranch = branchFilter === "All Branches" || u.branch === branchFilter;
+        const matchesRole = roleFilter === "All Roles" || (u.roles && u.roles.includes(roleFilter));
+
+        return matchesSearch && matchesBranch && matchesRole;
+    });
+
     const handleUpdateUser = async (id: string, data: Partial<UserRecord>) => {
         try {
             const backendData = {
-                fullName: data.name,
-                email: data.email,
-                role: data.roles?.[0] || "FRONT_DESK",
-                isActive: data.status === "ACTIVE"
+                fullName: data.name || "",
+                email: data.email || "",
+                role: data.roles?.[0] || "",
+                isActive: data.status === "ACTIVE",
+                branchId: ""
             };
-            
-            // Map branch strings to IDs (simple mockup, usually from a branch list)
-            if (data.branch) {
-                if (data.branch.includes("Colombo")) (backendData as any).branchId = 1;
-                else if (data.branch.includes("Kandy")) (backendData as any).branchId = 2;
-                else if (data.branch.includes("Galle")) (backendData as any).branchId = 3;
-                else if (data.branch.includes("Branch ")) {
-                    const parsedId = parseInt(data.branch.replace("Branch ", ""));
-                    if (!isNaN(parsedId)) (backendData as any).branchId = parsedId;
-                }
+
+            // Map branch strings to IDs
+            if (data.branchId) {
+                backendData.branchId = data.branchId;
+            } else if (data.branch && data.branch.includes("Branch ")) {
+                const parsedId = data.branch.replace("Branch ", "");
+                backendData.branchId = parsedId;
             }
-            
+
             await updateSuperadminUser(id, backendData);
-            toast.success("User updated successfully");
+            toast.success("User updated successfully", { position: 'top-right' });
             await fetchUsers(); // Refresh the table
-        } catch (error) {
+        } catch (error: any) {
             console.error("Failed to update user", error);
-            toast.error("Failed to update user.");
+            toast.error(error?.response?.data?.message || error.message || "Failed to update user.", { position: 'top-right' });
             throw error;
         }
     };
 
-    const handleToggleStatus = (userId: string) => {
-        setUsers(users.map(user =>
-            user.id === userId
-                ? { ...user, status: user.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE' }
-                : user
-        ));
+    const handleToggleStatus = async (user: UserRecord) => {
+        const newStatus = user.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
+        try {
+            const backendData = {
+                fullName: user.name,
+                email: user.email,
+                role: user.roles?.[0] || "",
+                isActive: newStatus === "ACTIVE",
+                branchId: user.branchId || ""
+            };
+
+            await updateSuperadminUser(user.id, backendData);
+            toast.success(`User successfully ${newStatus === 'ACTIVE' ? 'activated' : 'deactivated'}`, { position: 'top-right' });
+            await fetchUsers(); // Refresh the table
+        } catch (error: any) {
+            console.error("Failed to toggle user status", error);
+            toast.error(error?.response?.data?.message || error.message || "Failed to update user status.", { position: 'top-right' });
+        }
     };
 
     const handleEditClick = (user: UserRecord) => {
@@ -117,8 +157,38 @@ export default function GlobalUserControlPage() {
         setIsEditModalOpen(true);
     };
 
-    const handleResetPassword = (userId: string, userName: string) => {
-        alert(`Password reset link sent to ${userName} (${userId})`);
+    const handleResetPasswordClick = (user: UserRecord) => {
+        setSelectedUser(user);
+        setIsResetPasswordModalOpen(true);
+    };
+
+    const handleConfirmResetPassword = async (userId: string, password: string, adminUsername: string, adminPassword: string): Promise<boolean> => {
+        try {
+            if (!authUser?.preferred_username) {
+                return false;
+            }
+
+            const expectedUsername = authUser.preferred_username.trim().toLowerCase();
+            const providedUsername = adminUsername.trim().toLowerCase();
+
+            if (providedUsername !== expectedUsername) {
+                toast.error("Username does not match your active session.", { position: 'top-right' });
+                return false;
+            }
+            
+            // Perform the reset (backend will verify the adminPassword)
+            await resetSuperadminUserPassword(userId, password, adminPassword);
+            toast.success(`Password successfully reset to '${password}'`, { position: 'top-right' });
+            return true;
+        } catch (error: any) {
+            console.error("Failed to reset password", error);
+            if (error?.response?.data?.message?.includes("Incorrect admin password") || error?.response?.status === 401 || error?.response?.status === 400) {
+                toast.error("Incorrect admin password. Verification failed.", { position: 'top-right' });
+            } else {
+                toast.error(error?.response?.data?.message || error.message || "Failed to reset password.", { position: 'top-right' });
+            }
+            return false;
+        }
     };
 
     return (
@@ -168,6 +238,8 @@ export default function GlobalUserControlPage() {
                     <input
                         type="text"
                         placeholder="Search by name, ID or email..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
                         className="bg-slate-50 border border-slate-100 text-slate-800 font-semibold py-2.5 pl-10 pr-4 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all w-full placeholder:text-slate-400 placeholder:font-medium"
                     />
                 </div>
@@ -175,22 +247,30 @@ export default function GlobalUserControlPage() {
                 <div className="flex flex-col sm:flex-row items-center gap-4">
                     {/* Branch Filter */}
                     <div className="relative w-full sm:w-[180px]">
-                        <select className="w-full appearance-none bg-slate-50 border border-slate-100 text-slate-800 font-bold py-2.5 pl-4 pr-10 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer">
-                            <option>All Branches</option>
-                            <option>Colombo</option>
-                            <option>Kandy</option>
-                            <option>Galle</option>
+                        <select 
+                            value={branchFilter}
+                            onChange={(e) => setBranchFilter(e.target.value)}
+                            className="w-full appearance-none bg-slate-50 border border-slate-100 text-slate-800 font-bold py-2.5 pl-4 pr-10 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer"
+                        >
+                            <option value="All Branches">All Branches</option>
+                            {branches.map(b => (
+                                <option key={b.code} value={b.name}>{b.name}</option>
+                            ))}
                         </select>
                         <span className="material-icons absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-lg">expand_more</span>
                     </div>
 
                     {/* Role Filter */}
                     <div className="relative w-full sm:w-[180px]">
-                        <select className="w-full appearance-none bg-slate-50 border border-slate-100 text-slate-800 font-bold py-2.5 pl-4 pr-10 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer">
-                            <option>All Roles</option>
-                            <option>Consultant</option>
-                            <option>Branch Admin</option>
-                            <option>Nursing Head</option>
+                        <select 
+                            value={roleFilter}
+                            onChange={(e) => setRoleFilter(e.target.value)}
+                            className="w-full appearance-none bg-slate-50 border border-slate-100 text-slate-800 font-bold py-2.5 pl-4 pr-10 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer"
+                        >
+                            <option value="All Roles">All Roles</option>
+                            {roles.map(r => (
+                                <option key={r} value={r}>{r}</option>
+                            ))}
                         </select>
                         <span className="material-icons absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-lg">expand_more</span>
                     </div>
@@ -214,7 +294,7 @@ export default function GlobalUserControlPage() {
                             <thead>
                                 <tr className="border-b border-slate-200 bg-slate-50/50">
                                     <th className="py-4 px-6 text-[11px] font-extrabold text-slate-500 uppercase tracking-widest">User ID</th>
-                                    <th className="py-4 px-6 text-[11px] font-extrabold text-slate-500 uppercase tracking-widest">Name</th>
+                                    <th className="py-4 px-6 text-[11px] font-extrabold text-slate-500 uppercase tracking-widest">User Details</th>
                                     <th className="py-4 px-6 text-[11px] font-extrabold text-slate-500 uppercase tracking-widest">Branch</th>
                                     <th className="py-4 px-6 text-[11px] font-extrabold text-slate-500 uppercase tracking-widest">Assigned Roles</th>
                                     <th className="py-4 px-6 text-[11px] font-extrabold text-slate-500 uppercase tracking-widest text-center">Status</th>
@@ -229,82 +309,83 @@ export default function GlobalUserControlPage() {
                                             <span className="material-icons animate-spin text-blue-600 text-3xl">sync</span>
                                         </td>
                                     </tr>
-                                ) : users.length === 0 ? (
+                                ) : filteredUsers.length === 0 ? (
                                     <tr>
                                         <td colSpan={7} className="py-8 text-center text-slate-500 font-medium text-[13px]">
                                             No users found.
                                         </td>
                                     </tr>
                                 ) : (
-                                    users.map((user) => (
-                                    <tr key={user.id} className="hover:bg-slate-50/50 transition-colors group">
-                                        <td className="py-4 px-6">
-                                            <span className="text-[13px] font-extrabold text-blue-600">{user.id}</span>
-                                        </td>
-                                        <td className="py-4 px-6">
-                                            <div className="flex flex-col">
-                                                <span className="text-[14px] font-bold text-slate-900 leading-snug">{user.name}</span>
-                                                <span className="text-[12px] font-medium text-slate-500">{user.email}</span>
-                                            </div>
-                                        </td>
-                                        <td className="py-4 px-6">
-                                            <span className="text-[13px] font-semibold text-slate-700">{user.branch}</span>
-                                        </td>
-                                        <td className="py-4 px-6">
-                                            <div className="flex flex-wrap gap-2">
-                                                {user.roles && Array.isArray(user.roles) ? user.roles.map(role => (
-                                                    <span key={role} className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-blue-600 border border-blue-100">
-                                                        {role}
-                                                    </span>
-                                                )) : (
-                                                    <span className="text-[10px] text-slate-400">No roles assigned</span>
-                                                )}
-                                            </div>
-                                        </td>
-                                        <td className="py-4 px-6 text-center">
-                                            <span className={`inline-flex items-center justify-center px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${user.status === 'ACTIVE'
-                                                ? 'bg-emerald-50 text-emerald-600 border border-emerald-100'
-                                                : 'bg-slate-100 text-slate-500 border border-slate-200'
-                                                }`}>
-                                                {user.status}
-                                            </span>
-                                        </td>
-                                        <td className="py-4 px-6">
-                                            <span className="text-[12px] font-semibold text-slate-500">{user.lastLogin}</span>
-                                        </td>
-                                        <td className="py-4 px-6 text-center">
-                                            <div className="flex items-center justify-center gap-3">
-                                                <button
-                                                    onClick={() => handleEditClick(user)}
-                                                    className="text-slate-400 hover:text-blue-600 transition-colors p-1" title="Edit User"
-                                                >
-                                                    <span className="material-icons text-[18px]">edit</span>
-                                                </button>
-                                                <button
-                                                    onClick={() => handleResetPassword(user.id, user.name)}
-                                                    className="text-slate-400 hover:text-slate-800 transition-colors p-1" title="Reset Password"
-                                                >
-                                                    <span className="material-icons text-[18px]">history</span>
-                                                </button>
-                                                {user.status === 'ACTIVE' ? (
+                                    filteredUsers.map((user) => (
+                                        <tr key={user.id} className="hover:bg-slate-50/80 transition-colors group">
+                                            <td className="py-4 px-6">
+                                                <span className="text-[13px] font-extrabold text-blue-600">{user.id}</span>
+                                            </td>
+                                            <td className="py-4 px-6">
+                                                <div className="flex flex-col">
+                                                    <span className="text-[14px] font-bold text-slate-900 leading-snug">{user.name}</span>
+                                                    <span className="text-[12px] font-medium text-slate-500">{user.email}</span>
+                                                    <span className="text-[11px] font-semibold text-slate-400">{user.username}</span>
+                                                </div>
+                                            </td>
+                                            <td className="py-4 px-6">
+                                                <span className="text-[13px] font-semibold text-slate-700">{user.branch}</span>
+                                            </td>
+                                            <td className="py-4 px-6">
+                                                <div className="flex flex-wrap gap-2">
+                                                    {user.roles && Array.isArray(user.roles) ? user.roles.map(role => (
+                                                        <span key={role} className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-blue-600 border border-blue-100">
+                                                            {role}
+                                                        </span>
+                                                    )) : (
+                                                        <span className="text-[10px] text-slate-400">No roles assigned</span>
+                                                    )}
+                                                </div>
+                                            </td>
+                                            <td className="py-4 px-6 text-center">
+                                                <span className={`inline-flex items-center justify-center px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${user.status === 'ACTIVE'
+                                                    ? 'bg-emerald-50 text-emerald-600 border border-emerald-100'
+                                                    : 'bg-slate-100 text-slate-500 border border-slate-200'
+                                                    }`}>
+                                                    {user.status}
+                                                </span>
+                                            </td>
+                                            <td className="py-4 px-6">
+                                                <span className="text-[12px] font-semibold text-slate-500">{user.lastLogin}</span>
+                                            </td>
+                                            <td className="py-4 px-6 text-center">
+                                                <div className="flex items-center justify-center gap-3">
                                                     <button
-                                                        onClick={() => handleToggleStatus(user.id)}
-                                                        className="text-slate-400 hover:text-red-500 transition-colors p-1" title="Deactivate User"
+                                                        onClick={() => handleEditClick(user)}
+                                                        className="text-slate-400 hover:text-blue-600 transition-colors p-1" title="Edit User"
                                                     >
-                                                        <span className="material-icons text-[18px]">person_off</span>
+                                                        <span className="material-icons text-[18px]">edit</span>
                                                     </button>
-                                                ) : (
                                                     <button
-                                                        onClick={() => handleToggleStatus(user.id)}
-                                                        className="text-emerald-500/70 hover:text-emerald-600 bg-emerald-50 rounded transition-colors p-1" title="Activate User"
+                                                        onClick={() => handleResetPasswordClick(user)}
+                                                        className="text-slate-400 hover:text-slate-800 transition-colors p-1" title="Reset Password"
                                                     >
-                                                        <span className="material-icons text-[18px]">person_add</span>
+                                                        <span className="material-icons text-[18px]">history</span>
                                                     </button>
-                                                )}
-                                            </div>
-                                        </td>
-                                    </tr>
-                                )))}
+                                                    {user.status === 'ACTIVE' ? (
+                                                        <button
+                                                            onClick={() => handleToggleStatus(user)}
+                                                            className="text-slate-400 hover:text-red-500 transition-colors p-1" title="Deactivate User"
+                                                        >
+                                                            <span className="material-icons text-[18px]">person_off</span>
+                                                        </button>
+                                                    ) : (
+                                                        <button
+                                                            onClick={() => handleToggleStatus(user)}
+                                                            className="text-emerald-500/70 hover:text-emerald-600 bg-emerald-50 rounded transition-colors p-1" title="Activate User"
+                                                        >
+                                                            <span className="material-icons text-[18px]">person_add</span>
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    )))}
                             </tbody>
                         </table>
                     </div>
@@ -349,6 +430,14 @@ export default function GlobalUserControlPage() {
                 onClose={() => setIsEditModalOpen(false)}
                 userData={selectedUser}
                 onSave={handleUpdateUser}
+            />
+
+            <ResetPasswordModal
+                isOpen={isResetPasswordModalOpen}
+                onClose={() => setIsResetPasswordModalOpen(false)}
+                userId={selectedUser?.id || null}
+                userName={selectedUser?.name || ""}
+                onConfirm={handleConfirmResetPassword}
             />
         </div>
     );

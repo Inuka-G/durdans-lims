@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.keycloak.admin.client.CreatedResponseUtil;
 import org.keycloak.admin.client.Keycloak;
 import org.keycloak.admin.client.resource.UserResource;
+import org.keycloak.admin.client.KeycloakBuilder;
 import org.keycloak.representations.idm.CredentialRepresentation;
 import org.keycloak.representations.idm.RoleRepresentation;
 import org.keycloak.representations.idm.UserRepresentation;
@@ -27,6 +28,9 @@ import java.util.Map;
 public class KeycloakAdminService {
 
     private final Keycloak keycloak;
+
+    @Value("${app.keycloak-admin.server-url:http://localhost:8081}")
+    private String serverUrl;
 
     @Value("${app.keycloak-admin.realm:lims-realm}")
     private String realm;
@@ -165,5 +169,89 @@ public class KeycloakAdminService {
                         && u.getAttributes().containsKey("branch_id")
                         && u.getAttributes().get("branch_id").contains(branchId))
                 .toList();
+    }
+
+    public List<UserRepresentation> getAllUsers() {
+        return keycloak.realm(realm).users().list();
+    }
+
+    public UserRepresentation getUser(String userId) {
+        return keycloak.realm(realm).users().get(userId).toRepresentation();
+    }
+
+    public List<String> getUserRoles(String userId) {
+        try {
+            return keycloak.realm(realm).users().get(userId).roles().realmLevel().listAll()
+                    .stream()
+                    .map(RoleRepresentation::getName)
+                    .filter(name -> !name.startsWith("default-roles") && !name.equals("offline_access") && !name.equals("uma_authorization"))
+                    .toList();
+        } catch (Exception e) {
+            log.error("Failed to fetch roles for user {}", userId, e);
+            return Collections.emptyList();
+        }
+    }
+
+    public void updateUserDirectly(String userId, String fullName, String email, String branchId, String role, boolean isActive) {
+        UserResource userResource = keycloak.realm(realm).users().get(userId);
+        UserRepresentation user = userResource.toRepresentation();
+
+        user.setFirstName(fullName);
+        user.setEmail(email);
+        user.setEnabled(isActive);
+
+        Map<String, List<String>> attributes = user.getAttributes();
+        if (attributes == null) {
+            attributes = new HashMap<>();
+        }
+        if (branchId != null && !branchId.trim().isEmpty()) {
+            attributes.put("branch_id", Collections.singletonList(branchId));
+        } else {
+            attributes.remove("branch_id");
+        }
+        user.setAttributes(attributes);
+
+        userResource.update(user);
+
+        syncRoles(userId, role);
+        log.info("Directly updated user in Keycloak with ID: {}", userId);
+    }
+
+    public List<String> getAllRoles() {
+        return keycloak.realm(realm).roles().list().stream()
+                .map(RoleRepresentation::getName)
+                .filter(name -> !name.startsWith("default-roles") && !name.equals("offline_access") && !name.equals("uma_authorization"))
+                .toList();
+    }
+
+    public void resetUserPassword(String userId, String newPassword) {
+        CredentialRepresentation credential = new CredentialRepresentation();
+        credential.setType(CredentialRepresentation.PASSWORD);
+        credential.setValue(newPassword);
+        credential.setTemporary(true);
+
+        keycloak.realm(realm).users().get(userId).resetPassword(credential);
+        log.info("Reset password for user in Keycloak with ID: {}", userId);
+    }
+
+    public void verifyUserPassword(String username, String password) {
+        try {
+            Keycloak tempKeycloak = KeycloakBuilder.builder()
+                    .serverUrl(serverUrl)
+                    .realm(realm)
+                    .grantType(org.keycloak.OAuth2Constants.PASSWORD)
+                    .clientId("admin-cli") // admin-cli inherently supports direct access grants in Keycloak
+                    .username(username)
+                    .password(password)
+                    .build();
+            
+            // This will throw NotAuthorizedException if credentials are bad
+            tempKeycloak.tokenManager().getAccessToken();
+        } catch (jakarta.ws.rs.NotAuthorizedException e) {
+            throw new InvalidRequestException("Incorrect admin password. Verification failed.");
+        } catch (Exception e) {
+            log.error("Error verifying admin password", e);
+            throw new InvalidRequestException("Failed to verify admin password due to an internal error.");
+        }
     }
 }

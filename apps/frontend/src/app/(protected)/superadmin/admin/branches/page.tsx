@@ -1,32 +1,14 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import toast from "react-hot-toast";
+import { toast } from "sonner";
 import BranchDetailsPanel from "@/components/admin/BranchDetailsPanel";
 import BranchCreateModal from "@/components/admin/BranchCreateModal";
 import BranchEditModal from "@/components/admin/BranchEditModal";
 import AssignAdminModal from "@/components/admin/AssignAdminModal";
-export interface Branch {
-    id: number;
-    branchCode?: string;
-    branchName: string;
-    address: string;
-    status?: string;
-}
+import { getBranches, createBranch, updateBranch, BranchResponse } from "@/lib/api";
 
-const getSuperadminBranches = async (): Promise<Branch[]> => {
-    return [
-        { id: 1, branchCode: "BR-01", branchName: "Colombo", address: "Colombo", status: "Active" }
-    ];
-};
-
-const createSuperadminBranch = async (branchData: Partial<Branch>): Promise<Branch> => {
-    return { ...branchData, id: 99 } as Branch;
-};
-
-const updateSuperadminBranch = async (id: number, branchData: Partial<Branch>): Promise<Branch> => {
-    return { ...branchData, id } as Branch;
-};
+export type Branch = BranchResponse;
 
 export default function BranchManagementPage() {
     const [branches, setBranches] = useState<Branch[]>([]);
@@ -40,8 +22,8 @@ export default function BranchManagementPage() {
     const fetchBranches = async () => {
         setLoading(true);
         try {
-            const data = await getSuperadminBranches();
-            setBranches(data);
+            const data = await getBranches(0, 100); // Fetch up to 100 branches for simplicity
+            setBranches(data.content);
         } catch (error) {
             console.error("Failed to fetch branches", error);
             toast.error("Failed to load branches from the server.");
@@ -56,24 +38,39 @@ export default function BranchManagementPage() {
 
     const handleCreateBranch = async (branchData: Partial<Branch>) => {
         try {
-            await createSuperadminBranch(branchData);
+            if (!branchData.code || !branchData.name) throw new Error("Missing required fields");
+            await createBranch({ 
+                code: branchData.code, 
+                name: branchData.name,
+                location: branchData.location,
+                contactEmail: branchData.contactEmail,
+                contactPhone: branchData.contactPhone,
+                status: branchData.status
+            });
             toast.success("Branch created successfully!");
             await fetchBranches();
-        } catch (error) {
+        } catch (error: any) {
             console.error("Failed to create branch", error);
-            toast.error("Failed to create new branch.");
+            toast.error(error?.response?.data?.message || error.message || "Failed to create new branch.");
             throw error;
         }
     };
 
-    const handleUpdateBranch = async (id: number, branchData: Partial<Branch>) => {
+    const handleUpdateBranch = async (id: string, branchData: Partial<Branch>) => {
         try {
-            await updateSuperadminBranch(id, branchData);
+            if (!branchData.name) throw new Error("Missing name");
+            await updateBranch(id, { 
+                name: branchData.name,
+                location: branchData.location,
+                contactEmail: branchData.contactEmail,
+                contactPhone: branchData.contactPhone,
+                status: branchData.status
+            });
             toast.success("Branch updated successfully!");
             await fetchBranches();
-        } catch (error) {
+        } catch (error: any) {
             console.error("Failed to update branch", error);
-            toast.error("Failed to update branch.");
+            toast.error(error?.response?.data?.message || error.message || "Failed to update branch.");
             throw error;
         }
     };
@@ -122,16 +119,16 @@ export default function BranchManagementPage() {
                                 branches.map((branch) => (
                                     <tr key={branch.id} className="hover:bg-slate-50/50 transition-colors group">
                                         <td className="py-4 px-6">
-                                            <span className="text-[13px] font-extrabold text-slate-800">{branch.branchCode || `BR-0${branch.id}`}</span>
+                                            <span className="text-[13px] font-extrabold text-slate-800">{branch.code}</span>
                                         </td>
                                         <td className="py-4 px-6">
-                                            <span className="text-[14px] font-bold text-slate-900">{branch.branchName}</span>
+                                            <span className="text-[14px] font-bold text-slate-900">{branch.name}</span>
                                         </td>
                                         <td className="py-4 px-6">
-                                            <span className="text-[13px] font-medium text-slate-500">{branch.address}</span>
+                                            <span className="text-[13px] font-medium text-slate-500">{branch.location || "N/A"}</span>
                                         </td>
                                         <td className="py-4 px-6 text-center">
-                                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-emerald-50 text-emerald-600">
+                                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-md text-[11px] font-bold ${branch.status === 'Active' ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-600'}`}>
                                                 {branch.status || "Active"}
                                             </span>
                                         </td>
@@ -220,7 +217,7 @@ export default function BranchManagementPage() {
                     setIsAssignAdminModalOpen(false);
                     setSelectedBranchForModal(null);
                 }}
-                branchName={activeBranchData?.branchName || selectedBranchForModal?.branchName}
+                branchName={activeBranchData?.name || selectedBranchForModal?.name}
             />
 
         </div>

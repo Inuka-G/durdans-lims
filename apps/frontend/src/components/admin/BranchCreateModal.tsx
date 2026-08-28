@@ -8,26 +8,33 @@ import { InputField, SelectField } from "@/components/ui/Field";
 interface BranchCreateModalProps {
     isOpen: boolean;
     onClose: () => void;
+    onSave: (data: any) => Promise<void>;
 }
 
-export default function BranchCreateModal({ isOpen, onClose }: BranchCreateModalProps) {
+export default function BranchCreateModal({ isOpen, onClose, onSave }: BranchCreateModalProps) {
     const formId = useId();
     const [formData, setFormData] = useState({
-        branchName: "",
+        code: "",
+        name: "",
         location: "",
         contactEmail: "",
         contactPhone: "",
         status: "Active",
     });
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        // Here you would typically handle the API submission
-        console.log("Submitting new branch:", formData);
+        try {
+            await onSave(formData);
+        } catch (error) {
+            console.error(error);
+            return;
+        }
 
         // Reset and close
         setFormData({
-            branchName: "",
+            code: "",
+            name: "",
             location: "",
             contactEmail: "",
             contactPhone: "",
@@ -54,13 +61,23 @@ export default function BranchCreateModal({ isOpen, onClose }: BranchCreateModal
         >
             <form id={formId} onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <InputField
+                    label="Branch Code"
+                    required
+                    type="text"
+                    placeholder="e.g. BR-01"
+                    className="sm:col-span-2"
+                    value={formData.code}
+                    onChange={(e) => setFormData({ ...formData, code: e.target.value })}
+                />
+
+                <InputField
                     label="Branch name"
                     required
                     type="text"
                     placeholder="e.g. Colombo Main Branch"
                     className="sm:col-span-2"
-                    value={formData.branchName}
-                    onChange={(e) => setFormData({ ...formData, branchName: e.target.value })}
+                    value={formData.name}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 />
 
                 <InputField
@@ -95,9 +112,8 @@ export default function BranchCreateModal({ isOpen, onClose }: BranchCreateModal
                     value={formData.status}
                     onChange={(e) => setFormData({ ...formData, status: e.target.value })}
                 >
-                    <option value="Active">Active / operational</option>
-                    <option value="In Setup">In setup phase</option>
-                    <option value="Maintainance">Under maintenance</option>
+                    <option value="Active">Active</option>
+                    <option value="Inactive">Inactive</option>
                 </SelectField>
             </form>
         </Modal>

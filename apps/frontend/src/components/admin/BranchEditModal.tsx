@@ -11,15 +11,16 @@ interface BranchEditModalProps {
     branchData?: {
         id: string;
         name: string;
-        location: string;
-        status: string;
+        location?: string;
+        status?: string;
     } | null;
+    onSave: (id: string, data: any) => Promise<void>;
 }
 
-export default function BranchEditModal({ isOpen, onClose, branchData }: BranchEditModalProps) {
+export default function BranchEditModal({ isOpen, onClose, branchData, onSave }: BranchEditModalProps) {
     const formId = useId();
     const [formData, setFormData] = useState({
-        branchName: "",
+        name: "",
         location: "",
         contactEmail: "",
         contactPhone: "",
@@ -29,19 +30,25 @@ export default function BranchEditModal({ isOpen, onClose, branchData }: BranchE
     useEffect(() => {
         if (branchData) {
             setFormData({
-                branchName: branchData.name,
-                location: branchData.location,
-                contactEmail: "colombo.main@laborp.com", // mocked default
-                contactPhone: "+94 11 2345 678", // mocked default
-                status: branchData.status,
+                name: branchData.name,
+                location: branchData.location || "",
+                contactEmail: branchData.contactEmail || "",
+                contactPhone: branchData.contactPhone || "",
+                status: branchData.status || "Active",
             });
         }
     }, [branchData]);
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        // Here you would typically handle the API submission
-        console.log("Submitting branch updates:", formData);
+        if (branchData && branchData.id) {
+            try {
+                await onSave(branchData.id, formData);
+            } catch (error) {
+                console.error(error);
+                return;
+            }
+        }
         onClose();
     };
 
@@ -68,8 +75,8 @@ export default function BranchEditModal({ isOpen, onClose, branchData }: BranchE
                     type="text"
                     placeholder="e.g. Colombo Main Branch"
                     className="sm:col-span-2"
-                    value={formData.branchName}
-                    onChange={(e) => setFormData({ ...formData, branchName: e.target.value })}
+                    value={formData.name}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 />
 
                 <InputField
@@ -104,9 +111,8 @@ export default function BranchEditModal({ isOpen, onClose, branchData }: BranchE
                     value={formData.status}
                     onChange={(e) => setFormData({ ...formData, status: e.target.value })}
                 >
-                    <option value="Active">Active / operational</option>
-                    <option value="In Setup">In setup phase</option>
-                    <option value="Maintainance">Under maintenance</option>
+                    <option value="Active">Active</option>
+                    <option value="Inactive">Inactive</option>
                 </SelectField>
             </form>
         </Modal>

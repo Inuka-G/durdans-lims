@@ -1336,6 +1336,7 @@ export interface CreateAdminUserRequest {
     role?: string;
     branchCode?: string;
     temporaryPassword?: string;
+    adminPassword?: string;
 }
 
 export async function getAdminUsers(): Promise<AdminUser[]> {
@@ -1528,3 +1529,69 @@ export interface BranchTest {
     referenceRange: string;
     isActive: boolean;
 }
+
+// --- Branch Management ---
+
+export interface BranchResponse {
+    id: string;
+    code: string;
+    name: string;
+    location?: string;
+    contactEmail?: string;
+    contactPhone?: string;
+    status?: string;
+}
+
+export interface SuperadminUserResponse {
+    id: string;
+    username: string;
+    email: string;
+    fullName: string;
+    isActive: boolean;
+    branchId?: string;
+    roles: string[];
+}
+
+export interface PageResponseBranch {
+    content: BranchResponse[];
+    page: number;
+    size: number;
+    totalElements: number;
+    totalPages: number;
+    last: boolean;
+}
+
+export const getBranches = async (page = 0, size = 10) => {
+    const response = await axiosInstance.get('/api/v1/branches', { params: { page, size } });
+    return response.data as PageResponseBranch;
+};
+
+export const createBranch = async (payload: { code: string; name: string; location?: string; contactEmail?: string; contactPhone?: string; status?: string }) => {
+    const response = await axiosInstance.post('/api/v1/branches', payload);
+    return response.data as BranchResponse;
+};
+
+export const updateBranch = async (id: string, payload: { name: string; location?: string; contactEmail?: string; contactPhone?: string; status?: string }) => {
+    const response = await axiosInstance.put(`/api/v1/branches/${id}`, payload);
+    return response.data as BranchResponse;
+};
+
+export const getSuperadminUsers = async () => {
+    const response = await axiosInstance.get('/api/v1/superadmin/users');
+    return response.data as SuperadminUserResponse[];
+};
+
+export const updateSuperadminUser = async (id: string, payload: { email: string; fullName: string; branchId?: string; role?: string; isActive: boolean }) => {
+    const response = await axiosInstance.put(`/api/v1/superadmin/users/${id}`, payload);
+    return response.data as SuperadminUserResponse;
+};
+
+export const resetSuperadminUserPassword = async (id: string, password: string, adminPassword?: string) => {
+    const response = await axiosInstance.post(`/api/v1/superadmin/users/${id}/reset-password`, { password, adminPassword });
+    return response.data;
+};
+
+export const getSuperadminRoles = async () => {
+    const response = await axiosInstance.get('/api/v1/superadmin/roles');
+    return response.data as string[];
+};

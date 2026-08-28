@@ -44,4 +44,5 @@
     <include file="liquibase/changelog/20260821000000_create_branch_user.xml"/>
     <include file="liquibase/changelog/20260821000001_recreate_branch_user.xml"/>
     <include file="liquibase/changelog/20260821000002_insert_mock_branch_user.xml"/>
+    <include file="liquibase/changelog/20260827_add_branch_details.xml"/>
 </databaseChangeLog>

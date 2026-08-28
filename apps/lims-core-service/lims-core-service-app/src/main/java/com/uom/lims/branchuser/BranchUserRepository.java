@@ -16,4 +16,8 @@ public interface BranchUserRepository extends JpaRepository<BranchUserEntity, UU
     boolean existsByEmailAndIdNot(String email, UUID id);
     
     boolean existsByEmail(String email);
+
+    boolean existsByUsername(String username);
+
+    boolean existsByUsernameAndIdNot(String username, UUID id);
 }

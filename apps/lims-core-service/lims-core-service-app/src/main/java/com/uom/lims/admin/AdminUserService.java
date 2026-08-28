@@ -33,6 +33,7 @@ public class AdminUserService {
     private static final String BRANCH_ATTR = "branch_id";
 
     private final Keycloak adminKeycloak;
+    private final com.uom.lims.service.KeycloakAdminService keycloakAdminService;
 
     @Value("${app.keycloak-admin.realm:lims-realm}")
     private String realm;
@@ -50,6 +51,20 @@ public class AdminUserService {
     }
 
     public AdminUserResponse createUser(CreateUserRequest request) {
+        // Extract current admin's username from the security context
+        Object principal = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        String currentUsername = null;
+        if (principal instanceof org.springframework.security.oauth2.jwt.Jwt) {
+            currentUsername = ((org.springframework.security.oauth2.jwt.Jwt) principal).getClaimAsString("preferred_username");
+        }
+        
+        if (currentUsername == null) {
+            throw new RuntimeException("Unable to determine current admin username.");
+        }
+
+        // Verify the admin's password before proceeding
+        keycloakAdminService.verifyUserPassword(currentUsername, request.adminPassword());
+
         String scope = SecurityUtils.resolveBranchScope();
         // A branch admin can only create into their own branch; super-admin uses
         // the requested branch.
@@ -117,7 +132,7 @@ public class AdminUserService {
 
     /** Create-user request. */
     public record CreateUserRequest(String username, String email, String firstName, String lastName,
-                                    String role, String branchCode, String temporaryPassword) {
+                                    String role, String branchCode, String temporaryPassword, String adminPassword) {
     }
 
     /** User view. */
