@@ -232,7 +232,7 @@ export default function MLTWorklistPage() {
                             setSearchQuery(event.target.value);
                             setCurrentPage(1);
                         }}
-                        placeholder="Search barcode, patient ID, order ID or test"
+                        placeholder="Scan barcode, patient ID or order number..."
                         autoComplete="off"
                         className="min-w-[200px] flex-1"
                     />
@@ -254,11 +254,11 @@ export default function MLTWorklistPage() {
                             setTestTypeFilter(event.target.value);
                             setCurrentPage(1);
                         }}
-                        className="w-full sm:w-48"
+                        className="w-48 shrink-0"
                     >
-                        {testTypes.map((testType) => (
-                            <option key={testType} value={testType}>
-                                {OPTION_LABELS[testType] ?? testType}
+                        {testTypes.map((type) => (
+                            <option key={type} value={type}>
+                                {type}
                             </option>
                         ))}
                     </SelectField>
@@ -337,7 +337,7 @@ export default function MLTWorklistPage() {
                                 <caption className="sr-only">Samples waiting for testing</caption>
                                 <thead>
                                     <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
-                                        <th scope="col" className="w-36 py-2 pl-4 pr-3 font-semibold">
+                                        <th scope="col" className="w-48 py-2 pl-4 pr-3 font-semibold">
                                             Barcode
                                         </th>
                                         <th scope="col" className="w-44 px-3 py-2 font-semibold">

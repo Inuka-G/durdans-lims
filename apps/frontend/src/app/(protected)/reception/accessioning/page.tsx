@@ -212,7 +212,7 @@ export default function ReceptionAccessioningPage() {
                             setSearchQuery(event.target.value);
                             setCurrentPage(1);
                         }}
-                        placeholder="Search barcode, patient ID, order ID or test"
+                        placeholder="Scan barcode, patient ID or order number..."
                         className="min-w-[200px] flex-1"
                     />
                     <SegmentedControl
@@ -295,10 +295,10 @@ export default function ReceptionAccessioningPage() {
                     ) : (
                         <>
                             <div className="overflow-x-auto">
-                                <table className="w-full min-w-[760px] table-fixed text-left text-sm">
+                                <table className="w-full min-w-[850px] table-fixed text-left text-sm">
                                     <thead>
                                         <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
-                                            <th scope="col" className="w-[16%] py-2 pl-4 pr-3 font-semibold">Barcode</th>
+                                            <th scope="col" className="w-48 py-2 pl-4 pr-3 font-semibold">Barcode</th>
                                             <th scope="col" className="w-[18%] px-3 py-2 font-semibold">Patient / order</th>
                                             <th scope="col" className="w-[16%] px-3 py-2 font-semibold">Test</th>
                                             <th scope="col" className="w-[16%] px-3 py-2 font-semibold">Collected</th>
