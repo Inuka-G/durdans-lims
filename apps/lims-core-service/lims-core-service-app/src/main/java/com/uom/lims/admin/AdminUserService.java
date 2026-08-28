@@ -17,6 +17,8 @@ import java.util.List;
 import java.util.Map;
 
 import jakarta.ws.rs.core.Response;
+import com.uom.lims.metadata.BranchRepository;
+import com.uom.lims.entity.BranchEntity;
 
 /**
  * User lifecycle management via the Keycloak Admin API, branch-scoped.
@@ -34,6 +36,7 @@ public class AdminUserService {
 
     private final Keycloak adminKeycloak;
     private final com.uom.lims.service.KeycloakAdminService keycloakAdminService;
+    private final BranchRepository branchRepository;
 
     @Value("${app.keycloak-admin.realm:lims-realm}")
     private String realm;
@@ -71,6 +74,12 @@ public class AdminUserService {
         String branch = (scope == null) ? request.branchCode() : scope;
         if (branch == null || branch.isBlank()) {
             throw new BusinessRuleException("A branch is required for the new user");
+        }
+
+        BranchEntity branchEntity = branchRepository.findByCode(branch)
+                .orElseThrow(() -> new BusinessRuleException("Branch not found: " + branch));
+        if (!"Active".equalsIgnoreCase(branchEntity.getStatus())) {
+            throw new BusinessRuleException("Users can only be created or assigned to active branches.");
         }
 
         UserRepresentation user = new UserRepresentation();

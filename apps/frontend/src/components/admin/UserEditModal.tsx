@@ -136,7 +136,7 @@ export default function UserEditModal({ isOpen, onClose, userData, onSave }: Use
                 >
                     <option value="">No Branch Assigned</option>
                     {branches.map(b => (
-                        <option key={b.id} value={b.id.toString()}>{b.name}</option>
+                        <option key={b.id} value={b.id.toString()} disabled={b.status !== 'Active'}>{b.name}{b.status !== 'Active' ? ' (Inactive)' : ''}</option>
                     ))}
                 </SelectField>
 

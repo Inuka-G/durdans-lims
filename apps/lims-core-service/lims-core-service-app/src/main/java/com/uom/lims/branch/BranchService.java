@@ -26,6 +26,7 @@ import java.util.stream.Collectors;
 public class BranchService {
 
     private final BranchRepository branchRepository;
+    private final com.uom.lims.audit.AuditService auditService;
 
     @Transactional
     public BranchResponse createBranch(BranchCreateRequest request) {
@@ -44,6 +45,10 @@ public class BranchService {
         entity.setStatus(request.getStatus() != null ? request.getStatus() : "Active");
 
         BranchEntity saved = branchRepository.save(entity);
+        
+        String details = String.format("{\"name\":\"%s\", \"location\":\"%s\"}", saved.getName(), saved.getLocation());
+        auditService.log("CREATE_BRANCH", "BRANCH", saved.getId(), null, details, getCurrentIp());
+        
         return mapToResponse(saved);
     }
 
@@ -54,6 +59,10 @@ public class BranchService {
         BranchEntity entity = branchRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Branch not found with id: " + id));
 
+        String oldName = entity.getName();
+        String oldLocation = entity.getLocation();
+        String oldStatus = entity.getStatus();
+
         entity.setName(request.getName());
         if (request.getLocation() != null) entity.setLocation(request.getLocation());
         if (request.getContactEmail() != null) entity.setContactEmail(request.getContactEmail());
@@ -61,6 +70,14 @@ public class BranchService {
         if (request.getStatus() != null) entity.setStatus(request.getStatus());
 
         BranchEntity saved = branchRepository.save(entity);
+        
+        String details = String.format("{\"name\":{\"old\":\"%s\", \"new\":\"%s\"}, \"location\":{\"old\":\"%s\", \"new\":\"%s\"}, \"status\":{\"old\":\"%s\", \"new\":\"%s\"}}", 
+            oldName != null ? oldName : "", saved.getName() != null ? saved.getName() : "", 
+            oldLocation != null ? oldLocation : "", saved.getLocation() != null ? saved.getLocation() : "", 
+            oldStatus != null ? oldStatus : "", saved.getStatus() != null ? saved.getStatus() : "");
+            
+        auditService.log("UPDATE_BRANCH", "BRANCH", saved.getId(), null, details, getCurrentIp());
+        
         return mapToResponse(saved);
     }
 
@@ -98,5 +115,15 @@ public class BranchService {
                 .contactPhone(entity.getContactPhone())
                 .status(entity.getStatus())
                 .build();
+    }
+
+    private String getCurrentIp() {
+        try {
+            return com.uom.lims.security.ClientIpResolver.resolve(
+                ((org.springframework.web.context.request.ServletRequestAttributes) 
+                    org.springframework.web.context.request.RequestContextHolder.currentRequestAttributes()).getRequest());
+        } catch (Exception e) {
+            return "SYSTEM";
+        }
     }
 }

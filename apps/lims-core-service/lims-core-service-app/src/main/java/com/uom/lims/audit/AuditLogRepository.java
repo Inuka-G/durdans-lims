@@ -72,7 +72,7 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, UUID> {
 
         Page<AuditLog> findByBranchCode(String branchCode, Pageable pageable);
 
-        @Query(value = "SELECT * FROM audit_log a WHERE a.branch_code = :branchCode " +
+        @Query(value = "SELECT * FROM audit_log a WHERE LOWER(a.branch_code) = LOWER(CAST(:branchCode AS VARCHAR)) " +
                         "AND (:action IS NULL OR a.action = CAST(:action AS VARCHAR)) " +
                         "AND (:entityType IS NULL OR a.entity_type = CAST(:entityType AS VARCHAR)) " +
                         "AND (:performedBy IS NULL OR a.performed_by = CAST(:performedBy AS VARCHAR)) " +
@@ -85,7 +85,10 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, UUID> {
                         +
                         "    LOWER(CAST(COALESCE(a.entity_type, '') AS TEXT)) LIKE LOWER('%' || CAST(:search AS TEXT) || '%')"
                         +
-                        "))", countQuery = "SELECT COUNT(*) FROM audit_log a WHERE a.branch_code = :branchCode " +
+                        ")) " +
+                        "AND (CAST(:startDate AS TIMESTAMP) IS NULL OR a.timestamp >= CAST(:startDate AS TIMESTAMP)) " +
+                        "AND (CAST(:endDate AS TIMESTAMP) IS NULL OR a.timestamp <= CAST(:endDate AS TIMESTAMP))", 
+                        countQuery = "SELECT COUNT(*) FROM audit_log a WHERE LOWER(a.branch_code) = LOWER(CAST(:branchCode AS VARCHAR)) " +
                                         "AND (:action IS NULL OR a.action = CAST(:action AS VARCHAR)) " +
                                         "AND (:entityType IS NULL OR a.entity_type = CAST(:entityType AS VARCHAR)) " +
                                         "AND (:performedBy IS NULL OR a.performed_by = CAST(:performedBy AS VARCHAR)) "
@@ -99,13 +102,17 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, UUID> {
                                         +
                                         "    LOWER(CAST(COALESCE(a.entity_type, '') AS TEXT)) LIKE LOWER('%' || CAST(:search AS TEXT) || '%')"
                                         +
-                                        "))", nativeQuery = true)
+                                        ")) " +
+                                        "AND (CAST(:startDate AS TIMESTAMP) IS NULL OR a.timestamp >= CAST(:startDate AS TIMESTAMP)) " +
+                                        "AND (CAST(:endDate AS TIMESTAMP) IS NULL OR a.timestamp <= CAST(:endDate AS TIMESTAMP))", nativeQuery = true)
         Page<AuditLog> findByBranchCodeFiltered(
                         @Param("branchCode") String branchCode,
                         @Param("action") String action,
                         @Param("entityType") String entityType,
                         @Param("performedBy") String performedBy,
                         @Param("search") String search,
+                        @Param("startDate") java.time.LocalDateTime startDate,
+                        @Param("endDate") java.time.LocalDateTime endDate,
                         Pageable pageable);
 
         @Query(value = "SELECT * FROM audit_log a WHERE " +
@@ -121,7 +128,10 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, UUID> {
                         +
                         "    LOWER(CAST(COALESCE(a.entity_type, '') AS TEXT)) LIKE LOWER('%' || CAST(:search AS TEXT) || '%')"
                         +
-                        "))", countQuery = "SELECT COUNT(*) FROM audit_log a WHERE " +
+                        ")) " +
+                        "AND (CAST(:startDate AS TIMESTAMP) IS NULL OR a.timestamp >= CAST(:startDate AS TIMESTAMP)) " +
+                        "AND (CAST(:endDate AS TIMESTAMP) IS NULL OR a.timestamp <= CAST(:endDate AS TIMESTAMP))", 
+                        countQuery = "SELECT COUNT(*) FROM audit_log a WHERE " +
                                         "(:action IS NULL OR a.action = CAST(:action AS VARCHAR)) " +
                                         "AND (:entityType IS NULL OR a.entity_type = CAST(:entityType AS VARCHAR)) " +
                                         "AND (:performedBy IS NULL OR a.performed_by = CAST(:performedBy AS VARCHAR)) "
@@ -135,11 +145,15 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, UUID> {
                                         +
                                         "    LOWER(CAST(COALESCE(a.entity_type, '') AS TEXT)) LIKE LOWER('%' || CAST(:search AS TEXT) || '%')"
                                         +
-                                        "))", nativeQuery = true)
+                                        ")) " +
+                                        "AND (CAST(:startDate AS TIMESTAMP) IS NULL OR a.timestamp >= CAST(:startDate AS TIMESTAMP)) " +
+                                        "AND (CAST(:endDate AS TIMESTAMP) IS NULL OR a.timestamp <= CAST(:endDate AS TIMESTAMP))", nativeQuery = true)
         Page<AuditLog> findAllFiltered(
                         @Param("action") String action,
                         @Param("entityType") String entityType,
                         @Param("performedBy") String performedBy,
                         @Param("search") String search,
+                        @Param("startDate") java.time.LocalDateTime startDate,
+                        @Param("endDate") java.time.LocalDateTime endDate,
                         Pageable pageable);
 }

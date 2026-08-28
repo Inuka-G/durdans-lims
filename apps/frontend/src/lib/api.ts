@@ -307,7 +307,15 @@ export interface AuditLogPage {
 }
 
 export const getAuditLogs = async (params?: Record<string, unknown>) => {
-    const response = await axiosInstance.get('/api/v1/audit-logs', { params });
+    // If startDate/endDate exist, ensure they're valid ISO strings before passing
+    const finalParams = { ...params };
+    if (finalParams.startDate instanceof Date) {
+        finalParams.startDate = finalParams.startDate.toISOString();
+    }
+    if (finalParams.endDate instanceof Date) {
+        finalParams.endDate = finalParams.endDate.toISOString();
+    }
+    const response = await axiosInstance.get('/api/v1/audit-logs', { params: finalParams });
     return response.data as AuditLogPage;
 };
 

@@ -132,10 +132,10 @@ public class AuditService {
         performedBy = (performedBy != null && performedBy.isBlank()) ? null : performedBy;
         search = (search != null && search.isBlank()) ? null : search;
 
-        if (branchCode != null && !branchCode.isBlank()) {
-            return repository.findByBranchCodeFiltered(branchCode, action, entityType, performedBy, search, pageable);
+        if (branchCode != null && !branchCode.isBlank() && !"ALL".equalsIgnoreCase(branchCode)) {
+            return repository.findByBranchCodeFiltered(branchCode, action, entityType, performedBy, search, null, null, pageable);
         } else {
-            return repository.findAllFiltered(action, entityType, performedBy, search, pageable);
+            return repository.findAllFiltered(action, entityType, performedBy, search, null, null, pageable);
         }
     }
 }

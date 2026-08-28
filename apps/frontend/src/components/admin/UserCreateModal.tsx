@@ -174,7 +174,7 @@ export default function UserCreateModal({ isOpen, onClose }: UserCreateModalProp
                 >
                     <option value="" disabled>Select a branch</option>
                     {branches.map(b => (
-                        <option key={b.code} value={b.code}>{b.name}</option>
+                        <option key={b.code} value={b.code} disabled={b.status !== 'Active'}>{b.name}{b.status !== 'Active' ? ' (Inactive)' : ''}</option>
                     ))}
                 </SelectField>
 
