@@ -327,6 +327,8 @@ export interface DispatchDashboardItem {
     authorizedTime: string;
     deliveryMethods: ApiDeliveryMethod[];
     status: ApiDispatchItemStatus;
+    authorizedBy?: string | null;
+    priorityLevel?: string | null;
 }
 
 export interface DeliveryAttempt {
@@ -379,24 +381,31 @@ export interface DispatchItemDetail {
 export interface DeliveryRecordRow {
     reportId: string;
     patientName: string;
+    patientCode?: string | null;
     testName: string;
+    authorizedBy?: string | null;
     methods: ApiDeliveryMethod[];
     status: ApiDispatchItemStatus;
     dispatchedTime: string;
     deliveredTime: string | null;
     trackingNumber?: string | null;
     trackingUrl?: string | null;
+    updatedAt?: string | null;
+    dispatchedBy?: string | null;
 }
 
 export interface FailedDeliveryRow {
     attemptId: string;
     reportId: string;
     patientName: string;
+    patientCode?: string | null;
     testName: string;
     method: ApiDeliveryMethod;
     failureReason: string;
     failedDateTime: string;
     retryCount: number;
+    dispatchedBy?: string | null;
+    recipientContact?: string | null;
 }
 
 export interface PageResponseDispatch<T> {

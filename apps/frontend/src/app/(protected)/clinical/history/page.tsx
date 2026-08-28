@@ -10,6 +10,7 @@ import {
 } from "@/lib/history-date-range";
 import { downloadCsv } from "@/lib/export-csv";
 import { displayResultNo } from "@/lib/result-display";
+import { formatDisplayId } from "@/lib/format-id";
 import { formatStatusLabel } from "@/constants/sample-lifecycle";
 import {
     getClinicalHistory,
@@ -456,7 +457,7 @@ export default function ClinicalHistoryPage() {
                                         >
                                             {/* Result ID */}
                                             <td className="py-2 pl-4 pr-3">
-                                                <span className="block truncate font-mono text-xs font-medium text-fg" title={item.resultId}>
+                                                <span className="block truncate font-mono text-xs font-medium text-fg" title={displayResultId}>
                                                     {displayResultId}
                                                 </span>
                                                 <span className="mt-0.5 block text-xs tabular-nums text-fg-muted">

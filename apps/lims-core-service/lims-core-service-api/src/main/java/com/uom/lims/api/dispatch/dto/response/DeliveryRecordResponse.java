@@ -19,7 +19,9 @@ public class DeliveryRecordResponse {
 
     private String reportId;
     private String patientName;
+    private String patientCode;
     private String testName;
+    private String authorizedBy;
     private List<DeliveryMethod> methods;
     @Schema(description = "PENDING, DELIVERED, FAILED, or PARTIAL derived from attempts")
     private DispatchItemStatus status;
@@ -27,4 +29,6 @@ public class DeliveryRecordResponse {
     private String deliveredTime;
     private String trackingNumber;
     private String trackingUrl;
+    private String updatedAt;
+    private String dispatchedBy;
 }
