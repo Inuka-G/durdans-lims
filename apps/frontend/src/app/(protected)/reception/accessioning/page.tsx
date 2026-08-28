@@ -41,40 +41,11 @@ function formatCollectedAt(iso?: string | null) {
     return `${label} ${time}`;
 }
 
-/**
- * Clinical Priority Score with Dynamic Aging & Starvation Prevention:
- * Tier 0-49:   STAT Emergency samples (ICU/ETU) - Always Top Priority
- * Tier 50-89:  Aged/Overdue samples (Normal > 4h or Urgent > 1.5h - Pre-analytical stability risk)
- * Tier 100-199: Standard Urgent samples
- * Tier 200+:   Standard Routine Normal samples
- */
-function getClinicalPriorityScore(sample: MltWorklistItem, now: number): number {
-    const collectedTime = sample.collectedAt ? new Date(sample.collectedAt).getTime() : 0;
-    const elapsedMinutes = collectedTime > 0 ? Math.max(0, Math.floor((now - collectedTime) / 60000)) : 0;
-
-    if (sample.priority === 'STAT') {
-        return 0;
-    }
-
-    if (sample.priority === 'URGENT') {
-        // Urgent approaching SLA (> 90 mins) escalates to near-STAT tier
-        if (elapsedMinutes >= 90) {
-            return 50;
-        }
-        return 100;
-    }
-
-    // NORMAL samples: Specimen stability risk (> 360 mins / 6h) escalates to Tier 40 (Critical stability)
-    if (elapsedMinutes >= 360) {
-        return 40;
-    }
-    // Specimen delay risk (> 240 mins / 4h) escalates to Tier 80 (Urgent Aging)
-    if (elapsedMinutes >= 240) {
-        return 80;
-    }
-
-    return 200;
-}
+const PRIORITY_ORDER: Record<string, number> = {
+    STAT: 0,
+    URGENT: 1,
+    NORMAL: 2,
+};
 
 export default function ReceptionAccessioningPage() {
     const pathname = usePathname();
@@ -112,7 +83,6 @@ export default function ReceptionAccessioningPage() {
 
     const filteredSamples = useMemo(() => {
         const query = searchQuery.trim().toLowerCase();
-        const now = Date.now();
 
         const filtered = samples.filter((sample) => {
             const matchesSearch =
@@ -131,14 +101,14 @@ export default function ReceptionAccessioningPage() {
             return matchesSearch && matchesTestType && matchesPriority;
         });
 
-        // Priority Queue with Dynamic Aging & Starvation Prevention Sorting
+        // Strict Priority Hierarchy: STAT (0) -> URGENT (1) -> NORMAL (2)
+        // Secondary: FIFO (oldest collected / registered first within the same priority)
         return filtered.sort((a, b) => {
-            const scoreA = getClinicalPriorityScore(a, now);
-            const scoreB = getClinicalPriorityScore(b, now);
-            if (scoreA !== scoreB) {
-                return scoreA - scoreB;
+            const priorityA = PRIORITY_ORDER[a.priority] ?? 3;
+            const priorityB = PRIORITY_ORDER[b.priority] ?? 3;
+            if (priorityA !== priorityB) {
+                return priorityA - priorityB;
             }
-            // Secondary tie-breaker: FIFO (oldest collected / registered first)
             const timeA = a.collectedAt ? new Date(a.collectedAt).getTime() : 0;
             const timeB = b.collectedAt ? new Date(b.collectedAt).getTime() : 0;
             return timeA - timeB;
