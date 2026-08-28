@@ -493,7 +493,7 @@ export default function VerificationHistoryPage() {
                                             <td className="py-2 pl-4 pr-3">
                                                 <span
                                                     className="block max-w-full truncate font-mono text-xs font-medium text-fg"
-                                                    title={item.resultId}
+                                                    title={displayId}
                                                 >
                                                     {displayId}
                                                 </span>

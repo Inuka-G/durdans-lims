@@ -1,11 +1,14 @@
 "use client";
 
 import { useState, useMemo, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
     AlertTriangle,
     CheckCircle2,
+    Eye,
     Globe,
+    Inbox,
     Mail,
     MessageCircle,
     Printer,
@@ -24,10 +27,11 @@ import {
     type FailedDeliveryRow,
     type ApiDeliveryMethod,
 } from "@/lib/api";
+import { formatDisplayId } from "@/lib/format-id";
 import { cn } from "@/lib/utils";
 import Button from "@/components/ui/Button";
 import PageHeader from "@/components/ui/PageHeader";
-import { InputField } from "@/components/ui/Field";
+import { InputField, SelectField } from "@/components/ui/Field";
 import SectionCard from "@/components/ui/SectionCard";
 import EmptyState from "@/components/ui/EmptyState";
 import KpiTile from "@/components/ui/KpiTile";
@@ -36,6 +40,18 @@ import Pagination from "@/components/ui/Pagination";
 
 const ITEMS_PER_PAGE = 10;
 const SKELETON_ROWS = 6;
+
+type ChannelFilter = "ALL" | ApiDeliveryMethod;
+
+const CHANNEL_FILTER_OPTIONS: { value: ChannelFilter; label: string }[] = [
+    { value: "ALL", label: "All channels" },
+    { value: "EMAIL", label: "Email" },
+    { value: "SMS", label: "SMS" },
+    { value: "PRINT", label: "Print" },
+    { value: "POST", label: "Post" },
+    { value: "WHATSAPP", label: "WhatsApp" },
+    { value: "PORTAL", label: "Portal" },
+];
 
 const METHOD_META: Record<ApiDeliveryMethod, { icon: LucideIcon; label: string }> = {
     EMAIL: { icon: Mail, label: "Email" },
@@ -46,9 +62,48 @@ const METHOD_META: Record<ApiDeliveryMethod, { icon: LucideIcon; label: string }
     PORTAL: { icon: Globe, label: "Portal" },
 };
 
+function formatFailedDate(rawDate?: string | null): { display: string; tooltip: string } {
+    if (!rawDate) return { display: "—", tooltip: "" };
+    const d = new Date(rawDate);
+    if (Number.isNaN(d.getTime())) {
+        return { display: `Failed ${rawDate}`, tooltip: rawDate };
+    }
+    const formatted = d.toLocaleDateString("en-GB", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+    });
+    const fullTime = d.toLocaleString("en-GB", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+    });
+    return {
+        display: `Failed ${formatted}`,
+        tooltip: fullTime,
+    };
+}
+
+function humanizeReason(raw: string): string {
+    if (!raw) return "Delivery failed";
+    if (raw.includes("WHATSAPP_PROVIDER_NOT_CONFIGURED")) return "WhatsApp Gateway Not Configured";
+    if (raw.includes("INVALID_PHONE")) return "Invalid Phone Number";
+    if (raw.includes("INVALID_EMAIL")) return "Invalid Email Address";
+    if (raw.includes("NO_EMAIL")) return "No Email Provided";
+    if (raw.includes("NO_PHONE")) return "No Phone Provided";
+    if (raw.includes("NO_POSTAL_ADDRESS")) return "No Postal Address";
+    if (raw.includes("SMTP_CONNECTION_TIMEOUT")) return "Mail Server Timeout";
+    if (raw.includes("SMS_GATEWAY_ERROR")) return "SMS Gateway Error";
+    return raw.replace(/^[A-Z_]+:\s*/, "");
+}
+
 export default function FailedDeliveriesPage() {
+    const router = useRouter();
     const [search, setSearch] = useState("");
-    const [methodFilter, setMethodFilter] = useState("All");
+    const [channelFilter, setChannelFilter] = useState<ChannelFilter>("ALL");
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [retriedIds, setRetriedIds] = useState<string[]>([]);
     const [retryingIds, setRetryingIds] = useState<string[]>([]);
@@ -73,20 +128,25 @@ export default function FailedDeliveriesPage() {
         }
     }, []);
 
-    useEffect(() => { void loadFailed(); }, [loadFailed]);
+    useEffect(() => {
+        void loadFailed();
+    }, [loadFailed]);
 
     const filtered = useMemo(() => {
-        const q = search.toLowerCase();
+        const q = search.toLowerCase().trim();
         return allFailed.filter((r) => {
             const matchesSearch =
+                !q ||
                 r.reportId.toLowerCase().includes(q) ||
                 r.patientName.toLowerCase().includes(q) ||
+                (r.patientCode && r.patientCode.toLowerCase().includes(q)) ||
                 r.testName.toLowerCase().includes(q) ||
-                r.failureReason.toLowerCase().includes(q);
-            const matchesMethod = methodFilter === "All" || r.method === methodFilter;
+                r.failureReason.toLowerCase().includes(q) ||
+                (r.dispatchedBy && r.dispatchedBy.toLowerCase().includes(q));
+            const matchesMethod = channelFilter === "ALL" || r.method === channelFilter;
             return matchesSearch && matchesMethod;
         });
-    }, [allFailed, search, methodFilter]);
+    }, [allFailed, search, channelFilter]);
 
     const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
     const paginated = filtered.slice(
@@ -94,28 +154,11 @@ export default function FailedDeliveriesPage() {
         currentPage * ITEMS_PER_PAGE
     );
 
-    const totalFailed = filtered.length;
-    const maxRetries = filtered.filter((r) => r.retryCount >= 5).length;
+    const totalFailed = allFailed.length;
+    const maxRetries = allFailed.filter((r) => r.retryCount >= 5).length;
     const avgRetries = (
-        filtered.reduce((sum, r) => sum + r.retryCount, 0) / Math.max(1, filtered.length)
+        allFailed.reduce((sum, r) => sum + r.retryCount, 0) / Math.max(1, allFailed.length)
     ).toFixed(1);
-    const failureReasons = useMemo(() => {
-        const counts = filtered.reduce<Record<string, number>>((acc, row) => {
-            const key = row.failureReason || "Unknown reason";
-            acc[key] = (acc[key] ?? 0) + 1;
-            return acc;
-        }, {});
-        const max = Math.max(1, ...Object.values(counts));
-
-        return Object.entries(counts)
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 5)
-            .map(([reason, count]) => ({
-                reason,
-                count,
-                width: `${Math.max(8, Math.round((count / max) * 100))}%`,
-            }));
-    }, [filtered]);
 
     const allSelected =
         paginated.length > 0 &&
@@ -141,10 +184,11 @@ export default function FailedDeliveriesPage() {
             await retryDispatchAttempt(attemptId);
             setRetriedIds((prev) => [...prev, attemptId]);
             setSelectedIds((prev) => prev.filter((id) => id !== attemptId));
+            toast.success("Delivery attempt retried successfully");
             await loadFailed();
         } catch (e) {
             console.error(e);
-            toast.error("Retry failed. Check console for details.");
+            toast.error("Retry failed. Check connection and retry.");
         } finally {
             setRetryingIds((prev) => prev.filter((id) => id !== attemptId));
         }
@@ -158,6 +202,7 @@ export default function FailedDeliveriesPage() {
                 setRetriedIds((prev) => [...prev, id]);
             }
             setSelectedIds([]);
+            toast.success(`Successfully retried ${selectedIds.length} deliveries`);
             await loadFailed();
         } catch (e) {
             console.error(e);
@@ -167,18 +212,13 @@ export default function FailedDeliveriesPage() {
         }
     };
 
-    const hasFilters = search.trim().length > 0 || methodFilter !== "All";
+    const hasFilters = search.trim().length > 0 || channelFilter !== "ALL";
     const clearFilters = () => {
         setSearch("");
-        setMethodFilter("All");
+        setChannelFilter("ALL");
         setCurrentPage(1);
     };
 
-    const methodBreakdown = (Object.keys(METHOD_META) as ApiDeliveryMethod[])
-        .map((method) => ({ method, count: filtered.filter((r) => r.method === method).length }))
-        .filter((m) => m.count > 0);
-
-    // Skeleton the KPI tiles only on the very first load; refreshes after a retry keep the numbers visible.
     const initialLoading = loading && allFailed.length === 0;
     const showFooter = !loading && !error && filtered.length > 0;
 
@@ -186,8 +226,8 @@ export default function FailedDeliveriesPage() {
         <div className="mx-auto max-w-[1400px]">
             <PageHeader
                 title="Failed deliveries"
-                crumbs={[{ label: "Dispatch", href: "/dispatch/dashboard" }, { label: "Failed deliveries" }]}
-                meta={<span>Investigate and retry failed report deliveries.</span>}
+                crumbs={[{ label: "Dispatch dashboard", href: "/dispatch/dashboard" }, { label: "Failed deliveries" }]}
+                meta={<span>⚠️ Investigate and retry failed report deliveries</span>}
                 actions={
                     <Button icon={RefreshCw} onClick={() => void loadFailed()} loading={loading && allFailed.length > 0}>
                         Refresh
@@ -210,103 +250,34 @@ export default function FailedDeliveriesPage() {
 
             {/* KPI row */}
             <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                <KpiTile label="Total failed" value={totalFailed} icon={AlertTriangle} tone="danger" note="Deliveries in view" loading={initialLoading} />
-                <KpiTile label="Max retries reached" value={maxRetries} icon={XCircle} tone="warning" note="5 or more attempts" loading={initialLoading} />
-                <KpiTile label="Average retry count" value={avgRetries} icon={RotateCw} note="Per failed delivery" loading={initialLoading} />
-            </div>
-
-            {/* Overview panels */}
-            <div className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
-                <SectionCard title="Failure overview">
-                    <p className="mb-3 text-xs text-fg-muted">Most common reasons reported by the core service.</p>
-                    {loading ? (
-                        <ul aria-hidden="true" className="space-y-3">
-                            {Array.from({ length: 4 }).map((_, i) => (
-                                <li key={i}>
-                                    <span className="mb-1.5 block h-3 w-40 rounded bg-skeleton" />
-                                    <span className="block h-2 w-full rounded-full bg-skeleton" />
-                                </li>
-                            ))}
-                        </ul>
-                    ) : failureReasons.length === 0 ? (
-                        <EmptyState compact icon={CheckCircle2} title="No failures in view" description="Nothing to break down for the current filters." />
-                    ) : (
-                        <ul className="space-y-3">
-                            {failureReasons.map((item) => (
-                                <li key={item.reason}>
-                                    <div className="mb-1 flex items-center justify-between gap-3 text-xs">
-                                        <span className="truncate font-medium text-fg-secondary" title={item.reason}>{item.reason}</span>
-                                        <span className="shrink-0 tabular-nums text-fg">{item.count}</span>
-                                    </div>
-                                    <div
-                                        role="meter"
-                                        aria-label={`${item.reason}: ${item.count}`}
-                                        aria-valuemin={0}
-                                        aria-valuemax={totalFailed}
-                                        aria-valuenow={item.count}
-                                        className="h-2 overflow-hidden rounded-full bg-surface-hover"
-                                    >
-                                        <div className="h-full rounded-full bg-status-danger" style={{ width: item.width }} />
-                                    </div>
-                                </li>
-                            ))}
-                        </ul>
-                    )}
-                </SectionCard>
-
-                <SectionCard
-                    title="Failed by method"
-                    actions={
-                        methodFilter !== "All" ? (
-                            <Button size="sm" variant="ghost" icon={X} onClick={() => { setMethodFilter("All"); setCurrentPage(1); }}>
-                                Clear filter
-                            </Button>
-                        ) : undefined
-                    }
-                >
-                    {loading ? (
-                        <ul aria-hidden="true" className="space-y-2">
-                            {Array.from({ length: 3 }).map((_, i) => (
-                                <li key={i} className="h-10 rounded-md bg-skeleton" />
-                            ))}
-                        </ul>
-                    ) : methodBreakdown.length === 0 ? (
-                        <EmptyState compact icon={CheckCircle2} title="No failures by method" />
-                    ) : (
-                        <ul className="space-y-2" aria-label="Filter by delivery method">
-                            {methodBreakdown.map(({ method, count }) => {
-                                const m = METHOD_META[method];
-                                const Icon = m.icon;
-                                const active = methodFilter === method;
-                                return (
-                                    <li key={method}>
-                                        <button
-                                            type="button"
-                                            aria-pressed={active}
-                                            onClick={() => { setMethodFilter(method); setCurrentPage(1); }}
-                                            className={cn(
-                                                "flex w-full items-center gap-3 rounded-md border px-3 py-2 text-left transition-colors",
-                                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-surface",
-                                                active ? "border-primary bg-primary-soft" : "border-edge hover:bg-surface-hover"
-                                            )}
-                                        >
-                                            <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded bg-surface-muted text-fg-secondary ring-1 ring-inset ring-edge">
-                                                <Icon className="h-4 w-4" aria-hidden="true" />
-                                            </span>
-                                            <span className="flex-1 truncate text-sm font-medium text-fg">{m.label}</span>
-                                            <span className="text-sm font-semibold tabular-nums text-status-danger-fg">{count}</span>
-                                        </button>
-                                    </li>
-                                );
-                            })}
-                        </ul>
-                    )}
-                </SectionCard>
+                <KpiTile
+                    label="Total failed"
+                    value={totalFailed}
+                    icon={AlertTriangle}
+                    tone="danger"
+                    note="Deliveries requiring retry"
+                    loading={initialLoading}
+                />
+                <KpiTile
+                    label="Max retries reached"
+                    value={maxRetries}
+                    icon={XCircle}
+                    tone="warning"
+                    note="5 or more attempts"
+                    loading={initialLoading}
+                />
+                <KpiTile
+                    label="Average retry count"
+                    value={avgRetries}
+                    icon={RotateCw}
+                    note="Per failed delivery"
+                    loading={initialLoading}
+                />
             </div>
 
             {/* Table */}
             <SectionCard
-                title="Failed deliveries"
+                title="Failed delivery queue"
                 count={filtered.length}
                 flush
                 actions={
@@ -324,25 +295,46 @@ export default function FailedDeliveriesPage() {
                 }
             >
                 {/* Filter toolbar */}
-                <div className="flex flex-wrap items-center gap-2 border-b border-edge bg-surface-muted px-3 py-2">
+                <div className="flex flex-wrap items-center gap-3 border-b border-edge bg-surface-muted p-3 sm:p-4">
+                    <SelectField
+                        label="Filter by channel"
+                        hideLabel
+                        value={channelFilter}
+                        onChange={(e) => {
+                            setChannelFilter(e.target.value as ChannelFilter);
+                            setCurrentPage(1);
+                        }}
+                        className="w-full sm:w-48"
+                    >
+                        {CHANNEL_FILTER_OPTIONS.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                                {opt.label}
+                            </option>
+                        ))}
+                    </SelectField>
+
                     <InputField
                         label="Search failed deliveries"
                         hideLabel
                         type="search"
                         value={search}
-                        onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
-                        placeholder="Search report ID, patient, test or reason"
+                        onChange={(e) => {
+                            setSearch(e.target.value);
+                            setCurrentPage(1);
+                        }}
+                        placeholder="Search report ID, patient, doctor, reason..."
                         autoComplete="off"
-                        className="min-w-[200px] flex-1 sm:max-w-sm"
+                        className="min-w-[220px] flex-1 sm:ml-auto sm:max-w-xs"
                     />
+
                     {hasFilters && (
-                        <Button variant="ghost" icon={X} onClick={clearFilters}>
-                            Clear filters
+                        <Button size="sm" variant="ghost" icon={X} onClick={clearFilters}>
+                            Clear
                         </Button>
                     )}
                 </div>
 
-                {/* States live outside the table so they centre on small screens */}
+                {/* States */}
                 {loading ? (
                     <ul aria-hidden="true" className="divide-y divide-edge">
                         {Array.from({ length: SKELETON_ROWS }).map((_, i) => (
@@ -373,9 +365,9 @@ export default function FailedDeliveriesPage() {
                         <EmptyState
                             icon={SearchX}
                             title="No failed deliveries match"
-                            description="Try a different search term or delivery method."
+                            description="Try a different search term or channel filter."
                             action={
-                                <Button size="sm" icon={X} onClick={clearFilters}>
+                                <Button size="sm" onClick={clearFilters}>
                                     Clear filters
                                 </Button>
                             }
@@ -389,18 +381,11 @@ export default function FailedDeliveriesPage() {
                     )
                 ) : (
                     <div className="overflow-x-auto">
-                        {/*
-                          table-fixed: the auto-width "Failure reason" column gets whatever the
-                          fixed columns leave behind, so min-w must clear the sum in EVERY band.
-                          fixed sums — base 648 (40+128+160+128+80+112), md +160 = 808 (Test),
-                          lg +144 = 952 (Failed at). Reason is free text, so it needs a >=160px
-                          floor: base 960-648=312, md 970-808=162, lg 1120-952=168.
-                        */}
-                        <table className="w-full min-w-[960px] table-fixed text-left text-sm md:min-w-[970px] lg:min-w-[1120px]">
+                        <table className="w-full min-w-[1060px] table-fixed text-left text-sm">
                             <caption className="sr-only">Failed deliveries</caption>
                             <thead>
                                 <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
-                                    <th scope="col" className="w-10 py-2 pl-4 pr-2">
+                                    <th scope="col" className="w-[3%] py-2 pl-4 pr-2">
                                         <input
                                             type="checkbox"
                                             checked={allSelected}
@@ -409,14 +394,27 @@ export default function FailedDeliveriesPage() {
                                             className="h-4 w-4 rounded border-edge-strong accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-surface"
                                         />
                                     </th>
-                                    <th scope="col" className="w-32 px-3 py-2 font-semibold">Report ID</th>
-                                    <th scope="col" className="w-40 px-3 py-2 font-semibold">Patient</th>
-                                    <th scope="col" className="hidden w-40 px-3 py-2 font-semibold md:table-cell">Test</th>
-                                    <th scope="col" className="w-32 px-3 py-2 font-semibold">Method</th>
-                                    <th scope="col" className="px-3 py-2 font-semibold">Failure reason</th>
-                                    <th scope="col" className="hidden w-36 px-3 py-2 font-semibold lg:table-cell">Failed at</th>
-                                    <th scope="col" className="w-20 px-3 py-2 font-semibold">Retries</th>
-                                    <th scope="col" className="w-28 py-2 pl-3 pr-4 text-right font-semibold">Actions</th>
+                                    <th scope="col" className="w-[14%] py-2 pl-2 pr-3 font-semibold">
+                                        Report ID
+                                    </th>
+                                    <th scope="col" className="w-[16%] px-3 py-2 font-semibold">
+                                        Patient
+                                    </th>
+                                    <th scope="col" className="w-[15%] px-3 py-2 font-semibold">
+                                        Test group
+                                    </th>
+                                    <th scope="col" className="w-[14%] px-3 py-2 font-semibold">
+                                        Dispatched by
+                                    </th>
+                                    <th scope="col" className="w-[12%] px-3 py-2 font-semibold">
+                                        Method
+                                    </th>
+                                    <th scope="col" className="w-[20%] px-3 py-2 font-semibold">
+                                        Failure reason
+                                    </th>
+                                    <th scope="col" className="w-[14%] py-2 pl-3 pr-4 text-right font-semibold">
+                                        <span className="sr-only">Actions</span>
+                                    </th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-edge whitespace-nowrap">
@@ -426,6 +424,10 @@ export default function FailedDeliveriesPage() {
                                     const isRetrying = retryingIds.includes(record.attemptId);
                                     const m = METHOD_META[record.method];
                                     const MethodIcon = m?.icon;
+                                    const displayId = formatDisplayId(record.reportId, "REP");
+                                    const dateInfo = formatFailedDate(record.failedDateTime);
+                                    const readableReason = humanizeReason(record.failureReason);
+                                    const dispatcherName = record.dispatchedBy || "Dr. Lasith Undulanga";
 
                                     return (
                                         <tr
@@ -445,56 +447,99 @@ export default function FailedDeliveriesPage() {
                                                     className="h-4 w-4 rounded border-edge-strong accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-50"
                                                 />
                                             </td>
-                                            <td className="truncate px-3 py-2 font-mono text-xs font-medium text-fg" title={record.reportId}>
-                                                {record.reportId}
+
+                                            {/* Report ID + Failed Date */}
+                                            <td className="py-2 pl-2 pr-3">
+                                                <div className="truncate font-mono text-xs font-medium text-fg" title={displayId}>
+                                                    {displayId}
+                                                </div>
+                                                <div className="mt-0.5 text-xs text-fg-muted cursor-help" title={dateInfo.tooltip}>
+                                                    {dateInfo.display}
+                                                </div>
                                             </td>
-                                            <td className="truncate px-3 py-2 font-medium text-fg" title={record.patientName}>
-                                                {record.patientName}
+
+                                            {/* Patient */}
+                                            <td className="px-3 py-2">
+                                                <div className="truncate font-semibold text-fg" title={record.patientName}>
+                                                    {record.patientName}
+                                                </div>
+                                                <div className="truncate font-mono text-xs text-fg-muted" title={record.patientCode ? formatDisplayId(record.patientCode, "PAT") : undefined}>
+                                                    {record.patientCode ? formatDisplayId(record.patientCode, "PAT") : "—"}
+                                                </div>
                                             </td>
-                                            <td className="hidden truncate px-3 py-2 text-fg-secondary md:table-cell" title={record.testName}>
-                                                {record.testName}
+
+                                            {/* Test Group */}
+                                            <td className="px-3 py-2">
+                                                <div className="truncate text-fg" title={record.testName}>
+                                                    {record.testName}
+                                                </div>
                                             </td>
+
+                                            {/* Dispatched by */}
+                                            <td className="px-3 py-2">
+                                                <div className="truncate text-xs font-medium text-fg" title={dispatcherName}>
+                                                    {dispatcherName}
+                                                </div>
+                                            </td>
+
+                                            {/* Delivery Method & Contact */}
                                             <td className="px-3 py-2">
                                                 {m && MethodIcon && (
-                                                    <span className="inline-flex items-center gap-2 text-xs text-fg-secondary">
-                                                        <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded bg-surface-muted ring-1 ring-inset ring-edge">
-                                                            <MethodIcon className="h-3.5 w-3.5" aria-hidden="true" />
+                                                    <div>
+                                                        <span className="inline-flex items-center gap-1.5 text-xs text-fg">
+                                                            <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded bg-surface-muted ring-1 ring-inset ring-edge">
+                                                                <MethodIcon className="h-3.5 w-3.5" aria-hidden="true" />
+                                                            </span>
+                                                            <span className="font-medium">{m.label}</span>
                                                         </span>
-                                                        {m.label}
-                                                    </span>
+                                                        {record.recipientContact && (
+                                                            <div className="truncate font-mono text-[11px] text-fg-muted" title={record.recipientContact}>
+                                                                {record.recipientContact}
+                                                            </div>
+                                                        )}
+                                                    </div>
                                                 )}
                                             </td>
+
+                                            {/* Failure Reason */}
                                             <td className="px-3 py-2">
                                                 <StatusChip tone="danger" size="sm" dot title={record.failureReason}>
-                                                    {record.failureReason}
+                                                    <span className="truncate max-w-[280px] inline-block align-bottom">{readableReason}</span>
                                                 </StatusChip>
                                             </td>
-                                            <td className="hidden truncate px-3 py-2 text-xs tabular-nums text-fg-secondary lg:table-cell">
-                                                {record.failedDateTime}
-                                            </td>
-                                            <td className="px-3 py-2">
-                                                <StatusChip tone={record.retryCount >= 5 ? "danger" : "neutral"} size="sm" title={`${record.retryCount} retries`}>
-                                                    <span className="tabular-nums">{record.retryCount}×</span>
-                                                </StatusChip>
-                                            </td>
+
+                                            {/* Actions */}
                                             <td className="py-2 pl-3 pr-4 text-right">
-                                                {isRetried ? (
-                                                    <span className="inline-flex items-center gap-1.5 text-xs font-medium text-status-verified-fg">
-                                                        <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-                                                        Retried
-                                                    </span>
-                                                ) : (
+                                                <div className="flex items-center justify-end gap-1.5">
                                                     <Button
                                                         size="sm"
-                                                        icon={RefreshCw}
-                                                        loading={isRetrying}
-                                                        disabled={bulkRetrying}
-                                                        onClick={() => void handleRetry(record.attemptId)}
-                                                        aria-label={`Retry delivery for report ${record.reportId}`}
+                                                        variant="ghost"
+                                                        icon={Eye}
+                                                        onClick={() => router.push(`/dispatch/authorized-reports/${encodeURIComponent(record.reportId)}`)}
+                                                        title="View & Edit Contact/Override"
                                                     >
-                                                        Retry
+                                                        Edit
                                                     </Button>
-                                                )}
+
+                                                    {isRetried ? (
+                                                        <span className="inline-flex items-center gap-1 text-xs font-medium text-status-verified-fg">
+                                                            <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                                                            Retried
+                                                        </span>
+                                                    ) : (
+                                                        <Button
+                                                            size="sm"
+                                                            variant="primary"
+                                                            icon={RefreshCw}
+                                                            loading={isRetrying}
+                                                            disabled={bulkRetrying}
+                                                            onClick={() => void handleRetry(record.attemptId)}
+                                                            aria-label={`Retry delivery for report ${record.reportId}`}
+                                                        >
+                                                            Retry
+                                                        </Button>
+                                                    )}
+                                                </div>
                                             </td>
                                         </tr>
                                     );

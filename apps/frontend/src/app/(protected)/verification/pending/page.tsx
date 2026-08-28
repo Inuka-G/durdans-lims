@@ -533,7 +533,7 @@ export default function PendingVerificationPage() {
                                                     <button
                                                         type="button"
                                                         onClick={() => handleReview(result.resultId)}
-                                                        title={result.resultId}
+                                                        title={displayId}
                                                         className="flex max-w-full items-center gap-1.5 rounded text-left font-mono text-xs font-medium text-fg transition-colors hover:text-primary-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-surface"
                                                     >
                                                         {hasCritical && (
