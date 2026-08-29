@@ -31,4 +31,7 @@ public interface BranchUserApi {
 
     @Operation(summary = "Delete branch user")
     void deleteBranchUser(String id);
+
+    @Operation(summary = "Reset branch user password")
+    void resetBranchUserPassword(String id, @Valid com.uom.lims.api.superadmin.dto.ResetPasswordRequest request);
 }

@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getBranchActivityLogs, BranchActivityLog } from "@/lib/api";
+import { getBranchActivityLogs, BranchActivityLog, getBranches } from "@/lib/api";
+import { useAuth } from "@/hooks/useAuth";
 
 interface FrontendLog {
     id: string;
@@ -16,8 +17,24 @@ interface FrontendLog {
 }
 
 export default function ActivityLogsPage() {
-    const [branchName, setBranchName] = useState("Colombo Branch");
+    const { branchCode } = useAuth();
+    const [branchName, setBranchName] = useState("Loading...");
     const [logs, setLogs] = useState<FrontendLog[]>([]);
+
+    useEffect(() => {
+        const targetCode = branchCode || "b6030d28-10ef-4165-9554-8887fabfddb8";
+        getBranches(0, 100).then((data) => {
+            const branch = data.content.find((b) => b.id === targetCode || b.code.toUpperCase() === targetCode.toUpperCase());
+            if (branch) {
+                setBranchName(branch.name);
+            } else {
+                setBranchName(targetCode);
+            }
+        }).catch(err => {
+            console.error("Failed to fetch branch details", err);
+            setBranchName(targetCode);
+        });
+    }, [branchCode]);
 
     useEffect(() => {
         getBranchActivityLogs().then((data) => {

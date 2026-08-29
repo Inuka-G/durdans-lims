@@ -4,11 +4,15 @@ import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import CreateTestModal from "@/components/branch/CreateTestModal";
 import EditTestModal from "@/components/branch/EditTestModal";
-import { getBranchTests, createBranchTest, patchBranchTest, BranchTest } from "@/lib/api";
+import { useAuth } from "@/hooks/useAuth";
+import { getBranchTests, createBranchTest, patchBranchTest, BranchTest, getBranches } from "@/lib/api";
 
-const BRANCH_ID = "b6030d28-10ef-4165-9554-8887fabfddb8";
+const DEFAULT_BRANCH_ID = "b6030d28-10ef-4165-9554-8887fabfddb8";
 
 export default function BranchTestManagementPage() {
+    const { branchCode } = useAuth();
+    const [activeBranchId, setActiveBranchId] = useState<string | null>(null);
+
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [selectedTest, setSelectedTest] = useState<BranchTest | null>(null);
@@ -18,11 +22,13 @@ export default function BranchTestManagementPage() {
 
     const [tests, setTests] = useState<BranchTest[]>([]);
     const [loading, setLoading] = useState(true);
+    const [branchName, setBranchName] = useState("Loading...");
 
     const fetchTests = async () => {
+        if (!activeBranchId) return;
         setLoading(true);
         try {
-            const data = await getBranchTests(BRANCH_ID);
+            const data = await getBranchTests(activeBranchId);
             setTests(data);
         } catch (error) {
             console.error("Failed to fetch tests", error);
@@ -31,10 +37,36 @@ export default function BranchTestManagementPage() {
             setLoading(false);
         }
     };
+    
+    const resolveBranch = async () => {
+        try {
+            const data = await getBranches(0, 100);
+            const targetCode = branchCode || DEFAULT_BRANCH_ID;
+            const branch = data.content.find((b) => b.id === targetCode || b.code.toUpperCase() === targetCode.toUpperCase());
+            if (branch) {
+                setBranchName(branch.name);
+                setActiveBranchId(branch.id);
+            } else {
+                setBranchName(targetCode);
+                setActiveBranchId(targetCode); // It might fail later if backend expects UUID, but this is best effort
+            }
+        } catch (error) {
+            console.error("Failed to fetch branch details", error);
+            const targetCode = branchCode || DEFAULT_BRANCH_ID;
+            setBranchName(targetCode);
+            setActiveBranchId(targetCode);
+        }
+    };
 
     useEffect(() => {
-        fetchTests();
-    }, []);
+        resolveBranch();
+    }, [branchCode]);
+
+    useEffect(() => {
+        if (activeBranchId) {
+            fetchTests();
+        }
+    }, [activeBranchId]);
 
     const filteredTests = tests.filter(test => {
         const query = searchQuery.toLowerCase();
@@ -53,7 +85,7 @@ export default function BranchTestManagementPage() {
 
     const handleCreateTest = async (testData: BranchTest) => {
         try {
-            await createBranchTest(BRANCH_ID, testData);
+            await createBranchTest(activeBranchId, testData);
             toast.success("Test created successfully!");
             fetchTests(); // Refresh the list
         } catch (error) {
@@ -65,7 +97,7 @@ export default function BranchTestManagementPage() {
     const handleEditTest = async (testData: Partial<BranchTest>) => {
         if (!selectedTest?.id) return;
         try {
-            await patchBranchTest(BRANCH_ID, selectedTest.id, testData);
+            await patchBranchTest(activeBranchId, selectedTest.id, testData);
             toast.success("Test updated successfully!");
             fetchTests(); // Refresh the list
         } catch (error) {
@@ -78,7 +110,7 @@ export default function BranchTestManagementPage() {
         if (!test.id) return;
         const newStatus = !test.isActive;
         try {
-            await patchBranchTest(BRANCH_ID, test.id, { isActive: newStatus });
+            await patchBranchTest(activeBranchId, test.id, { isActive: newStatus });
             toast.success(`Test ${newStatus ? 'activated' : 'deactivated'} successfully!`);
             fetchTests(); // Refresh the list
         } catch (error) {
@@ -96,7 +128,7 @@ export default function BranchTestManagementPage() {
             {/* Header */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
                 <div>
-                    <h1 className="text-2xl font-extrabold text-[#0f172a] tracking-tight">Test Management – Colombo Branch</h1>
+                    <h1 className="text-2xl font-extrabold text-[#0f172a] tracking-tight">Test Management – {branchName}</h1>
                     <p className="text-[13px] font-medium text-[#64748b] mt-1">Manage and monitor laboratory tests and pricing.</p>
                 </div>
                 <button

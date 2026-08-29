@@ -1681,3 +1681,8 @@ export const getSuperadminRoles = async () => {
     const response = await axiosInstance.get('/api/v1/superadmin/roles');
     return response.data as string[];
 };
+
+export const resetBranchUserPassword = async (id: string, password: string, adminPassword?: string) => {
+    const response = await axiosInstance.post(`/api/v1/branch-users/${id}/reset-password`, { password, adminPassword });
+    return response.data;
+};

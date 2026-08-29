@@ -85,4 +85,11 @@ public class BranchUserController implements BranchUserApi {
     public void syncBranchUsers(@PathVariable String branchId) {
         branchUserService.syncFromKeycloak(branchId);
     }
+
+    @PreAuthorize("hasAnyRole('BRANCH_ADMIN','SUPER_ADMIN')")
+    @PostMapping("/branch-users/{id}/reset-password")
+    @Override
+    public void resetBranchUserPassword(@PathVariable String id, @Valid @RequestBody com.uom.lims.api.superadmin.dto.ResetPasswordRequest request) {
+        branchUserService.resetUserPassword(id, request);
+    }
 }

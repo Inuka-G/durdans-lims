@@ -30,9 +30,9 @@ public class BranchUserService {
 
     public BranchUserResponse createBranchUser(BranchUserCreateRequest request) {
         // Simple context check (e.g., must be a SUPER_ADMIN or BRANCH_ADMIN for this branch)
-        String userBranchCode = SecurityUtils.getCurrentBranchId();
-        if (!SecurityUtils.hasRole("SUPER_ADMIN") && !request.getBranchId().equals(userBranchCode)) {
-            throw new InvalidRequestException("You can only create users in your own branch");
+        String currentUserBranchId = SecurityUtils.getCurrentBranchId();
+        if (!SecurityUtils.hasRole("SUPER_ADMIN") && !request.getBranchId().equalsIgnoreCase(currentUserBranchId)) {
+            throw new InvalidRequestException("You don't have permission to access users of this branch");
         }
 
         if (repository.existsByEmail(request.getEmail())) {
@@ -68,7 +68,7 @@ public class BranchUserService {
 
     @Transactional(readOnly = true)
     public BranchUserResponse getBranchUserById(String id) {
-        BranchUserEntity entity = repository.findById(java.util.UUID.fromString(id))
+        BranchUserEntity entity = repository.findByKeycloakId(id)
                 .orElseThrow(() -> new ResourceNotFoundException("BranchUser not found with id: " + id));
         validateBranchAccess(entity.getBranchId());
         return mapToResponse(entity);
@@ -79,14 +79,82 @@ public class BranchUserService {
         if (!SecurityUtils.hasRole("SUPER_ADMIN")) {
             branchId = SecurityUtils.getCurrentBranchId(); // Enforce branch context
         }
-        return repository.findAll(BranchUserSpecification.search(branchId, keyword, isActive), pageable)
-                .map(this::mapToResponse);
+
+        final String finalBranchId = branchId;
+        List<BranchUserResponse> responses = new java.util.ArrayList<>();
+        
+        // Pre-fetch local phone numbers as a fallback since old users might not have phone saved in Keycloak
+        java.util.List<BranchUserEntity> localUsers = repository.findByBranchId(finalBranchId);
+        java.util.Map<String, String> localPhoneMap = localUsers.stream()
+            .filter(u -> u.getKeycloakId() != null && u.getPhone() != null)
+            .collect(java.util.stream.Collectors.toMap(BranchUserEntity::getKeycloakId, BranchUserEntity::getPhone, (p1, p2) -> p1));
+
+        keycloakAdminServiceProvider.ifAvailable(service -> {
+            List<org.keycloak.representations.idm.UserRepresentation> kcUsers = service.getUsersByBranch(finalBranchId);
+            
+            for (org.keycloak.representations.idm.UserRepresentation user : kcUsers) {
+                // Filter by keyword
+                if (keyword != null && !keyword.trim().isEmpty()) {
+                    String lowerKeyword = keyword.toLowerCase();
+                    boolean matches = false;
+                    if (user.getFirstName() != null && user.getFirstName().toLowerCase().contains(lowerKeyword)) matches = true;
+                    if (user.getLastName() != null && user.getLastName().toLowerCase().contains(lowerKeyword)) matches = true;
+                    if (user.getEmail() != null && user.getEmail().toLowerCase().contains(lowerKeyword)) matches = true;
+                    if (user.getUsername() != null && user.getUsername().toLowerCase().contains(lowerKeyword)) matches = true;
+                    if (!matches) continue;
+                }
+                
+                // Filter by isActive
+                if (isActive != null) {
+                    boolean userActive = Boolean.TRUE.equals(user.isEnabled());
+                    if (userActive != isActive) continue;
+                }
+                
+                // Fetch roles and filter out BRANCH_ADMIN
+                List<String> roles = service.getUserRoles(user.getId());
+                if (roles.contains("BRANCH_ADMIN") || roles.contains("ROLE_BRANCH_ADMIN")) {
+                    continue;
+                }
+                
+                BranchUserResponse mappedResponse = mapToResponse(user, finalBranchId, roles);
+                if (mappedResponse.getPhone() == null || mappedResponse.getPhone().isEmpty()) {
+                    mappedResponse.setPhone(localPhoneMap.get(user.getId()));
+                }
+                responses.add(mappedResponse);
+            }
+        });
+
+        // In-memory pagination
+        int start = (int) pageable.getOffset();
+        int end = Math.min((start + pageable.getPageSize()), responses.size());
+        List<BranchUserResponse> pageContent = new java.util.ArrayList<>();
+        if (start <= end) {
+            pageContent = responses.subList(start, end);
+        }
+
+        return new org.springframework.data.domain.PageImpl<>(pageContent, pageable, responses.size());
     }
 
     public BranchUserResponse updateBranchUser(String id, BranchUserUpdateRequest request) {
-        java.util.UUID uuid = java.util.UUID.fromString(id);
-        BranchUserEntity entity = repository.findById(uuid)
-                .orElseThrow(() -> new ResourceNotFoundException("BranchUser not found with id: " + id));
+        BranchUserEntity entity = repository.findByKeycloakId(id).orElse(null);
+        if (entity == null) {
+            entity = new BranchUserEntity();
+            entity.setKeycloakId(id);
+            String branchId = SecurityUtils.getCurrentBranchId();
+            KeycloakAdminService kcService = keycloakAdminServiceProvider.getIfAvailable();
+            if (SecurityUtils.hasRole("SUPER_ADMIN") && kcService != null) {
+                try {
+                    org.keycloak.representations.idm.UserRepresentation kcUser = kcService.getUserById(id);
+                    if (kcUser.getAttributes() != null && kcUser.getAttributes().containsKey("branch_id")) {
+                        branchId = kcUser.getAttributes().get("branch_id").get(0);
+                    }
+                } catch (Exception e) {
+                    log.warn("Could not fetch user branch from Keycloak for id {}", id, e);
+                }
+            }
+            entity.setBranchId(branchId);
+            entity.setIsActive(true); // default
+        }
         
         validateBranchAccess(entity.getBranchId());
 
@@ -98,7 +166,7 @@ public class BranchUserService {
             throw new InvalidRequestException("User with this username already exists");
         }
 
-        boolean wasActive = Boolean.TRUE.equals(entity.getIsActive());
+        boolean wasActive = entity.getId() != null ? Boolean.TRUE.equals(entity.getIsActive()) : false;
 
         entity.setFullName(request.getFullName());
         entity.setEmail(request.getEmail());
@@ -108,7 +176,8 @@ public class BranchUserService {
         entity.setUsername(request.getUsername());
 
         // Update in Keycloak if enabled
-        keycloakAdminServiceProvider.ifAvailable(service -> service.updateUser(entity));
+        final BranchUserEntity finalEntity = entity;
+        keycloakAdminServiceProvider.ifAvailable(service -> service.updateUser(finalEntity));
 
         BranchUserEntity savedEntity = repository.save(entity);
         
@@ -127,16 +196,19 @@ public class BranchUserService {
     }
 
     public void deleteBranchUser(String id) {
-        BranchUserEntity entity = repository.findById(java.util.UUID.fromString(id))
-                .orElseThrow(() -> new ResourceNotFoundException("BranchUser not found with id: " + id));
-        validateBranchAccess(entity.getBranchId());
+        BranchUserEntity entity = repository.findByKeycloakId(id).orElse(null);
         
-        keycloakAdminServiceProvider.ifAvailable(service -> service.deleteUser(entity.getKeycloakId()));
-
-        repository.delete(entity);
-        
-        String details = String.format("{\"email\":\"%s\", \"username\":\"%s\"}", entity.getEmail(), entity.getUsername());
-        auditService.log("DELETE_BRANCH_USER", "BRANCH_USER", entity.getId(), null, details, getCurrentIp());
+        if (entity != null) {
+            validateBranchAccess(entity.getBranchId());
+            keycloakAdminServiceProvider.ifAvailable(service -> service.deleteUser(entity.getKeycloakId()));
+            repository.delete(entity);
+            
+            String details = String.format("{\"email\":\"%s\", \"username\":\"%s\"}", entity.getEmail(), entity.getUsername());
+            auditService.log("DELETE_BRANCH_USER", "BRANCH_USER", entity.getId(), null, details, getCurrentIp());
+        } else {
+            // Delete from Keycloak if it exists there
+            keycloakAdminServiceProvider.ifAvailable(service -> service.deleteUser(id));
+        }
     }
 
     private String getCurrentIp() {
@@ -153,7 +225,7 @@ public class BranchUserService {
     }
 
     private void validateBranchAccess(String entityBranchId) {
-        if (!SecurityUtils.hasRole("SUPER_ADMIN") && !entityBranchId.equals(SecurityUtils.getCurrentBranchId())) {
+        if (!SecurityUtils.hasRole("SUPER_ADMIN") && !entityBranchId.equalsIgnoreCase(SecurityUtils.getCurrentBranchId())) {
             throw new InvalidRequestException("You do not have access to this branch user");
         }
     }
@@ -178,6 +250,39 @@ public class BranchUserService {
         response.setTextColor("text-blue-600");
         response.setLastLogin("Never");
         
+        return response;
+    }
+
+    private BranchUserResponse mapToResponse(org.keycloak.representations.idm.UserRepresentation user, String branchId, List<String> roles) {
+        BranchUserResponse response = new BranchUserResponse();
+        response.setId(user.getId());
+        response.setKeycloakId(user.getId());
+        response.setBranchId(branchId);
+        
+        String fullName = user.getFirstName() != null ? user.getFirstName() : "";
+        if (user.getLastName() != null) {
+            fullName += (fullName.isEmpty() ? "" : " ") + user.getLastName();
+        }
+        if (fullName.isBlank()) {
+            fullName = user.getUsername();
+        }
+        response.setFullName(fullName);
+        response.setEmail(user.getEmail() != null ? user.getEmail() : user.getUsername() + "@example.com");
+        
+        String role = roles.isEmpty() ? "BRANCH_USER" : roles.get(0);
+        response.setRole(role);
+        
+        response.setIsActive(Boolean.TRUE.equals(user.isEnabled()));
+        response.setUsername(user.getUsername());
+        
+        if (user.getAttributes() != null && user.getAttributes().containsKey("phone")) {
+            response.setPhone(user.getAttributes().get("phone").get(0));
+        }
+        
+        response.setInitials(getInitials(fullName));
+        response.setBgColor("bg-blue-100");
+        response.setTextColor("text-blue-600");
+        response.setLastLogin("Never");
         return response;
     }
 
@@ -212,5 +317,39 @@ public class BranchUserService {
                 log.info("Synced user {} from Keycloak to local DB", kcUser.getUsername());
             }
         });
+    }
+    public void resetUserPassword(String targetUserId, com.uom.lims.api.superadmin.dto.ResetPasswordRequest request) {
+        // Enforce branch context - target user must belong to current admin's branch
+        if (!SecurityUtils.hasRole("SUPER_ADMIN")) {
+            String currentBranchId = SecurityUtils.getCurrentBranchId();
+            keycloakAdminServiceProvider.ifAvailable(service -> {
+                org.keycloak.representations.idm.UserRepresentation user = service.getUser(targetUserId);
+                if (user.getAttributes() == null || !user.getAttributes().containsKey("branch_id") ||
+                        !user.getAttributes().get("branch_id").contains(currentBranchId)) {
+                    throw new InvalidRequestException("You do not have access to reset password for this user");
+                }
+            });
+        }
+
+        // Extract current admin's username from the security context
+        org.springframework.security.core.Authentication auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        String currentUsername = null;
+        if (auth.getPrincipal() instanceof org.springframework.security.oauth2.jwt.Jwt) {
+            currentUsername = ((org.springframework.security.oauth2.jwt.Jwt) auth.getPrincipal()).getClaimAsString("preferred_username");
+        }
+
+        if (currentUsername == null) {
+            throw new RuntimeException("Unable to determine current admin username.");
+        }
+
+        // Verify the admin's password before proceeding
+        final String finalCurrentUsername = currentUsername;
+        keycloakAdminServiceProvider.ifAvailable(service -> {
+            service.verifyUserPassword(finalCurrentUsername, request.getAdminPassword());
+            service.resetUserPassword(targetUserId, request.getPassword());
+        });
+
+        auditService.writeStandalone("RESET_BRANCH_USER_PASSWORD", "USER", java.util.UUID.fromString(targetUserId), null, "{}",
+                getCurrentIp());
     }
 }

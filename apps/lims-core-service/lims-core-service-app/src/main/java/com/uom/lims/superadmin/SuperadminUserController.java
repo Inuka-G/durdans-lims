@@ -42,7 +42,7 @@ public class SuperadminUserController implements SuperadminUserApi {
                 throw new RuntimeException("Users can only be created or assigned to active branches.");
             }
         }
-        
+
         // Fetch old state before updating
         UserRepresentation oldUser = keycloakAdminService.getUser(id);
         String oldEmail = oldUser.getEmail();
@@ -50,16 +50,19 @@ public class SuperadminUserController implements SuperadminUserApi {
         String oldRole = oldRoles != null && !oldRoles.isEmpty() ? oldRoles.get(0) : "USER";
         boolean oldIsActive = oldUser.isEnabled() != null ? oldUser.isEnabled() : false;
 
-        keycloakAdminService.updateUserDirectly(id, request.getFullName(), request.getEmail(), request.getBranchId(), request.getRole(), request.getIsActive());
-        
+        keycloakAdminService.updateUserDirectly(id, request.getFullName(), request.getEmail(), request.getBranchId(),
+                request.getRole(), request.getIsActive());
+
         // Build a details string containing the old to new transition
-        String details = String.format("{\"email\":{\"old\":\"%s\", \"new\":\"%s\"}, \"role\":{\"old\":\"%s\", \"new\":\"%s\"}, \"isActive\":{\"old\":%b, \"new\":%b}}", 
-            oldEmail != null ? oldEmail : "", request.getEmail() != null ? request.getEmail() : "",
-            oldRole, request.getRole() != null ? request.getRole() : "",
-            oldIsActive, request.getIsActive() != null ? request.getIsActive() : false);
-            
-        auditService.writeStandalone("UPDATE_SUPERADMIN_USER", "USER", java.util.UUID.fromString(id), null, details, getCurrentIp());
-        
+        String details = String.format(
+                "{\"email\":{\"old\":\"%s\", \"new\":\"%s\"}, \"role\":{\"old\":\"%s\", \"new\":\"%s\"}, \"isActive\":{\"old\":%b, \"new\":%b}}",
+                oldEmail != null ? oldEmail : "", request.getEmail() != null ? request.getEmail() : "",
+                oldRole, request.getRole() != null ? request.getRole() : "",
+                oldIsActive, request.getIsActive() != null ? request.getIsActive() : false);
+
+        auditService.writeStandalone("UPDATE_SUPERADMIN_USER", "USER", java.util.UUID.fromString(id), null, details,
+                getCurrentIp());
+
         // Return updated user object
         UserRepresentation updatedUser = keycloakAdminService.getUser(id);
         return mapToResponse(updatedUser);
@@ -78,7 +81,7 @@ public class SuperadminUserController implements SuperadminUserApi {
         if (principal instanceof Jwt) {
             currentUsername = ((Jwt) principal).getClaimAsString("preferred_username");
         }
-        
+
         if (currentUsername == null) {
             throw new RuntimeException("Unable to determine current superadmin username.");
         }
@@ -87,8 +90,9 @@ public class SuperadminUserController implements SuperadminUserApi {
         keycloakAdminService.verifyUserPassword(currentUsername, request.getAdminPassword());
 
         keycloakAdminService.resetUserPassword(id, request.getPassword());
-        
-        auditService.writeStandalone("RESET_SUPERADMIN_PASSWORD", "USER", java.util.UUID.fromString(id), null, "{}", getCurrentIp());
+
+        auditService.writeStandalone("RESET_SUPERADMIN_PASSWORD", "USER", java.util.UUID.fromString(id), null, "{}",
+                getCurrentIp());
     }
 
     private SuperadminUserResponse mapToResponse(UserRepresentation user) {
@@ -114,8 +118,8 @@ public class SuperadminUserController implements SuperadminUserApi {
     private String getCurrentIp() {
         try {
             return com.uom.lims.security.ClientIpResolver.resolve(
-                ((org.springframework.web.context.request.ServletRequestAttributes) 
-                    org.springframework.web.context.request.RequestContextHolder.currentRequestAttributes()).getRequest());
+                    ((org.springframework.web.context.request.ServletRequestAttributes) org.springframework.web.context.request.RequestContextHolder
+                            .currentRequestAttributes()).getRequest());
         } catch (Exception e) {
             return "SYSTEM";
         }

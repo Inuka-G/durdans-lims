@@ -1,24 +1,40 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import toast from "react-hot-toast";
-import { BranchUser } from "@/lib/api";
+import { BranchUser, getSuperadminRoles } from "@/lib/api";
 
 interface CreateUserModalProps {
     isOpen: boolean;
     onClose: () => void;
     onSave?: (userData: Partial<BranchUser>) => void;
+    branchName?: string;
 }
 
-export default function CreateUserModal({ isOpen, onClose, onSave }: CreateUserModalProps) {
+export default function CreateUserModal({ isOpen, onClose, onSave, branchName }: CreateUserModalProps) {
     const [isAccountActive, setIsAccountActive] = useState(true);
     const [selectedRole, setSelectedRole] = useState<string>("");
+    const [roleOptions, setRoleOptions] = useState<string[]>([]);
     const [formData, setFormData] = useState({
         fullName: "",
         email: "",
         phone: "",
         username: "",
     });
+
+    useEffect(() => {
+        if (isOpen) {
+            getSuperadminRoles()
+                .then(roles => {
+                    const filteredRoles = roles.filter(r => r !== "SUPER_ADMIN" && r !== "BRANCH_ADMIN" && r !== "BRANCH");
+                    setRoleOptions(filteredRoles);
+                })
+                .catch(err => {
+                    console.error("Failed to fetch roles", err);
+                    toast.error("Failed to load roles");
+                });
+        }
+    }, [isOpen]);
 
     if (!isOpen) return null;
 
@@ -47,14 +63,7 @@ export default function CreateUserModal({ isOpen, onClose, onSave }: CreateUserM
         onClose();
     };
 
-    const roleOptions = [
-        "FRONT_DESK",
-        "BILLING",
-        "PHLEBOTOMIST",
-        "LAB_RECEPTIONIST",
-        "LAB_TECHNICIAN",
-        "LAB_SUPERVISOR"
-    ];
+
 
     return (
         <div className="fixed inset-0 bg-[#0f172a]/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
@@ -69,7 +78,7 @@ export default function CreateUserModal({ isOpen, onClose, onSave }: CreateUserM
                         </div>
                         <div>
                             <h2 className="text-[20px] font-extrabold text-[#0f172a] tracking-tight">Create New User</h2>
-                            <p className="text-[13px] font-medium text-[#64748b]">Add a new staff member to the Colombo Branch system.</p>
+                            <p className="text-[13px] font-medium text-[#64748b]">Add a new staff member to the {branchName || "selected"} system.</p>
                         </div>
                     </div>
                     <button
