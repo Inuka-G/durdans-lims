@@ -1599,6 +1599,23 @@ export interface BranchTest {
     isActive: boolean;
 }
 
+export const getBranchTests = async (branchId: string): Promise<BranchTest[]> => {
+    const response = await axiosInstance.get(`/api/v1/branches/${branchId}/tests`, {
+        params: { size: 100 }
+    });
+    return (response.data.content ?? []) as BranchTest[];
+};
+
+export const createBranchTest = async (branchId: string, testData: Partial<BranchTest>): Promise<BranchTest> => {
+    const response = await axiosInstance.post(`/api/v1/branches/${branchId}/tests`, testData);
+    return response.data as BranchTest;
+};
+
+export const patchBranchTest = async (branchId: string, testId: string, testData: Partial<BranchTest>): Promise<BranchTest> => {
+    const response = await axiosInstance.patch(`/api/v1/branches/${branchId}/tests/${testId}`, testData);
+    return response.data as BranchTest;
+}
+
 // --- Branch Management ---
 
 export interface BranchResponse {

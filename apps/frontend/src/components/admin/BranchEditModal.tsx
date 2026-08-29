@@ -12,6 +12,8 @@ interface BranchEditModalProps {
         id: string;
         name: string;
         location?: string;
+        contactEmail?: string;
+        contactPhone?: string;
         status?: string;
     } | null;
     onSave: (id: string, data: any) => Promise<void>;
