@@ -45,7 +45,12 @@ public class BranchUserService {
 
         BranchUserEntity entity = new BranchUserEntity();
         entity.setBranchId(request.getBranchId());
-        entity.setFullName(request.getFullName());
+        
+        String fullName = (request.getFirstName() != null ? request.getFirstName().trim() : "") 
+                + " " + (request.getLastName() != null ? request.getLastName().trim() : "");
+        entity.setFullName(fullName.trim());
+        entity.setFirstName(request.getFirstName() != null ? request.getFirstName().trim() : "");
+        entity.setLastName(request.getLastName() != null ? request.getLastName().trim() : "");
         entity.setEmail(request.getEmail());
         entity.setPhone(request.getPhone());
         entity.setRole(request.getRole());
@@ -166,9 +171,16 @@ public class BranchUserService {
             throw new InvalidRequestException("User with this username already exists");
         }
 
+        String oldEmail = entity.getEmail() != null ? entity.getEmail() : "";
+        String oldUsername = entity.getUsername() != null ? entity.getUsername() : "";
+        String oldRole = entity.getRole() != null ? entity.getRole() : "";
         boolean wasActive = entity.getId() != null ? Boolean.TRUE.equals(entity.getIsActive()) : false;
 
-        entity.setFullName(request.getFullName());
+        String fullName = (request.getFirstName() != null ? request.getFirstName().trim() : "") 
+                + " " + (request.getLastName() != null ? request.getLastName().trim() : "");
+        entity.setFullName(fullName.trim());
+        entity.setFirstName(request.getFirstName() != null ? request.getFirstName().trim() : "");
+        entity.setLastName(request.getLastName() != null ? request.getLastName().trim() : "");
         entity.setEmail(request.getEmail());
         entity.setPhone(request.getPhone());
         entity.setRole(request.getRole());
@@ -181,7 +193,11 @@ public class BranchUserService {
 
         BranchUserEntity savedEntity = repository.save(entity);
         
-        String details = String.format("{\"email\":\"%s\", \"username\":\"%s\", \"role\":\"%s\"}", savedEntity.getEmail(), savedEntity.getUsername(), savedEntity.getRole());
+        String details = String.format("{\"isActive\":{\"old\":%b,\"new\":%b},\"role\":{\"old\":\"%s\",\"new\":\"%s\"},\"email\":{\"old\":\"%s\",\"new\":\"%s\"},\"username\":{\"old\":\"%s\",\"new\":\"%s\"}}",
+                wasActive, savedEntity.getIsActive() != null ? savedEntity.getIsActive() : false,
+                oldRole, savedEntity.getRole() != null ? savedEntity.getRole() : "",
+                oldEmail, savedEntity.getEmail() != null ? savedEntity.getEmail() : "",
+                oldUsername, savedEntity.getUsername() != null ? savedEntity.getUsername() : "");
         
         boolean isActiveNow = Boolean.TRUE.equals(savedEntity.getIsActive());
         if (wasActive && !isActiveNow) {
@@ -235,7 +251,14 @@ public class BranchUserService {
         response.setId(entity.getId() != null ? entity.getId().toString() : null);
         response.setBranchId(entity.getBranchId());
         response.setKeycloakId(entity.getKeycloakId());
-        response.setFullName(entity.getFullName());
+        if (entity.getFullName() != null) {
+            String[] parts = entity.getFullName().trim().split("\\s+", 2);
+            response.setFirstName(parts[0]);
+            response.setLastName(parts.length > 1 ? parts[1] : "");
+        } else {
+            response.setFirstName("");
+            response.setLastName("");
+        }
         response.setEmail(entity.getEmail());
         response.setPhone(entity.getPhone());
         response.setRole(entity.getRole());
@@ -259,14 +282,14 @@ public class BranchUserService {
         response.setKeycloakId(user.getId());
         response.setBranchId(branchId);
         
-        String fullName = user.getFirstName() != null ? user.getFirstName() : "";
-        if (user.getLastName() != null) {
-            fullName += (fullName.isEmpty() ? "" : " ") + user.getLastName();
+        String firstName = user.getFirstName() != null ? user.getFirstName() : "";
+        String lastName = user.getLastName() != null ? user.getLastName() : "";
+        
+        if (firstName.isBlank() && lastName.isBlank()) {
+            firstName = user.getUsername();
         }
-        if (fullName.isBlank()) {
-            fullName = user.getUsername();
-        }
-        response.setFullName(fullName);
+        response.setFirstName(firstName);
+        response.setLastName(lastName);
         response.setEmail(user.getEmail() != null ? user.getEmail() : user.getUsername() + "@example.com");
         
         String role = roles.isEmpty() ? "BRANCH_USER" : roles.get(0);
@@ -279,7 +302,7 @@ public class BranchUserService {
             response.setPhone(user.getAttributes().get("phone").get(0));
         }
         
-        response.setInitials(getInitials(fullName));
+        response.setInitials(getInitials(firstName + " " + lastName));
         response.setBgColor("bg-blue-100");
         response.setTextColor("text-blue-600");
         response.setLastLogin("Never");

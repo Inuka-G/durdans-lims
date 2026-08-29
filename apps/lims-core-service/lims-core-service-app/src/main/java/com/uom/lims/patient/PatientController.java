@@ -34,7 +34,7 @@ public class PatientController implements PatientApi {
                 return patientService.registerPatient(request, ipAddress);
         }
 
-        @PreAuthorize("hasAnyRole('FRONT_DESK','MLT','PHLEBOTOMIST','BRANCH_ADMIN','SUPER_ADMIN','PATHOLOGIST')")
+        @PreAuthorize("hasAnyRole('FRONT_DESK','MLT','PHLEBOTOMIST','BRANCH_ADMIN','SUPER_ADMIN','PATHOLOGIST','PATIENT')")
         @Override
         public PatientResponse getPatientByCode(
                         @PathVariable String patientCode) {

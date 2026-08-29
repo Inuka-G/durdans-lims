@@ -39,7 +39,8 @@ public class KeycloakAdminService {
         UserRepresentation user = new UserRepresentation();
         user.setUsername(entity.getUsername() != null ? entity.getUsername() : entity.getEmail());
         user.setEmail(entity.getEmail());
-        user.setFirstName(entity.getFullName());
+        user.setFirstName(entity.getFirstName() != null ? entity.getFirstName() : "");
+        user.setLastName(entity.getLastName() != null ? entity.getLastName() : "");
         user.setEnabled(entity.getIsActive());
 
         // Set branch_id attribute
@@ -87,7 +88,8 @@ public class KeycloakAdminService {
         
         user.setUsername(entity.getUsername() != null ? entity.getUsername() : entity.getEmail());
         user.setEmail(entity.getEmail());
-        user.setFirstName(entity.getFullName());
+        user.setFirstName(entity.getFirstName() != null ? entity.getFirstName() : "");
+        user.setLastName(entity.getLastName() != null ? entity.getLastName() : "");
         user.setEnabled(entity.getIsActive());
 
         Map<String, List<String>> attributes = user.getAttributes();
@@ -204,8 +206,15 @@ public class KeycloakAdminService {
         UserResource userResource = keycloak.realm(realm).users().get(userId);
         UserRepresentation user = userResource.toRepresentation();
 
-        user.setFirstName(fullName);
         user.setEmail(email);
+        if (fullName != null) {
+            String[] parts = fullName.trim().split("\\s+", 2);
+            user.setFirstName(parts[0]);
+            user.setLastName(parts.length > 1 ? parts[1] : "");
+        } else {
+            user.setFirstName("");
+            user.setLastName("");
+        }
         user.setEnabled(isActive);
 
         Map<String, List<String>> attributes = user.getAttributes();

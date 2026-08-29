@@ -68,8 +68,9 @@ export default function BranchUserManagementPage() {
     // Filter users based on search query and dropdowns
     const filteredUsers = users.filter(user => {
         const query = searchQuery.toLowerCase();
-        const matchesQuery = user.fullName.toLowerCase().includes(query) ||
-            user.email.toLowerCase().includes(query) ||
+        const matchesQuery = (user.firstName?.toLowerCase() || "").includes(query) ||
+            (user.lastName?.toLowerCase() || "").includes(query) ||
+            (user.email?.toLowerCase() || "").includes(query) ||
             (user.id && user.id.toLowerCase().includes(query));
 
         const matchesRole = selectedRoleFilter === "All Roles" ||
@@ -95,7 +96,8 @@ export default function BranchUserManagementPage() {
         const userId = user.id || user.email;
         try {
             const payload = {
-                fullName: user.fullName,
+                firstName: user.firstName,
+                lastName: user.lastName,
                 email: user.email,
                 role: user.role,
                 phone: user.phone || undefined,
@@ -222,7 +224,8 @@ export default function BranchUserManagementPage() {
                         <thead>
                             <tr className="border-b border-[#ecf0f6] bg-[#f8fafc]">
                                 <th className="py-4 px-6 text-[11px] font-extrabold text-[#94a3b8] uppercase tracking-widest w-[12%]">User ID</th>
-                                <th className="py-4 px-6 text-[11px] font-extrabold text-[#94a3b8] uppercase tracking-widest w-[25%]">Full Name</th>
+                                <th className="py-4 px-6 text-[11px] font-extrabold text-[#94a3b8] uppercase tracking-widest w-[12.5%]">First Name</th>
+                                <th className="py-4 px-6 text-[11px] font-extrabold text-[#94a3b8] uppercase tracking-widest w-[12.5%]">Last Name</th>
                                 <th className="py-4 px-6 text-[11px] font-extrabold text-[#94a3b8] uppercase tracking-widest w-[20%]">Email</th>
                                 <th className="py-4 px-6 text-[11px] font-extrabold text-[#94a3b8] uppercase tracking-widest flex-1">Assigned Roles</th>
                                 <th className="py-4 px-6 text-[11px] font-extrabold text-[#94a3b8] uppercase tracking-widest text-center w-[10%]">Status</th>
@@ -235,15 +238,20 @@ export default function BranchUserManagementPage() {
                                 filteredUsers.map((user) => (
                                     <tr key={user.id} className="hover:bg-[#f8fafc]/50 transition-colors group">
                                         <td className="py-4 px-6">
-                                            <span className="text-[13px] font-bold text-[#64748b]">{user.id}</span>
+                                            <span className="text-[13px] font-bold text-[#64748b]" title={user.id}>
+                                                {user.id?.length > 8 ? user.id.slice(0, 8) + '...' : user.id}
+                                            </span>
                                         </td>
                                         <td className="py-4 px-6">
                                             <div className="flex items-center gap-3">
                                                 <div className={`w-8 h-8 rounded-full ${user.bgColor || 'bg-blue-100'} ${user.textColor || 'text-blue-600'} flex items-center justify-center text-[10px] font-extrabold`}>
-                                                    {user.initials || user.fullName?.split(' ').map(n => n[0]).join('').toUpperCase() || '?'}
+                                                    {user.initials || `${user.firstName?.[0] || ''}${user.lastName?.[0] || ''}`.toUpperCase() || '?'}
                                                 </div>
-                                                <span className="text-[14px] font-extrabold text-[#0f172a]">{user.fullName}</span>
+                                                <span className="text-[14px] font-extrabold text-[#0f172a]">{user.firstName || ''}</span>
                                             </div>
+                                        </td>
+                                        <td className="py-4 px-6">
+                                            <span className="text-[14px] font-extrabold text-[#0f172a]">{user.lastName || ''}</span>
                                         </td>
                                         <td className="py-4 px-6">
                                             <span className="text-[13px] font-medium text-[#64748b]">{user.email}</span>

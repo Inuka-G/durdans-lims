@@ -328,6 +328,7 @@ export default function GlobalUserControlPage() {
                                                     <span className="text-[14px] font-bold text-slate-900 leading-snug">{user.name}</span>
                                                     <span className="text-[12px] font-medium text-slate-500">{user.email}</span>
                                                     <span className="text-[11px] font-semibold text-slate-400">{user.username}</span>
+                                                    {user.phone && <span className="text-[11px] font-semibold text-slate-400">{user.phone}</span>}
                                                 </div>
                                             </td>
                                             <td className="py-4 px-6">

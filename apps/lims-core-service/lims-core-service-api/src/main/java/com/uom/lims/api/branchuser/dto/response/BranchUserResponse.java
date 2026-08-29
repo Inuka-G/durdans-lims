@@ -9,7 +9,8 @@ public class BranchUserResponse {
     private String id;
     private String branchId;
     private String keycloakId;
-    private String fullName;
+    private String firstName;
+    private String lastName;
     private String email;
     private String phone;
     private String role;

@@ -16,7 +16,8 @@ export default function CreateUserModal({ isOpen, onClose, onSave, branchName }:
     const [selectedRole, setSelectedRole] = useState<string>("");
     const [roleOptions, setRoleOptions] = useState<string[]>([]);
     const [formData, setFormData] = useState({
-        fullName: "",
+        firstName: "",
+        lastName: "",
         email: "",
         phone: "",
         username: "",
@@ -48,8 +49,8 @@ export default function CreateUserModal({ isOpen, onClose, onSave, branchName }:
     };
 
     const handleSave = () => {
-        if (!formData.fullName.trim() || !formData.email.trim() || !selectedRole) {
-            toast.error("Please fill in all required fields (Full Name, Email, and Role)");
+        if (!formData.firstName.trim() || !formData.lastName.trim() || !formData.email.trim() || !selectedRole) {
+            toast.error("Please fill in all required fields (First Name, Last Name, Email, and Role)");
             return;
         }
 
@@ -100,16 +101,29 @@ export default function CreateUserModal({ isOpen, onClose, onSave, branchName }:
                         </div>
 
                         <div className="space-y-5">
-                            <div>
-                                <label className="text-[11px] font-extrabold text-[#64748b] uppercase tracking-widest block mb-2">FULL NAME</label>
-                                <input
-                                    type="text"
-                                    name="fullName"
-                                    value={formData.fullName}
-                                    onChange={handleInputChange}
-                                    placeholder="e.g. Dr. Maithree Perera"
-                                    className="w-full bg-white border border-[#e2e8f0] text-[#0f172a] font-bold py-3 px-4 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#1277E1]/20 focus:border-[#1277E1] transition-all placeholder:text-[#cbd5e1] placeholder:font-medium text-[14px]"
-                                />
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="text-[11px] font-extrabold text-[#64748b] uppercase tracking-widest block mb-2">FIRST NAME</label>
+                                    <input
+                                        type="text"
+                                        name="firstName"
+                                        value={formData.firstName}
+                                        onChange={handleInputChange}
+                                        placeholder="e.g. Maithree"
+                                        className="w-full bg-white border border-[#e2e8f0] text-[#0f172a] font-bold py-3 px-4 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#1277E1]/20 focus:border-[#1277E1] transition-all placeholder:text-[#cbd5e1] placeholder:font-medium text-[14px]"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-[11px] font-extrabold text-[#64748b] uppercase tracking-widest block mb-2">LAST NAME</label>
+                                    <input
+                                        type="text"
+                                        name="lastName"
+                                        value={formData.lastName}
+                                        onChange={handleInputChange}
+                                        placeholder="e.g. Perera"
+                                        className="w-full bg-white border border-[#e2e8f0] text-[#0f172a] font-bold py-3 px-4 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#1277E1]/20 focus:border-[#1277E1] transition-all placeholder:text-[#cbd5e1] placeholder:font-medium text-[14px]"
+                                    />
+                                </div>
                             </div>
 
                             <div className="grid grid-cols-2 gap-4">

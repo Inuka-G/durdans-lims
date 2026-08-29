@@ -1345,6 +1345,7 @@ export interface CreateAdminUserRequest {
     branchCode?: string;
     temporaryPassword?: string;
     adminPassword?: string;
+    phone?: string;
 }
 
 export async function getAdminUsers(): Promise<AdminUser[]> {
@@ -1482,6 +1483,7 @@ export interface BranchActivityLog {
     entityId: string;
     patientCode?: string;
     ipAddress: string;
+    details?: string;
 }
 
 export const getBranchActivityLogs = async (): Promise<BranchActivityLog[]> => {
@@ -1491,7 +1493,8 @@ export const getBranchActivityLogs = async (): Promise<BranchActivityLog[]> => {
 
 export interface BranchUser {
     id?: string;
-    fullName: string;
+    firstName: string;
+    lastName: string;
     email: string;
     role: string;
     isActive: boolean;

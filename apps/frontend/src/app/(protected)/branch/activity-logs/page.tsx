@@ -4,6 +4,52 @@ import { useEffect, useState } from "react";
 import { getBranchActivityLogs, BranchActivityLog, getBranches } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 
+import Modal from "@/components/ui/Modal";
+import Button from "@/components/ui/Button";
+
+function parseDetails(details?: string): Record<string, unknown> | null {
+    if (!details) return null;
+    try {
+        const parsed = JSON.parse(details);
+        return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
+    } catch {
+        return null;
+    }
+}
+
+function detailValue(value: unknown): string {
+    if (value === null || value === undefined) return "—";
+    if (typeof value === "string") return value;
+    try {
+        return JSON.stringify(value);
+    } catch {
+        return String(value);
+    }
+}
+
+function summariseDetails(details?: string, action?: string): string {
+    if (!details) return "";
+    const parsed = parseDetails(details);
+    if (!parsed) return details;
+    
+    // Generic fallback for objects containing old/new
+    const formattedEntries = Object.entries(parsed).map(([k, v]) => {
+        if (v && typeof v === "object" && 'old' in v && 'new' in v) {
+            if ((v as any).old !== (v as any).new) {
+                return `${k} changed from ${detailValue((v as any).old)} to ${detailValue((v as any).new)}`;
+            }
+            return null; // Don't print if it didn't change
+        }
+        return `${k}: ${detailValue(v)}`;
+    }).filter(Boolean);
+    
+    if (formattedEntries.length === 0) {
+        return `Updating info: no changes made`;
+    }
+    
+    return formattedEntries.join(" · ");
+}
+
 interface FrontendLog {
     id: string;
     timestamp: string;
@@ -14,12 +60,14 @@ interface FrontendLog {
     entityId: string;
     status: string;
     ipAddress: string;
+    details?: string;
 }
 
 export default function ActivityLogsPage() {
     const { branchCode } = useAuth();
     const [branchName, setBranchName] = useState("Loading...");
     const [logs, setLogs] = useState<FrontendLog[]>([]);
+    const [selectedLog, setSelectedLog] = useState<FrontendLog | null>(null);
 
     useEffect(() => {
         const targetCode = branchCode || "b6030d28-10ef-4165-9554-8887fabfddb8";
@@ -53,6 +101,7 @@ export default function ActivityLogsPage() {
                     entityId: log.entityId?.toString() || log.patientCode || "-",
                     status: "SUCCESS",
                     ipAddress: log.ipAddress || "-",
+                    details: log.details,
                 };
             });
             setLogs(mapped);
@@ -342,7 +391,7 @@ export default function ActivityLogsPage() {
                         <tbody className="divide-y divide-slate-50">
                             {filteredLogs.length > 0 ? (
                                 filteredLogs.map((log) => (
-                                    <tr key={log.id} className="hover:bg-slate-50/50 transition-colors">
+                                    <tr key={log.id} className="hover:bg-slate-50/50 transition-colors cursor-pointer" onClick={() => setSelectedLog(log)}>
                                         <td className="px-5 py-3 text-xs text-slate-500 font-medium whitespace-nowrap">
                                             {log.timestamp}
                                         </td>
@@ -414,6 +463,64 @@ export default function ActivityLogsPage() {
                 </div>
             </div>
 
+            <Modal
+                open={selectedLog !== null}
+                onClose={() => setSelectedLog(null)}
+                title="Audit Log Details"
+                size="md"
+                footer={<Button onClick={() => setSelectedLog(null)}>Close</Button>}
+            >
+                {selectedLog && (
+                    <div className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <span className="block text-xs text-slate-500 font-medium mb-1">Time</span>
+                                <span className="text-sm font-semibold">{selectedLog.timestamp}</span>
+                            </div>
+                            <div>
+                                <span className="block text-xs text-slate-500 font-medium mb-1">User</span>
+                                <span className="text-sm font-semibold">{selectedLog.user}</span>
+                            </div>
+                            <div>
+                                <span className="block text-xs text-slate-500 font-medium mb-1">Action</span>
+                                <span className="text-sm font-medium">{selectedLog.action}</span>
+                            </div>
+                            <div>
+                                <span className="block text-xs text-slate-500 font-medium mb-1">Entity Type</span>
+                                <span className="text-sm">{selectedLog.module}</span>
+                            </div>
+                            <div>
+                                <span className="block text-xs text-slate-500 font-medium mb-1">Entity ID</span>
+                                <span className="text-sm font-mono">{selectedLog.entityId || "-"}</span>
+                            </div>
+                            <div>
+                                <span className="block text-xs text-slate-500 font-medium mb-1">IP Address</span>
+                                <span className="text-sm font-mono">{selectedLog.ipAddress || "-"}</span>
+                            </div>
+                            <div className="col-span-2">
+                                <span className="block text-xs text-slate-500 font-medium mb-1">Description</span>
+                                <div className="text-sm bg-slate-50 p-2 rounded">
+                                    {summariseDetails(selectedLog.details, selectedLog.action) || "-"}
+                                </div>
+                            </div>
+                            <div className="col-span-2">
+                                <span className="block text-xs text-slate-500 font-medium mb-1">Raw Details</span>
+                                <pre className="text-sm font-mono bg-slate-50 p-2 rounded whitespace-pre-wrap">
+                                    {selectedLog.details ? (
+                                        (() => {
+                                            try {
+                                                return JSON.stringify(JSON.parse(selectedLog.details), null, 2);
+                                            } catch (e) {
+                                                return selectedLog.details;
+                                            }
+                                        })()
+                                    ) : "-"}
+                                </pre>
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </Modal>
         </div>
     );
 }

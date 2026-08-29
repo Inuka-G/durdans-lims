@@ -17,7 +17,8 @@ export default function ViewEditUserModal({ isOpen, onClose, mode, userData, onS
     const [selectedRole, setSelectedRole] = useState<string>("");
     const [roleOptions, setRoleOptions] = useState<string[]>([]);
     const [formData, setFormData] = useState({
-        fullName: "",
+        firstName: "",
+        lastName: "",
         email: "",
         phone: "",
         username: "",
@@ -36,7 +37,8 @@ export default function ViewEditUserModal({ isOpen, onClose, mode, userData, onS
             setIsAccountActive(userData.isActive);
             setSelectedRole(userData.role || "");
             setFormData({
-                fullName: userData.fullName || "",
+                firstName: userData.firstName || "",
+                lastName: userData.lastName || "",
                 email: userData.email || "",
                 phone: userData.phone || "",
                 username: userData.username || userData.email.split('@')[0],
@@ -72,8 +74,8 @@ export default function ViewEditUserModal({ isOpen, onClose, mode, userData, onS
     };
 
     const handleSave = () => {
-        if (!formData.fullName.trim() || !formData.email.trim() || !selectedRole) {
-            toast.error("Please fill in all required fields (Full Name, Email, and Role)");
+        if (!formData.firstName.trim() || !formData.lastName.trim() || !formData.email.trim() || !selectedRole) {
+            toast.error("Please fill in all required fields (First Name, Last Name, Email, and Role)");
             return;
         }
 
@@ -192,18 +194,33 @@ export default function ViewEditUserModal({ isOpen, onClose, mode, userData, onS
                                 </div>
 
                                 <div className="space-y-5">
-                                    <div>
-                                        <label className="text-[11px] font-extrabold text-[#64748b] uppercase tracking-widest block mb-2">FULL NAME</label>
-                                        <input
-                                            type="text"
-                                            value={formData.fullName}
-                                            onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
-                                            readOnly={!isEdit}
-                                            className={`w-full border text-[#0f172a] font-bold py-3 px-4 rounded-xl focus:outline-none transition-all text-[14px] ${isEdit
-                                                ? "bg-white border-[#e2e8f0] focus:ring-2 focus:ring-[#1277E1]/20 focus:border-[#1277E1]"
-                                                : "bg-[#f8fafc] border-transparent cursor-default"
-                                                }`}
-                                        />
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="text-[11px] font-extrabold text-[#64748b] uppercase tracking-widest block mb-2">FIRST NAME</label>
+                                            <input
+                                                type="text"
+                                                value={formData.firstName}
+                                                onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
+                                                readOnly={!isEdit}
+                                                className={`w-full border text-[#0f172a] font-bold py-3 px-4 rounded-xl focus:outline-none transition-all text-[14px] ${isEdit
+                                                    ? "bg-white border-[#e2e8f0] focus:ring-2 focus:ring-[#1277E1]/20 focus:border-[#1277E1]"
+                                                    : "bg-[#f8fafc] border-transparent cursor-default"
+                                                    }`}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="text-[11px] font-extrabold text-[#64748b] uppercase tracking-widest block mb-2">LAST NAME</label>
+                                            <input
+                                                type="text"
+                                                value={formData.lastName}
+                                                onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
+                                                readOnly={!isEdit}
+                                                className={`w-full border text-[#0f172a] font-bold py-3 px-4 rounded-xl focus:outline-none transition-all text-[14px] ${isEdit
+                                                    ? "bg-white border-[#e2e8f0] focus:ring-2 focus:ring-[#1277E1]/20 focus:border-[#1277E1]"
+                                                    : "bg-[#f8fafc] border-transparent cursor-default"
+                                                    }`}
+                                            />
+                                        </div>
                                     </div>
 
                                     <div className="grid grid-cols-2 gap-4">

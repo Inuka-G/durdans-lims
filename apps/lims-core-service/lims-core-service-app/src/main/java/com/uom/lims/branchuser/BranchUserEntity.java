@@ -40,4 +40,10 @@ public class BranchUserEntity extends BaseEntity {
 
     @Column(name = "username")
     private String username;
+
+    @jakarta.persistence.Transient
+    private String firstName;
+
+    @jakarta.persistence.Transient
+    private String lastName;
 }

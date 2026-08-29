@@ -88,7 +88,12 @@ public class AdminUserService {
         user.setFirstName(request.firstName());
         user.setLastName(request.lastName());
         user.setEnabled(true);
-        user.setAttributes(Map.of(BRANCH_ATTR, List.of(branch)));
+        Map<String, List<String>> attributes = new java.util.HashMap<>();
+        attributes.put(BRANCH_ATTR, List.of(branch));
+        if (request.phone() != null && !request.phone().isBlank()) {
+            attributes.put("phone", List.of(request.phone()));
+        }
+        user.setAttributes(attributes);
 
         String userId;
         try (Response response = realm().users().create(user)) {
@@ -128,7 +133,8 @@ public class AdminUserService {
                 u.getId(), u.getUsername(), u.getEmail(),
                 u.getFirstName(), u.getLastName(),
                 Boolean.TRUE.equals(u.isEnabled()),
-                attribute(u, BRANCH_ATTR));
+                attribute(u, BRANCH_ATTR),
+                attribute(u, "phone"));
     }
 
     private static String attribute(UserRepresentation u, String key) {
@@ -141,11 +147,11 @@ public class AdminUserService {
 
     /** Create-user request. */
     public record CreateUserRequest(String username, String email, String firstName, String lastName,
-                                    String role, String branchCode, String temporaryPassword, String adminPassword) {
+                                    String role, String branchCode, String temporaryPassword, String adminPassword, String phone) {
     }
 
     /** User view. */
     public record AdminUserResponse(String id, String username, String email, String firstName,
-                                    String lastName, boolean enabled, String branchCode) {
+                                    String lastName, boolean enabled, String branchCode, String phone) {
     }
 }

@@ -46,4 +46,5 @@
     <include file="liquibase/changelog/20260821000002_insert_mock_branch_user.xml"/>
     <include file="liquibase/changelog/20260827_add_branch_details.xml"/>
     <include file="liquibase/changelog/20260829100000_create_branch_test.xml"/>
+    <include file="liquibase/changelog/20260830120000_add_patient_role_mapping.xml"/>
 </databaseChangeLog>

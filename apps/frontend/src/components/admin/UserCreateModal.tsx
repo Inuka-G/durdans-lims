@@ -29,6 +29,7 @@ export default function UserCreateModal({ isOpen, onClose }: UserCreateModalProp
         username: "",
         name: "",
         email: "",
+        phone: "",
         branch: "",
         role: "",
         status: "ACTIVE",
@@ -89,6 +90,7 @@ export default function UserCreateModal({ isOpen, onClose }: UserCreateModalProp
                 email: formData.email,
                 firstName,
                 lastName,
+                phone: formData.phone,
                 role: formData.role, // Pass exactly as retrieved from API
                 branchCode: formData.branch,
                 adminPassword: adminPassword,
@@ -165,6 +167,16 @@ export default function UserCreateModal({ isOpen, onClose }: UserCreateModalProp
                     className="sm:col-span-2"
                     value={formData.email}
                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                />
+
+                <InputField
+                    label="Phone number"
+                    type="tel"
+                    placeholder="+1 (555) 000-0000"
+                    autoComplete="off"
+                    className="sm:col-span-2"
+                    value={formData.phone}
+                    onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))}
                 />
 
                 <SelectField

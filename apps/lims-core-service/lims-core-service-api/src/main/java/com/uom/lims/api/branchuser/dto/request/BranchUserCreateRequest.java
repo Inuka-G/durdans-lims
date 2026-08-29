@@ -12,8 +12,11 @@ public class BranchUserCreateRequest {
     @NotBlank(message = "Branch ID is required")
     private String branchId;
     
-    @NotBlank(message = "Full name is required")
-    private String fullName;
+    @NotBlank(message = "First name is required")
+    private String firstName;
+    
+    @NotBlank(message = "Last name is required")
+    private String lastName;
     
     @NotBlank(message = "Email is required")
     @Email(message = "Invalid email format")
