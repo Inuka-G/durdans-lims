@@ -13,7 +13,7 @@ public class BranchUserSpecification {
             List<Predicate> predicates = new ArrayList<>();
 
             if (StringUtils.hasText(branchId)) {
-                predicates.add(cb.equal(root.get("branchId"), branchId));
+                predicates.add(cb.equal(cb.lower(root.get("branchId")), branchId.toLowerCase()));
             }
 
             if (StringUtils.hasText(keyword)) {

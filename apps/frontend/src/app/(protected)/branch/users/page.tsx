@@ -5,11 +5,16 @@ import { toast } from "sonner";
 import CreateUserModal from "@/components/branch/CreateUserModal";
 import ViewEditUserModal from "@/components/branch/ViewEditUserModal";
 
-import { getBranchUsers, createBranchUser, updateBranchUser, BranchUser } from "@/lib/api";
+import { getBranchUsers, createBranchUser, updateBranchUser, BranchUser, getBranches } from "@/lib/api";
+import { useAuth } from "@/hooks/useAuth";
 
-const BRANCH_ID = "COL-1";
+const DEFAULT_BRANCH_ID = "b6030d28-10ef-4165-9554-8887fabfddb8";
 
 export default function BranchUserManagementPage() {
+    const { branchCode } = useAuth();
+    const activeBranchId = branchCode || DEFAULT_BRANCH_ID;
+    const [branchName, setBranchName] = useState("Loading...");
+
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
     // Modal states for View/Edit
@@ -33,7 +38,7 @@ export default function BranchUserManagementPage() {
     const fetchUsers = async () => {
         setLoading(true);
         try {
-            const data = await getBranchUsers(BRANCH_ID);
+            const data = await getBranchUsers(activeBranchId);
             console.log("Fetched users:", data);
             setUsers(data);
         } catch (error: any) {
@@ -46,8 +51,19 @@ export default function BranchUserManagementPage() {
     };
 
     useEffect(() => {
+        getBranches(0, 100).then((data) => {
+            const branch = data.content.find((b) => b.id === activeBranchId || b.code.toUpperCase() === activeBranchId.toUpperCase());
+            if (branch) {
+                setBranchName(branch.name);
+            } else {
+                setBranchName(activeBranchId);
+            }
+        }).catch(err => {
+            console.error("Failed to fetch branch details", err);
+            setBranchName(activeBranchId);
+        });
         fetchUsers();
-    }, []);
+    }, [activeBranchId]);
 
     // Filter users based on search query and dropdowns
     const filteredUsers = users.filter(user => {
@@ -119,7 +135,7 @@ export default function BranchUserManagementPage() {
 
     const handleCreateUser = async (userData: any) => {
         try {
-            await createBranchUser(BRANCH_ID, userData);
+            await createBranchUser(activeBranchId, userData);
             toast.success("User created successfully!", { position: 'top-right' });
             fetchUsers(); // Refresh the list
         } catch (error: any) {
@@ -135,7 +151,7 @@ export default function BranchUserManagementPage() {
             {/* Header */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
                 <div>
-                    <h1 className="text-2xl font-extrabold text-[#0f172a] tracking-tight">User Management – Colombo Branch</h1>
+                    <h1 className="text-2xl font-extrabold text-[#0f172a] tracking-tight">User Management – {branchName}</h1>
                     <p className="text-[13px] font-medium text-[#64748b] mt-1">Manage and monitor branch administrative and medical staff accounts.</p>
                 </div>
                 <button
@@ -307,6 +323,7 @@ export default function BranchUserManagementPage() {
                 isOpen={isCreateModalOpen}
                 onClose={() => setIsCreateModalOpen(false)}
                 onSave={handleCreateUser}
+                branchName={branchName}
             />
 
             {/* View/Edit Modal */}

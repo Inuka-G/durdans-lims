@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { useAuth } from "@/hooks/useAuth";
+import { getBranches } from "@/lib/api";
 
 const initialBarData = [
     { name: '01 OCT', revenue: 2000 },
@@ -25,6 +27,24 @@ const initialPieData = [
 ];
 
 export default function BranchReportsPage() {
+    const { branchCode } = useAuth();
+    const [branchName, setBranchName] = useState("Loading...");
+
+    useEffect(() => {
+        const targetCode = branchCode || "b6030d28-10ef-4165-9554-8887fabfddb8";
+        getBranches(0, 100).then((data) => {
+            const branch = data.content.find((b) => b.id === targetCode || b.code.toUpperCase() === targetCode.toUpperCase());
+            if (branch) {
+                setBranchName(branch.name);
+            } else {
+                setBranchName(targetCode);
+            }
+        }).catch(err => {
+            console.error("Failed to fetch branch details", err);
+            setBranchName(targetCode);
+        });
+    }, [branchCode]);
+
     const [startDate, setStartDate] = useState("2023-10-01");
     const [endDate, setEndDate] = useState("2023-10-31");
 
@@ -139,7 +159,7 @@ export default function BranchReportsPage() {
         const csvRows = [];
 
         // 1. Headers
-        csvRows.push(["Branch Report", "Colombo Branch"]);
+        csvRows.push(["Branch Report", branchName]);
         csvRows.push(["Date Range", `${startDate} to ${endDate}`]);
         csvRows.push([]); // empty line
 
@@ -193,9 +213,9 @@ export default function BranchReportsPage() {
                     <span className="text-[10px] opacity-50">/</span>
                     <span className="hover:text-[#0f172a] cursor-pointer transition-colors">Reports</span>
                     <span className="text-[10px] opacity-50">/</span>
-                    <span className="text-[#0f172a] font-bold">Colombo Branch</span>
+                    <span className="text-[#0f172a] font-bold">{branchName}</span>
                 </div>
-                <h1 className="text-2xl font-extrabold text-[#0f172a] tracking-tight">Branch Reports – Colombo Branch</h1>
+                <h1 className="text-2xl font-extrabold text-[#0f172a] tracking-tight">Branch Reports – {branchName}</h1>
                 <p className="text-[13px] font-medium text-[#64748b] mt-1">Performance metrics and transactional data for the selected period.</p>
             </div>
 

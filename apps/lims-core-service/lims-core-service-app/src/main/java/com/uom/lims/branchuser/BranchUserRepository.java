@@ -13,6 +13,10 @@ public interface BranchUserRepository extends JpaRepository<BranchUserEntity, UU
     
     Optional<BranchUserEntity> findByEmail(String email);
     
+    Optional<BranchUserEntity> findByKeycloakId(String keycloakId);
+    
+    java.util.List<BranchUserEntity> findByBranchId(String branchId);
+    
     boolean existsByEmailAndIdNot(String email, UUID id);
     
     boolean existsByEmail(String email);

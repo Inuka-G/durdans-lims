@@ -45,6 +45,9 @@ public class KeycloakAdminService {
         // Set branch_id attribute
         Map<String, List<String>> attributes = new HashMap<>();
         attributes.put("branch_id", Collections.singletonList(entity.getBranchId()));
+        if (entity.getPhone() != null && !entity.getPhone().isEmpty()) {
+            attributes.put("phone", Collections.singletonList(entity.getPhone()));
+        }
         user.setAttributes(attributes);
 
         // Require password update on first login
@@ -92,6 +95,11 @@ public class KeycloakAdminService {
             attributes = new HashMap<>();
         }
         attributes.put("branch_id", Collections.singletonList(entity.getBranchId()));
+        if (entity.getPhone() != null && !entity.getPhone().isEmpty()) {
+            attributes.put("phone", Collections.singletonList(entity.getPhone()));
+        } else {
+            attributes.remove("phone");
+        }
         user.setAttributes(attributes);
 
         userResource.update(user);
@@ -229,9 +237,13 @@ public class KeycloakAdminService {
         credential.setType(CredentialRepresentation.PASSWORD);
         credential.setValue(newPassword);
         credential.setTemporary(true);
-
+        
         keycloak.realm(realm).users().get(userId).resetPassword(credential);
         log.info("Reset password for user in Keycloak with ID: {}", userId);
+    }
+    
+    public UserRepresentation getUserById(String userId) {
+        return keycloak.realm(realm).users().get(userId).toRepresentation();
     }
 
     public void verifyUserPassword(String username, String password) {
