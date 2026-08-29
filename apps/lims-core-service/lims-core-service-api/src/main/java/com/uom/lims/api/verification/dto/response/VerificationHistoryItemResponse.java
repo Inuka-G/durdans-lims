@@ -13,6 +13,8 @@ import java.time.Instant;
 @AllArgsConstructor
 public class VerificationHistoryItemResponse {
     private String resultId;
+    /** Human-readable case number (RES<year>-<sequence>) of the result the action was taken on. */
+    private String resultNo;
     private String actionType;
     /** Patient the audited action was performed on; resolved from the result's sample. */
     private String patientCode;

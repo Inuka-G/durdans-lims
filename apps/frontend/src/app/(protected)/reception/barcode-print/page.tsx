@@ -438,7 +438,7 @@ function BarcodePrintPageInner() {
                                                     <p className="truncate font-mono text-sm font-semibold text-primary-strong">
                                                         {sample.sampleId}
                                                     </p>
-                                                    <p className="mt-0.5 truncate text-[13px] text-fg-secondary">
+                                                    <p className="mt-0.5 truncate text-sm text-fg-secondary">
                                                         {sample.patient?.pid ?? 'Unknown patient'}
                                                     </p>
                                                     <p className="truncate text-xs text-fg-muted">

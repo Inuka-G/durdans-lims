@@ -41,8 +41,5 @@
     <include file="liquibase/changelog/20260816120000_scope_critical_values_to_supervision.xml"/>
     <include file="liquibase/changelog/20260818120000_supplies_by_tube_type.xml"/>
     <include file="liquibase/changelog/20260820110000_create_test_packages_and_i18n.xml"/>
-    <include file="liquibase/changelog/20260821000000_create_branch_user.xml"/>
-    <include file="liquibase/changelog/20260821000001_recreate_branch_user.xml"/>
-    <include file="liquibase/changelog/20260821000002_insert_mock_branch_user.xml"/>
-    <include file="liquibase/changelog/20260827_add_branch_details.xml"/>
+    <include file="liquibase/changelog/20260821100000_result_numbers_and_admin_review_nav.xml"/>
 </databaseChangeLog>

@@ -44,6 +44,17 @@ jobs:
       - name: Syntax-check the gateway
         run: python3 -m py_compile app/*.py
 
+      # The prompt, the clock, the language tally and the Live capability probe
+      # import no pipecat, so they can be tested on the runner without the image.
+      # They are also the modules whose regressions are silent — a wrong time
+      # band, a Sinhala turn scored as English, or a setup field the API rejects
+      # only show up on a real call, and the last one shows up as no call at all.
+      - name: Test deps (loguru only; everything else is stdlib)
+        run: pip install loguru
+
+      - name: Unit tests
+        run: python3 -m unittest discover -s tests -t .
+
       - name: Build image
         run: docker build -t lims-voice-gateway:${{ github.sha }} .
 

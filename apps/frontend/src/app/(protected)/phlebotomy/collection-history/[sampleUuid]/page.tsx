@@ -382,10 +382,10 @@ export default function CollectionSampleDetailPage() {
                             />
                             <div className="min-w-0 flex-1">
                                 <p className="truncate text-xs font-semibold text-fg tabular-nums">{detail.sampleId}</p>
-                                <p className="truncate text-[11px] text-fg-muted">{detail.patient?.name}</p>
+                                <p className="truncate text-[12px] text-fg-muted">{detail.patient?.name}</p>
                                 <div className="mt-1 flex flex-wrap gap-1">
                                     {testCodes.slice(0, 4).map((c) => (
-                                        <span key={c} className="rounded bg-surface-hover px-1 py-0.5 text-[10px] text-fg-secondary">
+                                        <span key={c} className="rounded bg-surface-hover px-1 py-0.5 text-[11px] text-fg-secondary">
                                             {c}
                                         </span>
                                     ))}
@@ -397,7 +397,7 @@ export default function CollectionSampleDetailPage() {
                                 ))}
                             </div>
                         </div>
-                        <p className="mt-2 text-[11px] text-fg-muted">Cap colour reflects the tube stocked at this branch.</p>
+                        <p className="mt-2 text-[12px] text-fg-muted">Cap colour reflects the tube stocked at this branch.</p>
                         {detail.status !== 'COLLECTED' && (
                             <p className="mt-3 text-xs text-status-pending-fg">
                                 Labels are only issued for collected specimens. Rejected tubes follow your laboratory&apos;s discard / documentation SOP.

@@ -42,12 +42,17 @@ public class ReportDispatchChannelService {
             case EMAIL -> {
                 String email = firstNonBlank(request.getOverrideEmail(),
                         resolvePatientEmail(item.getPatientCode()));
-                if (email == null) {
+                if (email == null || email.isBlank()) {
                     attempt.setStatus(DeliveryAttemptStatus.FAILED);
                     attempt.setFailureReason("NO_EMAIL: Patient has no email and no override was provided");
                     return;
                 }
                 attempt.setRecipientContact(email);
+                if (!email.matches("^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$")) {
+                    attempt.setStatus(DeliveryAttemptStatus.FAILED);
+                    attempt.setFailureReason("INVALID_EMAIL: Invalid or incomplete email format (" + email + ")");
+                    return;
+                }
                 try {
                     LabReportData report = reportDataService.resolve(item);
                     emailService.sendLabReportEmail(email, report, reportPdfService.generate(report));
@@ -62,12 +67,18 @@ public class ReportDispatchChannelService {
             case SMS -> {
                 String phone = firstNonBlank(request.getOverridePhone(),
                         resolvePatientPhone(item.getPatientCode()));
-                if (phone == null) {
+                if (phone == null || phone.isBlank()) {
                     attempt.setStatus(DeliveryAttemptStatus.FAILED);
                     attempt.setFailureReason("NO_PHONE: Patient has no phone and no override was provided");
                     return;
                 }
                 attempt.setRecipientContact(phone);
+                String cleanDigits = phone.replaceAll("[^0-9]", "");
+                if (cleanDigits.length() < 9 || cleanDigits.length() > 12) {
+                    attempt.setStatus(DeliveryAttemptStatus.FAILED);
+                    attempt.setFailureReason("INVALID_PHONE: Incomplete or invalid phone number (" + phone + ")");
+                    return;
+                }
                 try {
                     LabReportData report = reportDataService.resolve(item);
                     smsService.sendSms(phone, messageFormatter.formatSms(report));
@@ -87,9 +98,9 @@ public class ReportDispatchChannelService {
             }
             case POST -> {
                 String address = firstNonBlank(request.getPostalAddress(), resolvePatientAddress(item.getPatientCode()));
-                if (address == null) {
+                if (address == null || address.trim().length() < 5) {
                     attempt.setStatus(DeliveryAttemptStatus.FAILED);
-                    attempt.setFailureReason("NO_POSTAL_ADDRESS: Patient has no address and no override was provided");
+                    attempt.setFailureReason("NO_POSTAL_ADDRESS: Incomplete or missing postal delivery address");
                     return;
                 }
                 String trackingNumber = firstNonBlank(request.getTrackingNumber(), generateTrackingNumber(item));

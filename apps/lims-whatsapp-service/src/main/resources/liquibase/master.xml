@@ -6,5 +6,6 @@
         http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
 
     <include file="liquibase/changelog/20260820100000_create_wa_conversation_tables.xml"/>
+    <include file="liquibase/changelog/20260823090000_add_wa_contact_call_memory.xml"/>
 
 </databaseChangeLog>

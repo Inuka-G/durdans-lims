@@ -189,7 +189,7 @@ export default function PasswordPolicyPage() {
                     <div role="note" className="flex items-start gap-3 rounded-lg border border-edge bg-primary-soft p-4">
                         <Info className="mt-0.5 h-5 w-5 shrink-0 text-primary-strong" aria-hidden="true" />
                         <div className="min-w-0">
-                            <p className="text-[13px] font-semibold text-fg">Policy synchronisation</p>
+                            <p className="text-sm font-semibold text-fg">Policy synchronisation</p>
                             <p className="mt-1 text-xs leading-relaxed text-fg-secondary">
                                 Changes to password policies do not invalidate existing session tokens, but will be enforced the next time a
                                 user changes their password.

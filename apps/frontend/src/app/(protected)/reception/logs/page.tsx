@@ -292,19 +292,19 @@ export default function AccessioningLogsPage() {
                     )
                 ) : (
                     <div className="overflow-x-auto">
-                        <table className="w-full min-w-[680px] table-fixed text-left text-[13px] md:min-w-[800px] lg:min-w-[960px] xl:min-w-[992px]">
+                        <table className="w-full min-w-[680px] table-fixed text-left text-sm md:min-w-[800px] lg:min-w-[960px] xl:min-w-[992px]">
                             <caption className="sr-only">Accessioning log entries</caption>
                             <thead>
-                                <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
-                                    <th scope="col" className="w-28 py-2 pl-4 pr-3 font-medium">Sample ID</th>
-                                    <th scope="col" className="w-32 px-3 py-2 font-medium">Patient</th>
-                                    <th scope="col" className="hidden w-32 px-3 py-2 font-medium md:table-cell">Test</th>
-                                    <th scope="col" className="w-20 px-3 py-2 font-medium">Priority</th>
-                                    <th scope="col" className="w-24 px-3 py-2 font-medium">Action</th>
-                                    <th scope="col" className="hidden w-24 px-3 py-2 font-medium lg:table-cell">Status</th>
-                                    <th scope="col" className="px-3 py-2 font-medium">Details</th>
-                                    <th scope="col" className="hidden w-24 px-3 py-2 font-medium xl:table-cell">Performed by</th>
-                                    <th scope="col" className="w-24 px-3 py-2 font-medium">Time</th>
+                                <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
+                                    <th scope="col" className="w-28 py-2 pl-4 pr-3 font-semibold">Sample ID</th>
+                                    <th scope="col" className="w-32 px-3 py-2 font-semibold">Patient</th>
+                                    <th scope="col" className="hidden w-32 px-3 py-2 font-semibold md:table-cell">Test</th>
+                                    <th scope="col" className="w-20 px-3 py-2 font-semibold">Priority</th>
+                                    <th scope="col" className="w-24 px-3 py-2 font-semibold">Action</th>
+                                    <th scope="col" className="hidden w-24 px-3 py-2 font-semibold lg:table-cell">Status</th>
+                                    <th scope="col" className="px-3 py-2 font-semibold">Details</th>
+                                    <th scope="col" className="hidden w-24 px-3 py-2 font-semibold xl:table-cell">Performed by</th>
+                                    <th scope="col" className="w-24 px-3 py-2 font-semibold">Time</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-edge whitespace-nowrap">

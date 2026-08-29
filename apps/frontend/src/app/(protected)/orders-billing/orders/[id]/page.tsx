@@ -305,20 +305,20 @@ export default function OrderDetailsPage({ params }: { params: Promise<{ id: str
                                 <EmptyState compact icon={FlaskConical} title="No tests on this order" />
                             ) : (
                                 <div className="overflow-x-auto">
-                                    <table className="w-full min-w-[560px] table-fixed text-left text-[13px]">
+                                    <table className="w-full min-w-[560px] table-fixed text-left text-sm">
                                         <caption className="sr-only">Tests on this order</caption>
                                         <thead>
-                                            <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
-                                                <th scope="col" className="w-28 py-2 pl-4 pr-3 font-medium">
+                                            <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
+                                                <th scope="col" className="w-28 py-2 pl-4 pr-3 font-semibold">
                                                     Code
                                                 </th>
-                                                <th scope="col" className="px-3 py-2 font-medium">
+                                                <th scope="col" className="px-3 py-2 font-semibold">
                                                     Test
                                                 </th>
-                                                <th scope="col" className="hidden w-36 px-3 py-2 font-medium md:table-cell">
+                                                <th scope="col" className="hidden w-36 px-3 py-2 font-semibold md:table-cell">
                                                     Category
                                                 </th>
-                                                <th scope="col" className="w-36 px-3 py-2 text-right font-medium">
+                                                <th scope="col" className="w-36 px-3 py-2 text-right font-semibold">
                                                     Price
                                                 </th>
                                             </tr>
@@ -563,11 +563,11 @@ function TrackingStepItem({ step }: { step: OrderTrackingStep }) {
             </div>
             <p className="mt-2 text-xs font-medium leading-tight text-fg">{step.label}</p>
             {step.description && (
-                <p className="mt-0.5 truncate text-[11px] text-fg-muted" title={step.description}>
+                <p className="mt-0.5 truncate text-[12px] text-fg-muted" title={step.description}>
                     {step.description}
                 </p>
             )}
-            <p className="mt-1 text-[11px] tabular-nums text-fg-muted">{formatTrackingTime(step.timestamp)}</p>
+            <p className="mt-1 text-[12px] tabular-nums text-fg-muted">{formatTrackingTime(step.timestamp)}</p>
         </li>
     );
 }
@@ -600,7 +600,7 @@ function TrackingEventItem({ event }: { event: OrderTrackingEvent }) {
                 </div>
 
                 {(event.testName || event.barcode || event.performedBy || event.method || event.trackingNumber || event.trackingUrl) && (
-                    <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] text-fg-secondary">
+                    <div className="mt-2 flex flex-wrap gap-1.5 text-[12px] text-fg-secondary">
                         {event.testName && <TrackingMeta icon={FlaskConical} value={event.testName} />}
                         {event.barcode && <TrackingMeta icon={QrCode} value={event.barcode} mono />}
                         {event.performedBy && <TrackingMeta icon={User} value={event.performedBy} />}

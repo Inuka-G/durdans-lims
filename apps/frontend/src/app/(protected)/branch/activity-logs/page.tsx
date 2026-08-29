@@ -223,30 +223,75 @@ export default function ActivityLogsPage() {
                             onChange={(e) => setSearchQuery(e.target.value)}
                             className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all placeholder:text-slate-400"
                         />
-                    </div>
-                    <button
-                        onClick={handleExportCSV}
-                        className="flex items-center gap-2 border border-green-200 bg-green-50 text-green-700 hover:bg-green-100 rounded-lg px-4 py-2.5 font-bold text-sm transition-colors whitespace-nowrap"
-                    >
-                        <span className="material-icons text-[18px]">sim_card_download</span>
-                        Export Logs (CSV)
-                    </button>
-                </div>
-            </div>
-
-            {/* KPI Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                {/* Total Actions */}
-                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
-                    <div className="flex justify-between items-start mb-2">
-                        <h3 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Total Actions</h3>
-                        <div className="bg-blue-50 text-blue-500 w-7 h-7 rounded-md flex items-center justify-center">
-                            <span className="material-icons text-[16px]">bolt</span>
-                        </div>
-                    </div>
-                    <div className="flex flex-col gap-0.5 mt-2">
-                        <div className="flex items-baseline gap-2">
-                            <span className="text-3xl font-extrabold text-slate-900">14,802</span>
+                    )
+                ) : (
+                    <>
+                        <div className="overflow-x-auto">
+                            <table className="w-full min-w-[1200px] table-fixed text-left text-sm">
+                                <caption className="sr-only">Branch activity log entries</caption>
+                                <thead>
+                                    <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
+                                        <th scope="col" className="w-32 py-2 pl-4 pr-3 font-semibold">
+                                            Time
+                                        </th>
+                                        <th scope="col" className="w-40 px-3 py-2 font-semibold">
+                                            User
+                                        </th>
+                                        <th scope="col" className="hidden w-40 px-3 py-2 font-semibold md:table-cell">
+                                            Role
+                                        </th>
+                                        <th scope="col" className="hidden w-44 px-3 py-2 font-semibold lg:table-cell">
+                                            Module
+                                        </th>
+                                        <th scope="col" className="px-3 py-2 font-semibold">
+                                            Action
+                                        </th>
+                                        <th scope="col" className="w-36 px-3 py-2 font-semibold">
+                                            Entity ID
+                                        </th>
+                                        <th scope="col" className="w-28 px-3 py-2 font-semibold">
+                                            Status
+                                        </th>
+                                        <th scope="col" className="hidden w-36 px-3 py-2 font-semibold xl:table-cell">
+                                            IP address
+                                        </th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-edge whitespace-nowrap">
+                                    {pageRows.map((log, index) => (
+                                        <tr key={`${log.id}-${index}`} className="transition-colors hover:bg-surface-hover">
+                                            <td className="py-2 pl-4 pr-3 tabular-nums text-fg-secondary">
+                                                <time dateTime={log.rawTimestamp} title={log.timestamp}>
+                                                    {formatAuditTime(log.rawTimestamp)}
+                                                </time>
+                                            </td>
+                                            <td className="truncate px-3 py-2 font-medium text-fg" title={log.user}>
+                                                {log.user}
+                                            </td>
+                                            <td className="hidden truncate px-3 py-2 text-fg-secondary md:table-cell" title={log.role}>
+                                                {log.role}
+                                            </td>
+                                            <td className="hidden truncate px-3 py-2 text-fg-secondary lg:table-cell" title={log.module}>
+                                                {log.module}
+                                            </td>
+                                            <td className="truncate px-3 py-2 text-fg" title={log.action}>
+                                                {log.action}
+                                            </td>
+                                            <td className="truncate px-3 py-2 text-fg-muted" title={log.entityId !== "-" ? log.entityId : undefined}>
+                                                <Cell value={log.entityId} mono />
+                                            </td>
+                                            <td className="px-3 py-2">
+                                                <StatusChip tone={LOG_STATUS_TONE[log.status]} dot size="sm">
+                                                    {humanizeStatus(log.status)}
+                                                </StatusChip>
+                                            </td>
+                                            <td className="hidden truncate px-3 py-2 text-fg-muted xl:table-cell">
+                                                <Cell value={log.ipAddress} mono />
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
                         </div>
                         <span className="text-[11px] font-semibold text-slate-400">Last 7 days</span>
                     </div>

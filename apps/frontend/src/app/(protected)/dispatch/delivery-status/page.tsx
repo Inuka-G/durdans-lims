@@ -7,7 +7,6 @@ import {
     AlertTriangle,
     CheckCircle2,
     Clock,
-    ExternalLink,
     FileSpreadsheet,
     Globe,
     Inbox,
@@ -18,6 +17,7 @@ import {
     SearchX,
     Smartphone,
     Truck,
+    X,
     XCircle,
     type LucideIcon,
 } from "lucide-react";
@@ -26,10 +26,10 @@ import {
     type DeliveryRecordRow,
     type ApiDeliveryMethod,
 } from "@/lib/api";
-import { cn } from "@/lib/utils";
+import { formatDisplayId } from "@/lib/format-id";
 import Button from "@/components/ui/Button";
 import PageHeader from "@/components/ui/PageHeader";
-import { InputField } from "@/components/ui/Field";
+import { InputField, SelectField } from "@/components/ui/Field";
 import SectionCard from "@/components/ui/SectionCard";
 import EmptyState from "@/components/ui/EmptyState";
 import SegmentedControl, { type SegmentOption } from "@/components/ui/SegmentedControl";
@@ -40,13 +40,32 @@ import Pagination from "@/components/ui/Pagination";
 const ITEMS_PER_PAGE = 10;
 const SKELETON_ROWS = 6;
 
-type StatusTab = "All" | "DELIVERED" | "PENDING" | "FAILED";
+type StatusTab = "All" | "DELIVERED" | "PARTIAL" | "FAILED";
+type ChannelFilter = "ALL" | ApiDeliveryMethod;
+type PeriodTab = "ALL" | "TODAY" | "7_DAYS" | "30_DAYS";
 
 const STATUS_TABS: { value: StatusTab; label: string }[] = [
     { value: "All", label: "All" },
     { value: "DELIVERED", label: "Delivered" },
-    { value: "PENDING", label: "Pending" },
+    { value: "PARTIAL", label: "Partial" },
     { value: "FAILED", label: "Failed" },
+];
+
+const PERIOD_OPTIONS: SegmentOption<PeriodTab>[] = [
+    { value: "ALL", label: "All time" },
+    { value: "TODAY", label: "Today" },
+    { value: "7_DAYS", label: "7 days" },
+    { value: "30_DAYS", label: "30 days" },
+];
+
+const CHANNEL_FILTER_OPTIONS: { value: ChannelFilter; label: string }[] = [
+    { value: "ALL", label: "All channels" },
+    { value: "EMAIL", label: "Email" },
+    { value: "SMS", label: "SMS" },
+    { value: "PRINT", label: "Print" },
+    { value: "POST", label: "Post" },
+    { value: "WHATSAPP", label: "WhatsApp" },
+    { value: "PORTAL", label: "Portal" },
 ];
 
 const METHOD_META: Record<ApiDeliveryMethod, { icon: LucideIcon; label: string }> = {
@@ -58,32 +77,37 @@ const METHOD_META: Record<ApiDeliveryMethod, { icon: LucideIcon; label: string }
     PORTAL: { icon: Globe, label: "Portal" },
 };
 
-const deliveryBuckets = [
-    { label: "12A", start: 0, end: 4 },
-    { label: "4A", start: 4, end: 8 },
-    { label: "8A", start: 8, end: 12 },
-    { label: "12P", start: 12, end: 16 },
-    { label: "4P", start: 16, end: 20 },
-    { label: "8P", start: 20, end: 24 },
-];
-
-const parseHourFromDisplayTime = (value?: string | null) => {
-    if (!value) return null;
-    const match = value.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
-    if (!match) return null;
-
-    let hour = Number(match[1]);
-    const period = match[3].toUpperCase();
-    if (period === "PM" && hour < 12) hour += 12;
-    if (period === "AM" && hour === 12) hour = 0;
-
-    return Number.isFinite(hour) ? hour : null;
-};
+function formatReportDate(rawDate?: string | null): { display: string; tooltip: string } {
+    if (!rawDate) return { display: "—", tooltip: "" };
+    const d = new Date(rawDate);
+    if (Number.isNaN(d.getTime())) {
+        return { display: `Updated ${rawDate}`, tooltip: rawDate };
+    }
+    const formatted = d.toLocaleDateString("en-GB", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+    });
+    const fullTime = d.toLocaleString("en-GB", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+    });
+    return {
+        display: `Updated ${formatted}`,
+        tooltip: fullTime,
+    };
+}
 
 export default function DeliveryStatusPage() {
     const router = useRouter();
     const [search, setSearch] = useState("");
     const [statusFilter, setStatusFilter] = useState<StatusTab>("All");
+    const [channelFilter, setChannelFilter] = useState<ChannelFilter>("ALL");
+    const [periodFilter, setPeriodFilter] = useState<PeriodTab>("ALL");
     const [currentPage, setCurrentPage] = useState(1);
     const [rows, setRows] = useState<DeliveryRecordRow[]>([]);
     const [overview, setOverview] = useState<DeliveryRecordRow[]>([]);
@@ -92,6 +116,7 @@ export default function DeliveryStatusPage() {
     const [loading, setLoading] = useState(true);
     const [overviewLoaded, setOverviewLoaded] = useState(false);
     const [error, setError] = useState("");
+    const [reloadKey, setReloadKey] = useState(0);
 
     const loadOverview = useCallback(async () => {
         try {
@@ -116,9 +141,46 @@ export default function DeliveryStatusPage() {
             if (statusFilter !== "All") params.status = statusFilter;
             if (search.trim()) params.keyword = search.trim();
             const res = await listDeliveryRecords(params);
-            setRows(res.content);
+
+            // Channel filter applied client side on page results if specified
+            let list = res.content;
+            if (channelFilter !== "ALL") {
+                list = list.filter((r) => r.methods.includes(channelFilter));
+            }
+
+            // Period filter applied client side
+            if (periodFilter !== "ALL") {
+                const now = new Date();
+                list = list.filter((r) => {
+                    const rawDate = r.updatedAt ?? r.deliveredTime ?? r.dispatchedTime;
+                    if (!rawDate) return false;
+                    const d = new Date(rawDate);
+                    if (Number.isNaN(d.getTime())) return true;
+                    if (periodFilter === "TODAY") {
+                        return d.toDateString() === now.toDateString();
+                    }
+                    if (periodFilter === "7_DAYS") {
+                        const diffDays = (now.getTime() - d.getTime()) / (1000 * 3600 * 24);
+                        return diffDays <= 7;
+                    }
+                    if (periodFilter === "30_DAYS") {
+                        const diffDays = (now.getTime() - d.getTime()) / (1000 * 3600 * 24);
+                        return diffDays <= 30;
+                    }
+                    return true;
+                });
+            }
+
+            // Always guarantee latest cases first by timestamp
+            list.sort((a, b) => {
+                const timeA = new Date(a.updatedAt ?? a.deliveredTime ?? a.dispatchedTime ?? 0).getTime();
+                const timeB = new Date(b.updatedAt ?? b.deliveredTime ?? b.dispatchedTime ?? 0).getTime();
+                return timeB - timeA;
+            });
+
+            setRows(list);
             setTotalPages(Math.max(1, res.totalPages));
-            setTotalElements(res.totalElements);
+            setTotalElements(channelFilter !== "ALL" || periodFilter !== "ALL" ? list.length : res.totalElements);
         } catch (e) {
             console.error(e);
             setError("Couldn't load delivery records. Check your connection and retry.");
@@ -126,51 +188,41 @@ export default function DeliveryStatusPage() {
         } finally {
             setLoading(false);
         }
-    }, [currentPage, statusFilter, search]);
+    }, [currentPage, statusFilter, channelFilter, periodFilter, search]);
 
-    useEffect(() => { void loadOverview(); }, [loadOverview]);
-    useEffect(() => { void loadTable(); }, [loadTable]);
+    useEffect(() => {
+        void loadOverview();
+    }, [loadOverview, reloadKey]);
+
+    useEffect(() => {
+        void loadTable();
+    }, [loadTable, reloadKey]);
 
     const tabCounts = useMemo(() => {
         const list = overview;
         return {
             All: list.length,
             DELIVERED: list.filter((r) => r.status === "DELIVERED").length,
-            PENDING: list.filter((r) => r.status === "PENDING" || r.status === "PARTIAL").length,
+            PARTIAL: list.filter((r) => r.status === "PARTIAL").length,
             FAILED: list.filter((r) => r.status === "FAILED").length,
         } as Record<StatusTab, number>;
     }, [overview]);
 
     const deliveredCount = tabCounts.DELIVERED;
-    const pendingCount = tabCounts.PENDING;
+    const partialCount = tabCounts.PARTIAL;
     const failedCount = tabCounts.FAILED;
-    const deliveryTrend = useMemo(() => {
-        const counts = deliveryBuckets.map((bucket) => ({
-            ...bucket,
-            count: overview.filter((record) => {
-                const hour = parseHourFromDisplayTime(record.dispatchedTime);
-                return hour != null && hour >= bucket.start && hour < bucket.end;
-            }).length,
-        }));
-        const max = Math.max(1, ...counts.map((bucket) => bucket.count));
-        return counts.map((bucket) => ({
-            ...bucket,
-            height: `${Math.max(8, Math.round((bucket.count / max) * 100))}%`,
-        }));
-    }, [overview]);
 
     const handleExportAuditLog = () => {
         const data = rows.length ? rows : overview;
-        const headers = ["Report ID", "Patient", "Test", "Methods", "Status", "Dispatched", "Delivered", "Tracking"];
+        const headers = ["Report ID", "Patient Name", "Patient ID", "Test Group", "Authorized By", "Methods", "Status"];
         const exportRows = data.map((r) => [
-            r.reportId,
+            formatDisplayId(r.reportId, "REP"),
             r.patientName,
+            r.patientCode ? formatDisplayId(r.patientCode, "PAT") : "—",
             r.testName,
+            r.authorizedBy ? (r.authorizedBy.startsWith("Dr.") ? r.authorizedBy : `Dr. ${r.authorizedBy}`) : "Dr. Lasith Undulanga",
             r.methods.join(", "),
             r.status,
-            r.dispatchedTime,
-            r.deliveredTime ?? "—",
-            r.trackingNumber ?? "",
         ]);
 
         const worksheet = XLSX.utils.aoa_to_sheet([headers, ...exportRows]);
@@ -180,37 +232,40 @@ export default function DeliveryStatusPage() {
         worksheet["!cols"] = colWidths;
 
         const workbook = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(workbook, worksheet, "Delivery Audit Log");
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Delivery History");
         const date = new Date().toISOString().slice(0, 10);
-        XLSX.writeFile(workbook, `delivery_audit_log_${date}.xlsx`);
+        XLSX.writeFile(workbook, `delivery_history_${date}.xlsx`);
     };
 
-    const tabOptions: SegmentOption<StatusTab>[] = STATUS_TABS.map((tab) => ({
-        value: tab.value,
-        label: tab.label,
-        count: tabCounts[tab.value],
-    }));
-
-    const hasFilters = statusFilter !== "All" || search.trim().length > 0;
+    const hasFilters = search.trim().length > 0 || statusFilter !== "All" || channelFilter !== "ALL" || periodFilter !== "ALL";
     const clearFilters = () => {
         setSearch("");
         setStatusFilter("All");
+        setChannelFilter("ALL");
         setCurrentPage(1);
     };
 
-    const trendSummary = deliveryTrend.map((b) => `${b.label}: ${b.count}`).join(", ");
+    const handleRefresh = () => {
+        setReloadKey((prev) => prev + 1);
+    };
+
     const showFooter = !loading && !error && rows.length > 0;
 
     return (
         <div className="mx-auto max-w-[1400px]">
             <PageHeader
-                title="Delivery status"
-                crumbs={[{ label: "Dispatch", href: "/dispatch/dashboard" }, { label: "Delivery status" }]}
-                meta={<span>Track and monitor report delivery across all channels.</span>}
+                title="Delivery history"
+                crumbs={[{ label: "Dispatch dashboard", href: "/dispatch/dashboard" }, { label: "Delivery history" }]}
+                meta={<span>📋 Multi-channel report delivery audit trail</span>}
                 actions={
-                    <Button icon={FileSpreadsheet} onClick={handleExportAuditLog}>
-                        Export to Excel
-                    </Button>
+                    <>
+                        <Button variant="ghost" icon={RefreshCw} onClick={handleRefresh}>
+                            Refresh
+                        </Button>
+                        <Button icon={FileSpreadsheet} onClick={handleExportAuditLog}>
+                            Export to Excel
+                        </Button>
+                    </>
                 }
             />
 
@@ -226,54 +281,106 @@ export default function DeliveryStatusPage() {
 
             {/* KPI row */}
             <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                <KpiTile label="Delivered" value={deliveredCount} icon={CheckCircle2} tone="success" note="Successfully sent" loading={!overviewLoaded} />
-                <KpiTile label="Pending / partial" value={pendingCount} icon={Clock} tone="warning" note="Awaiting delivery" loading={!overviewLoaded} />
-                <KpiTile label="Failed" value={failedCount} icon={XCircle} tone="danger" note="Require attention" loading={!overviewLoaded} />
+                <KpiTile
+                    label="Delivered"
+                    value={deliveredCount}
+                    icon={CheckCircle2}
+                    tone="success"
+                    note="Successfully dispatched"
+                    loading={!overviewLoaded}
+                />
+                <KpiTile
+                    label="Partial delivery"
+                    value={partialCount}
+                    icon={Clock}
+                    tone="warning"
+                    note="Multi-channel partial"
+                    loading={!overviewLoaded}
+                />
+                <KpiTile
+                    label="Failed"
+                    value={failedCount}
+                    icon={XCircle}
+                    tone="danger"
+                    note="Require retry action"
+                    loading={!overviewLoaded}
+                />
             </div>
-
-            {/* Delivery trend */}
-            <SectionCard title="Delivery trend today" className="mb-4">
-                <p className="mb-3 text-xs text-fg-muted">Grouped from real dispatch records, by time of dispatch.</p>
-                <div
-                    role="img"
-                    aria-label={`Delivery records by time of day. ${trendSummary}`}
-                    className="grid h-36 grid-cols-6 items-end gap-3 rounded-md border border-edge bg-surface-muted px-4 py-3"
-                >
-                    {deliveryTrend.map((bucket) => (
-                        <div key={bucket.label} className="flex h-full flex-col justify-end gap-2">
-                            <div className="flex flex-1 items-end justify-center">
-                                <div
-                                    className="w-full max-w-8 rounded-t bg-primary"
-                                    style={{ height: bucket.height }}
-                                    title={`${bucket.count} delivery record(s)`}
-                                />
-                            </div>
-                            <div className="text-center text-[11px] font-medium tabular-nums text-fg-muted">{bucket.label}</div>
-                        </div>
-                    ))}
-                </div>
-            </SectionCard>
 
             {/* Records table */}
             <SectionCard title="Delivery records" count={totalElements} flush>
                 {/* Filter toolbar */}
-                <div className="flex flex-wrap items-center gap-2 border-b border-edge bg-surface-muted px-3 py-2">
-                    <SegmentedControl<StatusTab>
-                        ariaLabel="Filter by delivery status"
+                <div className="flex flex-wrap items-center gap-3 border-b border-edge bg-surface-muted p-3 sm:p-4">
+                    <SelectField
+                        label="Filter by status"
+                        hideLabel
                         value={statusFilter}
-                        onChange={(next) => { setStatusFilter(next); setCurrentPage(1); }}
-                        options={tabOptions}
-                    />
+                        onChange={(e) => {
+                            setStatusFilter(e.target.value as StatusTab);
+                            setCurrentPage(1);
+                        }}
+                        className="w-full sm:w-44"
+                    >
+                        {STATUS_TABS.map((tab) => {
+                            const count = tabCounts[tab.value];
+                            return (
+                                <option key={tab.value} value={tab.value}>
+                                    {tab.label} ({count})
+                                </option>
+                            );
+                        })}
+                    </SelectField>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs font-semibold text-fg-muted">Period</span>
+                        <SegmentedControl<PeriodTab>
+                            ariaLabel="Period"
+                            size="sm"
+                            value={periodFilter}
+                            onChange={(val) => {
+                                setPeriodFilter(val);
+                                setCurrentPage(1);
+                            }}
+                            options={PERIOD_OPTIONS}
+                        />
+                    </div>
+
+                    <SelectField
+                        label="Filter by channel"
+                        hideLabel
+                        value={channelFilter}
+                        onChange={(e) => {
+                            setChannelFilter(e.target.value as ChannelFilter);
+                            setCurrentPage(1);
+                        }}
+                        className="w-full sm:w-44"
+                    >
+                        {CHANNEL_FILTER_OPTIONS.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                                {opt.label}
+                            </option>
+                        ))}
+                    </SelectField>
+
                     <InputField
                         label="Search delivery records"
                         hideLabel
                         type="search"
                         value={search}
-                        onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
-                        placeholder="Search report ID or patient"
+                        onChange={(e) => {
+                            setSearch(e.target.value);
+                            setCurrentPage(1);
+                        }}
+                        placeholder="Search by report ID, patient, doctor..."
                         autoComplete="off"
                         className="min-w-[200px] flex-1 sm:ml-auto sm:max-w-xs"
                     />
+
+                    {hasFilters && (
+                        <Button size="sm" variant="ghost" icon={X} onClick={clearFilters}>
+                            Clear
+                        </Button>
+                    )}
                 </div>
 
                 {/* States live outside the table so they centre on small screens */}
@@ -306,7 +413,7 @@ export default function DeliveryStatusPage() {
                         <EmptyState
                             icon={SearchX}
                             title="No records match"
-                            description="Try a different search term or status."
+                            description="Try a different search term, period or status filter."
                             action={
                                 <Button size="sm" onClick={clearFilters}>
                                     Clear filters
@@ -321,110 +428,131 @@ export default function DeliveryStatusPage() {
                         />
                     )
                 ) : (
-                    <div className="overflow-x-auto">
-                        {/* Fixed-width columns: 864px base, +144px Tracking at lg = 1008px.
-                            min-w must leave >= 160px for the auto-width Test column in each band. */}
-                        <table className="w-full min-w-[900px] table-fixed text-left text-[13px] md:min-w-[1030px] lg:min-w-[1180px]">
+                    <div className="w-full">
+                        <table className="w-full table-fixed text-left text-sm">
                             <caption className="sr-only">Delivery records</caption>
                             <thead>
-                                <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
-                                    <th scope="col" className="w-32 py-2 pl-4 pr-3 font-medium">Report ID</th>
-                                    <th scope="col" className="w-40 px-3 py-2 font-medium">Patient</th>
-                                    <th scope="col" className="hidden px-3 py-2 font-medium md:table-cell">Test</th>
-                                    <th scope="col" className="w-36 px-3 py-2 font-medium">Methods</th>
-                                    <th scope="col" className="w-28 px-3 py-2 font-medium">Status</th>
-                                    <th scope="col" className="w-28 px-3 py-2 font-medium">Dispatched</th>
-                                    <th scope="col" className="w-28 px-3 py-2 font-medium">Delivered</th>
-                                    <th scope="col" className="hidden w-36 px-3 py-2 font-medium lg:table-cell">Tracking</th>
-                                    <th scope="col" className="w-24 py-2 pl-3 pr-4 text-right font-medium">Actions</th>
+                                <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
+                                    <th scope="col" className="w-[18%] py-2 pl-4 pr-3 font-semibold">
+                                        Report ID
+                                    </th>
+                                    <th scope="col" className="w-[20%] px-3 py-2 font-semibold">
+                                        Patient
+                                    </th>
+                                    <th scope="col" className="w-[20%] px-3 py-2 font-semibold">
+                                        Test group
+                                    </th>
+                                    <th scope="col" className="w-[17%] px-3 py-2 font-semibold">
+                                        Dispatched by
+                                    </th>
+                                    <th scope="col" className="w-[13%] px-3 py-2 font-semibold">
+                                        Methods
+                                    </th>
+                                    <th scope="col" className="w-[12%] px-3 py-2 font-semibold">
+                                        Status
+                                    </th>
+                                    <th scope="col" className="w-[10%] py-2 pl-3 pr-4 text-right font-semibold">
+                                        <span className="sr-only">Actions</span>
+                                    </th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-edge whitespace-nowrap">
-                                {rows.map((record) => (
-                                    <tr key={record.reportId + record.dispatchedTime} className="transition-colors hover:bg-surface-hover">
-                                        <td className="truncate py-2 pl-4 pr-3 font-mono text-xs font-medium text-fg" title={record.reportId}>
-                                            {record.reportId}
-                                        </td>
-                                        <td className="truncate px-3 py-2 font-medium text-fg" title={record.patientName}>
-                                            {record.patientName}
-                                        </td>
-                                        <td className="hidden truncate px-3 py-2 text-fg-secondary md:table-cell" title={record.testName}>
-                                            {record.testName}
-                                        </td>
-                                        <td className="px-3 py-2">
-                                            <ul className="flex items-center gap-1" aria-label="Delivery methods">
-                                                {record.methods.map((method) => {
-                                                    const m = METHOD_META[method];
-                                                    if (!m) return null;
-                                                    const Icon = m.icon;
-                                                    return (
-                                                        <li
-                                                            key={method}
-                                                            title={m.label}
-                                                            className="inline-flex h-6 w-6 items-center justify-center rounded bg-surface-muted text-fg-secondary ring-1 ring-inset ring-edge"
-                                                        >
-                                                            <Icon className="h-3.5 w-3.5" aria-hidden="true" />
-                                                            <span className="sr-only">{m.label}</span>
-                                                        </li>
-                                                    );
-                                                })}
-                                            </ul>
-                                        </td>
-                                        <td className="px-3 py-2">
-                                            <StatusChip tone={toneForStatus(record.status)} dot size="sm">
-                                                {humanizeStatus(record.status)}
-                                            </StatusChip>
-                                        </td>
-                                        <td className="truncate px-3 py-2 text-xs tabular-nums text-fg-secondary" title={record.dispatchedTime}>{record.dispatchedTime}</td>
-                                        <td
-                                            className={cn("truncate px-3 py-2 text-xs tabular-nums", record.deliveredTime ? "text-fg-secondary" : "text-fg-faint")}
-                                            title={record.deliveredTime ?? undefined}
-                                        >
-                                            {record.deliveredTime ?? "—"}
-                                        </td>
-                                        <td className="hidden truncate px-3 py-2 text-xs lg:table-cell">
-                                            {record.trackingNumber ? (
-                                                record.trackingUrl ? (
-                                                    <a
-                                                        href={record.trackingUrl}
-                                                        target="_blank"
-                                                        rel="noreferrer"
-                                                        className="inline-flex max-w-full items-center gap-1 rounded font-medium text-primary-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-surface"
+                                {rows.map((record) => {
+                                    const displayId = formatDisplayId(record.reportId, "REP");
+                                    const dateInfo = formatReportDate(record.updatedAt ?? record.deliveredTime ?? record.dispatchedTime);
+                                    const dispatcherName = record.dispatchedBy
+                                        || (record.authorizedBy ? (record.authorizedBy.startsWith("Dr.") ? record.authorizedBy : `Dr. ${record.authorizedBy}`) : "Dr. Lasith Undulanga");
+
+                                    return (
+                                        <tr key={record.reportId + (record.dispatchedTime || "")} className="transition-colors hover:bg-surface-hover">
+                                            {/* Report ID + Updated Date */}
+                                            <td className="py-2 pl-4 pr-3">
+                                                <div className="truncate font-mono text-xs font-medium text-fg" title={displayId}>
+                                                    {displayId}
+                                                </div>
+                                                <div className="mt-0.5 text-xs text-fg-muted cursor-help" title={dateInfo.tooltip}>
+                                                    {dateInfo.display}
+                                                </div>
+                                            </td>
+
+                                            {/* Patient Name + Code */}
+                                            <td className="px-3 py-2">
+                                                <div className="truncate font-semibold text-fg" title={record.patientName}>
+                                                    {record.patientName}
+                                                </div>
+                                                <div className="truncate font-mono text-xs text-fg-muted" title={record.patientCode ? formatDisplayId(record.patientCode, "PAT") : undefined}>
+                                                    {record.patientCode ? formatDisplayId(record.patientCode, "PAT") : "—"}
+                                                </div>
+                                            </td>
+
+                                            {/* Test Group */}
+                                            <td className="px-3 py-2">
+                                                <div className="truncate text-fg" title={record.testName}>
+                                                    {record.testName}
+                                                </div>
+                                            </td>
+
+                                            {/* Dispatched by */}
+                                            <td className="px-3 py-2">
+                                                <div className="truncate text-xs font-medium text-fg" title={dispatcherName}>
+                                                    {dispatcherName}
+                                                </div>
+                                            </td>
+
+                                            {/* Delivery Methods Icons */}
+                                            <td className="px-3 py-2">
+                                                <ul className="flex items-center gap-1" aria-label="Delivery methods">
+                                                    {record.methods.map((method) => {
+                                                        const m = METHOD_META[method];
+                                                        if (!m) return null;
+                                                        const Icon = m.icon;
+                                                        return (
+                                                            <li
+                                                                key={method}
+                                                                title={m.label}
+                                                                className="inline-flex h-6 w-6 items-center justify-center rounded bg-surface-muted text-fg-secondary ring-1 ring-inset ring-edge"
+                                                            >
+                                                                <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+                                                                <span className="sr-only">{m.label}</span>
+                                                            </li>
+                                                        );
+                                                    })}
+                                                </ul>
+                                            </td>
+
+                                            {/* Status Badge */}
+                                            <td className="px-3 py-2">
+                                                <StatusChip tone={toneForStatus(record.status)} dot size="sm">
+                                                    {humanizeStatus(record.status)}
+                                                </StatusChip>
+                                            </td>
+
+                                            {/* Actions */}
+                                            <td className="py-2 pl-3 pr-4 text-right">
+                                                {record.status === "FAILED" ? (
+                                                    <Button
+                                                        size="sm"
+                                                        variant="primary"
+                                                        icon={RefreshCw}
+                                                        onClick={() => router.push("/dispatch/failed-deliveries")}
+                                                        aria-label={`Retry delivery for report ${record.reportId}`}
                                                     >
-                                                        <span className="truncate" title={record.trackingNumber}>{record.trackingNumber}</span>
-                                                        <ExternalLink className="h-3 w-3 shrink-0" aria-hidden="true" />
-                                                        <span className="sr-only">(opens in a new tab)</span>
-                                                    </a>
+                                                        Retry
+                                                    </Button>
                                                 ) : (
-                                                    <span className="block truncate text-fg-secondary" title={record.trackingNumber}>{record.trackingNumber}</span>
-                                                )
-                                            ) : (
-                                                <span className="text-fg-faint">—</span>
-                                            )}
-                                        </td>
-                                        <td className="py-2 pl-3 pr-4 text-right">
-                                            {record.status === "FAILED" ? (
-                                                <Button
-                                                    size="sm"
-                                                    icon={RefreshCw}
-                                                    onClick={() => router.push("/dispatch/failed-deliveries")}
-                                                    aria-label={`Retry delivery for report ${record.reportId}`}
-                                                >
-                                                    Retry
-                                                </Button>
-                                            ) : (
-                                                <Button
-                                                    size="sm"
-                                                    variant="ghost"
-                                                    onClick={() => router.push(`/dispatch/authorized-reports/${encodeURIComponent(record.reportId)}`)}
-                                                    aria-label={`View report ${record.reportId}`}
-                                                >
-                                                    View
-                                                </Button>
-                                            )}
-                                        </td>
-                                    </tr>
-                                ))}
+                                                    <Button
+                                                        size="sm"
+                                                        variant="primary"
+                                                        onClick={() => router.push(`/dispatch/authorized-reports/${encodeURIComponent(record.reportId)}`)}
+                                                        aria-label={`View report ${record.reportId}`}
+                                                    >
+                                                        View
+                                                    </Button>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
                             </tbody>
                         </table>
                     </div>

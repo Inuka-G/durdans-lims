@@ -19,6 +19,7 @@ from loguru import logger
 from pipecat.transports.whatsapp.api import WhatsAppWebhookRequest
 from pipecat.transports.whatsapp.client import WhatsAppClient
 
+from . import live_check
 from .bot import run_bot
 from .config import settings
 
@@ -37,6 +38,13 @@ async def lifespan(_app: FastAPI):
         whatsapp_secret=settings.whatsapp_secret,
         session=_session,
     )
+    # Ask Gemini what it will accept before a caller does. A setup field the
+    # server rejects takes the whole session down and the caller hears silence
+    # on an otherwise healthy call, so this is the one thing worth a few seconds
+    # of startup. Bounded and non-fatal inside refresh().
+    if settings.calls_configured():
+        await live_check.refresh()
+
     logger.info("Voice gateway up (calls configured: {})", settings.calls_configured())
     try:
         yield

@@ -5,7 +5,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.uom.lims.api.dto.response.InstrumentStatusResponse;
 import com.uom.lims.api.dto.response.QcDashboardResponse;
 import com.uom.lims.api.dto.response.QcRunItemResponse;
+import com.uom.lims.qc.QcResultEntity;
+import com.uom.lims.qc.QcResultRepository;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -21,9 +24,11 @@ public class LabOperationsService {
             .withZone(ZoneId.systemDefault());
 
     private final ObjectMapper objectMapper;
+    private final QcResultRepository qcResultRepository;
 
-    public LabOperationsService(ObjectMapper objectMapper) {
+    public LabOperationsService(ObjectMapper objectMapper, QcResultRepository qcResultRepository) {
         this.objectMapper = objectMapper;
+        this.qcResultRepository = qcResultRepository;
     }
 
     public QcDashboardResponse getQcDashboard() {
@@ -42,7 +47,50 @@ public class LabOperationsService {
     }
 
     public List<InstrumentStatusResponse> getInstruments() {
-        return loadReferenceData("reference-data/instruments.json", new TypeReference<>() {});
+        List<InstrumentStatusResponse> list = loadReferenceData("reference-data/instruments.json", new TypeReference<>() {});
+        return list.stream().map(inst -> {
+            String liveQc = resolveLiveQcStatus(inst.id(), inst.qcStatus());
+            return new InstrumentStatusResponse(
+                    inst.id(),
+                    inst.name(),
+                    inst.type(),
+                    inst.model(),
+                    inst.serial(),
+                    inst.status(),
+                    inst.lastSync(),
+                    inst.testsToday(),
+                    inst.location(),
+                    liveQc
+            );
+        }).toList();
+    }
+
+    private String resolveLiveQcStatus(String instrumentCode, String defaultStatus) {
+        if (qcResultRepository == null || instrumentCode == null) {
+            return defaultStatus != null ? defaultStatus : "PASS";
+        }
+        try {
+            List<QcResultEntity> runs = qcResultRepository.findByOrderByPerformedAtDesc(PageRequest.of(0, 50))
+                    .stream()
+                    .filter(q -> instrumentCode.equalsIgnoreCase(q.getInstrument()))
+                    .toList();
+
+            if (runs.isEmpty()) {
+                return defaultStatus != null ? defaultStatus : "PASS";
+            }
+
+            boolean hasFail = runs.stream().anyMatch(q -> "FAIL".equalsIgnoreCase(q.getStatus()));
+            if (hasFail) {
+                return "FAIL";
+            }
+            boolean hasWarn = runs.stream().anyMatch(q -> "WARN".equalsIgnoreCase(q.getStatus()));
+            if (hasWarn) {
+                return "WARN";
+            }
+            return "PASS";
+        } catch (Exception e) {
+            return defaultStatus != null ? defaultStatus : "PASS";
+        }
     }
 
     public InstrumentStatusResponse syncInstrument(String instrumentId) {

@@ -345,32 +345,32 @@ export default function AuditLogsPage() {
                               md   632 + 160 =  792  <=  800
                               lg   872 + 160 = 1032  <= 1040
                               xl  1000 + 160 = 1160  <= 1170  */}
-                        <table className="w-full min-w-[760px] table-fixed text-left text-[13px] md:min-w-[800px] lg:min-w-[1040px] xl:min-w-[1170px]">
+                        <table className="w-full min-w-[760px] table-fixed text-left text-sm md:min-w-[800px] lg:min-w-[1040px] xl:min-w-[1170px]">
                             <caption className="sr-only">Audit log entries</caption>
                             <thead>
-                                <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
-                                    <th scope="col" className="w-36 py-2 pl-4 pr-3 font-medium">
+                                <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
+                                    <th scope="col" className="w-36 py-2 pl-4 pr-3 font-semibold">
                                         Time
                                     </th>
-                                    <th scope="col" className="w-44 px-3 py-2 font-medium">
+                                    <th scope="col" className="w-44 px-3 py-2 font-semibold">
                                         Action
                                     </th>
-                                    <th scope="col" className="hidden w-36 px-3 py-2 font-medium md:table-cell">
+                                    <th scope="col" className="hidden w-36 px-3 py-2 font-semibold md:table-cell">
                                         Entity
                                     </th>
-                                    <th scope="col" className="w-32 px-3 py-2 font-medium">
+                                    <th scope="col" className="w-32 px-3 py-2 font-semibold">
                                         Subject
                                     </th>
-                                    <th scope="col" className="hidden w-36 px-3 py-2 font-medium lg:table-cell">
+                                    <th scope="col" className="hidden w-36 px-3 py-2 font-semibold lg:table-cell">
                                         Performed by
                                     </th>
-                                    <th scope="col" className="hidden w-24 px-3 py-2 font-medium lg:table-cell">
+                                    <th scope="col" className="hidden w-24 px-3 py-2 font-semibold lg:table-cell">
                                         Branch
                                     </th>
-                                    <th scope="col" className="px-3 py-2 font-medium">
+                                    <th scope="col" className="px-3 py-2 font-semibold">
                                         Details
                                     </th>
-                                    <th scope="col" className="hidden w-32 px-3 py-2 font-medium xl:table-cell">
+                                    <th scope="col" className="hidden w-32 px-3 py-2 font-semibold xl:table-cell">
                                         IP address
                                     </th>
                                     <th scope="col" className="w-10 py-2 pl-2 pr-3">
@@ -400,7 +400,7 @@ export default function AuditLogsPage() {
                                                 <td className="px-3 py-2">
                                                     <span
                                                         title={formatLabel(log.action)}
-                                                        className="inline-block max-w-full truncate rounded bg-surface-muted px-2 py-0.5 align-middle text-[11px] font-medium text-fg-secondary ring-1 ring-inset ring-edge"
+                                                        className="inline-block max-w-full truncate rounded bg-surface-muted px-2 py-0.5 align-middle text-[12px] font-medium text-fg-secondary ring-1 ring-inset ring-edge"
                                                     >
                                                         {formatLabel(log.action)}
                                                     </span>

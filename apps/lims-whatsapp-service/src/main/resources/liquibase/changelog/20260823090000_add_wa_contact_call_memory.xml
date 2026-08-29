@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+
+    <!-- WHY: a voice agent that opens every call from nothing sounds like a machine,
+         because only a machine forgets a conversation it had yesterday. These two
+         columns are the whole of that memory.
+
+         What may be written here is deliberately narrow: the SUBJECT of the last
+         call ("report status", "test prices (FBC)"), derived from which tool ran,
+         never from what the caller said out loud. A caller reciting a NIC or a name
+         to be verified must not have it echoed back on the next call, so nothing
+         they utter is stored - see VoiceCallMemoryController. It stays a
+         non-clinical column in a non-clinical database. -->
+
+    <changeSet id="20260823090000-1-add-call-memory-to-wa-contact" author="lims">
+        <addColumn tableName="wa_contact">
+            <!-- Topic line only. 255 is generous for what is written; the writer
+                 truncates well below it. -->
+            <column name="last_call_summary" type="varchar(255)"/>
+            <column name="last_call_at" type="timestamp with time zone"/>
+        </addColumn>
+    </changeSet>
+
+</databaseChangeLog>
