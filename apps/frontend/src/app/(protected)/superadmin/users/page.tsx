@@ -10,6 +10,7 @@ interface UserRecord {
     username: string;
     name: string;
     email: string;
+    phone?: string;
     branchId: string;
     branch: string;
     roles: string[];
@@ -138,6 +139,7 @@ export default function GlobalUserControlPage() {
             const backendData = {
                 fullName: user.name,
                 email: user.email,
+                phone: user.phone || "",
                 role: user.roles?.[0] || "",
                 isActive: newStatus === "ACTIVE",
                 branchId: user.branchId || ""

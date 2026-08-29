@@ -17,4 +17,5 @@ public class SuperadminUserUpdateRequest {
     private String branchId;
     private String role;
     private Boolean isActive;
+    private String phone;
 }

@@ -10,6 +10,7 @@ interface UserRecord {
     username: string;
     name: string;
     email: string;
+    phone?: string;
     branchId: string;
     branch: string;
     roles: string[];
@@ -32,6 +33,7 @@ export default function UserEditModal({ isOpen, onClose, userData, onSave }: Use
         username: "",
         name: "",
         email: "",
+        phone: "",
         branchId: "",
         role: "",
         status: "ACTIVE",
@@ -54,6 +56,7 @@ export default function UserEditModal({ isOpen, onClose, userData, onSave }: Use
                 username: userData.username,
                 name: userData.name,
                 email: userData.email,
+                phone: userData.phone || "",
                 branchId: userData.branchId,
                 role: userData.roles[0] || "",
                 status: userData.status,
@@ -69,6 +72,7 @@ export default function UserEditModal({ isOpen, onClose, userData, onSave }: Use
                 await onSave(userData.id, {
                     name: formData.name,
                     email: formData.email,
+                    phone: formData.phone,
                     branchId: formData.branchId,
                     roles: formData.role ? [formData.role] : [],
                     status: formData.status as "ACTIVE" | "INACTIVE"
@@ -127,6 +131,15 @@ export default function UserEditModal({ isOpen, onClose, userData, onSave }: Use
                     className="sm:col-span-2"
                     value={formData.email}
                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                />
+
+                <InputField
+                    label="Phone number"
+                    type="tel"
+                    className="sm:col-span-2"
+                    value={formData.phone}
+                    onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))}
+                    placeholder="+1 (555) 000-0000"
                 />
 
                 <SelectField

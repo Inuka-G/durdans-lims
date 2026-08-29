@@ -50,7 +50,7 @@ public class SuperadminUserController implements SuperadminUserApi {
         String oldRole = oldRoles != null && !oldRoles.isEmpty() ? oldRoles.get(0) : "USER";
         boolean oldIsActive = oldUser.isEnabled() != null ? oldUser.isEnabled() : false;
 
-        keycloakAdminService.updateUserDirectly(id, request.getFullName(), request.getEmail(), request.getBranchId(),
+        keycloakAdminService.updateUserDirectly(id, request.getFullName(), request.getEmail(), request.getPhone(), request.getBranchId(),
                 request.getRole(), request.getIsActive());
 
         // Build a details string containing the old to new transition
@@ -104,14 +104,23 @@ public class SuperadminUserController implements SuperadminUserApi {
             }
         }
 
+        String phone = null;
+        if (user.getAttributes() != null && user.getAttributes().containsKey("phone")) {
+            List<String> phoneAttr = user.getAttributes().get("phone");
+            if (phoneAttr != null && !phoneAttr.isEmpty()) {
+                phone = phoneAttr.get(0);
+            }
+        }
+
         return SuperadminUserResponse.builder()
                 .id(user.getId())
                 .username(user.getUsername())
                 .email(user.getEmail())
-                .fullName(user.getFirstName()) // we stored full name in firstName
+                .fullName(user.getFirstName() + (user.getLastName() != null ? " " + user.getLastName() : ""))
                 .isActive(user.isEnabled() != null ? user.isEnabled() : false)
                 .branchId(branchId)
                 .roles(keycloakAdminService.getUserRoles(user.getId()))
+                .phone(phone)
                 .build();
     }
 

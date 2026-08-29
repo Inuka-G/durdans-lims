@@ -200,7 +200,7 @@ public class KeycloakAdminService {
         }
     }
 
-    public void updateUserDirectly(String userId, String fullName, String email, String branchId, String role, boolean isActive) {
+    public void updateUserDirectly(String userId, String fullName, String email, String phone, String branchId, String role, boolean isActive) {
         UserResource userResource = keycloak.realm(realm).users().get(userId);
         UserRepresentation user = userResource.toRepresentation();
 
@@ -216,6 +216,11 @@ public class KeycloakAdminService {
             attributes.put("branch_id", Collections.singletonList(branchId));
         } else {
             attributes.remove("branch_id");
+        }
+        if (phone != null && !phone.trim().isEmpty()) {
+            attributes.put("phone", Collections.singletonList(phone));
+        } else {
+            attributes.remove("phone");
         }
         user.setAttributes(attributes);
 

@@ -21,4 +21,5 @@ public class SuperadminUserResponse {
     private Boolean isActive;
     private String branchId;
     private List<String> roles;
+    private String phone;
 }
