@@ -1,17 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from 'react';
-import { toast } from 'sonner';
-import * as XLSX from 'xlsx';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { Users, FlaskConical, Banknote, Clock, FileText, FileSpreadsheet } from 'lucide-react';
-import PageHeader from '@/components/ui/PageHeader';
-import Button from '@/components/ui/Button';
-import KpiTile from '@/components/ui/KpiTile';
-import SectionCard from '@/components/ui/SectionCard';
-import SegmentedControl from '@/components/ui/SegmentedControl';
-import { InputField, SelectField } from '@/components/ui/Field';
-import DemoDataBanner from '@/components/shared/DemoDataBanner';
 
 const initialBarData = [
     { name: '01 OCT', revenue: 2000 },
@@ -28,65 +18,15 @@ const initialBarData = [
     { name: '31 OCT', revenue: 7800 },
 ];
 
-// Chart series colours (literal by design; Pathology follows the brand token).
-const SERIES_PATHOLOGY = 'var(--color-primary)';
-const SERIES_RADIOLOGY = '#a855f7';
-const SERIES_GENERAL = '#f59e0b';
-
 const initialPieData = [
-    { name: 'Pathology', value: 45, color: SERIES_PATHOLOGY },
-    { name: 'Radiology', value: 28, color: SERIES_RADIOLOGY },
-    { name: 'General', value: 27, color: SERIES_GENERAL },
+    { name: 'Pathology', value: 45, color: '#1277E1' },
+    { name: 'Radiology', value: 28, color: '#a855f7' },
+    { name: 'General', value: 27, color: '#f59e0b' },
 ];
-
-type Period = '7d' | '30d' | '90d' | 'custom';
-
-const PERIOD_OPTIONS: { value: Period; label: string }[] = [
-    { value: '7d', label: 'Last 7 days' },
-    { value: '30d', label: 'Last 30 days' },
-    { value: '90d', label: 'Last 90 days' },
-    { value: 'custom', label: 'Custom' },
-];
-
-const PERIOD_DAYS: Record<Exclude<Period, 'custom'>, number> = { '7d': 7, '30d': 30, '90d': 90 };
-
-const AXIS_TICK = { fontSize: 11, fill: 'var(--fg-muted)' };
-const TOOLTIP_STYLE = {
-    borderRadius: 6,
-    border: '1px solid var(--edge)',
-    background: 'var(--surface)',
-    color: 'var(--fg)',
-    boxShadow: '0 2px 8px rgb(15 23 42 / 0.12)',
-    fontSize: 12,
-    padding: '6px 10px',
-};
-
-/** yyyy-mm-dd in local time (matches what <input type="date"> expects). */
-function toIsoDate(d: Date): string {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
-}
-
-/** "01 Oct 2023" for a yyyy-mm-dd string; "—" when empty/invalid. */
-function formatDay(iso: string): string {
-    if (!iso) return '—';
-    const d = new Date(`${iso}T00:00:00`);
-    if (Number.isNaN(d.getTime())) return '—';
-    return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-}
-
-/** "01 OCT" → "01 Oct" for axis ticks and tooltip labels (data itself stays unchanged for export). */
-function tickLabel(value: unknown): string {
-    const s = String(value ?? '');
-    return s.replace(/([A-Z])([A-Z]+)/g, (_m, a: string, b: string) => a + b.toLowerCase());
-}
 
 export default function BranchReportsPage() {
     const [startDate, setStartDate] = useState("2023-10-01");
     const [endDate, setEndDate] = useState("2023-10-31");
-    const [period, setPeriod] = useState<Period>('custom');
 
     const [barData, setBarData] = useState(initialBarData);
     const [pieData, setPieData] = useState(initialPieData);
@@ -130,23 +70,12 @@ export default function BranchReportsPage() {
             })));
 
             setPieData([
-                { name: 'Pathology', value: Math.floor(40 + noise * 15), color: SERIES_PATHOLOGY },
-                { name: 'Radiology', value: Math.floor(20 + noise * 20), color: SERIES_RADIOLOGY },
-                { name: 'General', value: Math.floor(20 + noise * 10), color: SERIES_GENERAL },
+                { name: 'Pathology', value: Math.floor(40 + noise * 15), color: '#1277E1' },
+                { name: 'Radiology', value: Math.floor(20 + noise * 20), color: '#a855f7' },
+                { name: 'General', value: Math.floor(20 + noise * 10), color: '#f59e0b' },
             ]);
         }
     }, [startDate, endDate]);
-
-    // Period presets set the same start/end dates the date inputs control.
-    const handlePeriodChange = (next: Period) => {
-        setPeriod(next);
-        if (next === 'custom') return;
-        const end = new Date();
-        const start = new Date(end);
-        start.setDate(start.getDate() - PERIOD_DAYS[next]);
-        setStartDate(toIsoDate(start));
-        setEndDate(toIsoDate(end));
-    };
 
     // Export PDF function - Native Browser Print
     const handleExportPDF = async () => {
@@ -164,29 +93,13 @@ export default function BranchReportsPage() {
                         <head>
                             <title>Branch_Report_${startDate}_to_${endDate}</title>
                             <script src="https://cdn.tailwindcss.com"></script>
-                            <script>tailwind.config={theme:{extend:{colors:{canvas:'var(--canvas)',surface:'var(--surface)','surface-muted':'var(--surface-muted)','surface-hover':'var(--surface-hover)',edge:'var(--edge)','edge-strong':'var(--edge-strong)',fg:'var(--fg)','fg-secondary':'var(--fg-secondary)','fg-muted':'var(--fg-muted)','fg-faint':'var(--fg-faint)','status-pending':'#f59e0b','status-pending-fg':'var(--status-pending-fg)'}}}}</script>
+                            <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
                             <style>
-                                /* The print window has no app stylesheet: define the chart/text tokens it references. */
-                                :root {
-                                    --color-primary: #137fec;
-                                    --primary-soft: rgba(19, 127, 236, 0.08);
-                                    --canvas: #f6f7f8;
-                                    --surface: #ffffff;
-                                    --surface-muted: #f8fafc;
-                                    --surface-hover: #f1f5f9;
-                                    --edge: #e2e8f0;
-                                    --edge-strong: #cbd5e1;
-                                    --fg: #0f172a;
-                                    --fg-secondary: #334155;
-                                    --fg-muted: #64748b;
-                                    --fg-faint: #94a3b8;
-                                    --status-pending-fg: #b45309;
-                                }
                                 @media print {
                                     @page { size: A4 landscape; margin: 10mm; }
                                     body { -webkit-print-color-adjust: exact; print-color-adjust: exact; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif; background: #f8fafc; }
                                     /* Hide interactive elements in print */
-                                    select, input[type="date"], button, [role="radiogroup"], [data-html2canvas-ignore] { display: none !important; }
+                                    select, input[type="date"], button, .data-html2canvas-ignore { display: none !important; }
                                     .print-border { border: 1px solid #e2e8f0 !important; }
                                 }
                                 body { background: #f8fafc; padding: 20px; }
@@ -210,197 +123,165 @@ export default function BranchReportsPage() {
                     printWindow.close();
                 }, 1000);
             } else {
-                toast.error("Please allow pop-ups to generate PDF reports.");
+                alert("Please allow pop-ups to generate PDF reports.");
             }
         } catch (error) {
             console.error("Error generating PDF via print:", error);
-            toast.error("Failed to generate PDF report.");
+            alert("Failed to generate PDF report.");
         } finally {
             setIsExporting(false);
         }
     };
 
-    // Export Excel function
-    const handleExportExcel = () => {
-        // Sheet 1: KPIs
-        const kpiSheet = XLSX.utils.aoa_to_sheet([
-            ["Branch Report", "Colombo Branch"],
-            ["Date Range", `${startDate} to ${endDate}`],
-            [],
-            ["Key Performance Indicators"],
-            ["Metric", "Value", "Change %"],
-            ["Total Patients", kpis.patients.replace(',', ''), kpis.pChange],
-            ["Test Orders", kpis.orders.replace(',', ''), kpis.oChange],
-            ["Revenue (LKR M)", kpis.revenue, kpis.rChange],
-            ["Pending Reports", kpis.pending, kpis.peChange],
-        ]);
+    // Export CSV function
+    const handleExportCSV = () => {
+        // Prepare data structure
+        const csvRows = [];
 
-        // Sheet 2: Category Breakdown
-        const catSheet = XLSX.utils.aoa_to_sheet([
-            ["Revenue by Category"],
-            ["Category", "Percentage (%)"],
-            ...pieData.map((item) => [item.name, item.value]),
-        ]);
+        // 1. Headers
+        csvRows.push(["Branch Report", "Colombo Branch"]);
+        csvRows.push(["Date Range", `${startDate} to ${endDate}`]);
+        csvRows.push([]); // empty line
 
-        // Sheet 3: Revenue Trend
-        const trendSheet = XLSX.utils.aoa_to_sheet([
-            ["Revenue Trend"],
-            ["Date", "Revenue"],
-            ...barData.map((item) => [item.name || "N/A", item.revenue]),
-        ]);
+        // 2. KPIs
+        csvRows.push(["Key Performance Indicators"]);
+        csvRows.push(["Metric", "Value", "Change %"]);
+        csvRows.push(["Total Patients", kpis.patients.replace(',', ''), kpis.pChange]);
+        csvRows.push(["Test Orders", kpis.orders.replace(',', ''), kpis.oChange]);
+        csvRows.push(["Revenue (LKR M)", kpis.revenue, kpis.rChange]);
+        csvRows.push(["Pending Reports", kpis.pending, kpis.peChange]);
+        csvRows.push([]);
 
-        const workbook = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(workbook, kpiSheet, "KPIs");
-        XLSX.utils.book_append_sheet(workbook, catSheet, "Revenue by Category");
-        XLSX.utils.book_append_sheet(workbook, trendSheet, "Revenue Trend");
-        XLSX.writeFile(workbook, `Branch_Report_Data_${startDate}_to_${endDate}.xlsx`);
+        // 3. Category Breakdown (Pie Data)
+        csvRows.push(["Revenue by Category"]);
+        csvRows.push(["Category", "Percentage (%)"]);
+        pieData.forEach(item => {
+            csvRows.push([item.name, item.value]);
+        });
+        csvRows.push([]);
+
+        // 4. Revenue Trend (Bar Data)
+        csvRows.push(["Revenue Trend"]);
+        csvRows.push(["Date", "Revenue"]);
+        barData.forEach(item => {
+            // Keep actual label if exists, else estimate day progression or just leave empty depending on need
+            // For this mock, we'll just dump whatever is in the 'name' column plus the raw revenue
+            csvRows.push([item.name || "N/A", item.revenue]);
+        });
+
+        // Convert array of arrays to CSV string
+        const csvContent = csvRows.map(row => row.join(",")).join("\n");
+
+        // Create Blob and download link
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.setAttribute("download", `Branch_Report_Data_${startDate}_to_${endDate}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
     };
 
-    const pieTotal = pieData.reduce((acc, curr) => acc + curr.value, 0);
-    const peakRevenue = barData.reduce((max, d) => Math.max(max, d.revenue), 0);
-    const rangeLabel = `${formatDay(startDate)} – ${formatDay(endDate)}`;
-
     return (
-        <div className="mx-auto max-w-[1400px]">
-            <DemoDataBanner note="Demo data — branch reports are not yet connected to a live backend; figures recalculate from the selected dates but are placeholders." />
+        <div className="w-full bg-[#f8fafc] min-h-[calc(100vh-76px)] p-8 font-sans" ref={reportRef}>
 
-            <div ref={reportRef}>
-                <p className="hidden print:block text-xs text-fg-muted">
-                    Demo data — figures are placeholders, not live branch results.
-                </p>
+            {/* Breadcrumb & Header */}
+            <div className="mb-8">
+                <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 mb-2">
+                    <span className="hover:text-[#0f172a] cursor-pointer transition-colors">Home</span>
+                    <span className="text-[10px] opacity-50">/</span>
+                    <span className="hover:text-[#0f172a] cursor-pointer transition-colors">Reports</span>
+                    <span className="text-[10px] opacity-50">/</span>
+                    <span className="text-[#0f172a] font-bold">Colombo Branch</span>
+                </div>
+                <h1 className="text-2xl font-extrabold text-[#0f172a] tracking-tight">Branch Reports – Colombo Branch</h1>
+                <p className="text-[13px] font-medium text-[#64748b] mt-1">Performance metrics and transactional data for the selected period.</p>
+            </div>
 
-                <PageHeader
-                    crumbs={[{ label: 'Home' }, { label: 'Reports' }, { label: 'Colombo branch' }]}
-                    title="Branch reports"
-                    meta={
-                        <>
-                            <span>Colombo branch</span>
-                            <span aria-hidden="true">·</span>
-                            <span>{rangeLabel}</span>
-                        </>
-                    }
-                    actions={
-                        <>
-                            <SegmentedControl
-                                ariaLabel="Report period"
-                                value={period}
-                                onChange={handlePeriodChange}
-                                options={PERIOD_OPTIONS}
+            {/* Filter Bar */}
+            <div className="bg-white border text-sm border-[#ecf0f6] shadow-sm rounded-2xl p-4 flex flex-col xl:flex-row xl:items-center justify-between gap-4 mb-6">
+
+                <div className="flex flex-col md:flex-row items-center gap-4 flex-1">
+                    <div className="flex flex-col gap-1.5 w-full md:w-[320px]">
+                        <label className="text-[10px] font-extrabold text-[#94a3b8] uppercase tracking-widest pl-1">DATE RANGE</label>
+                        <div className="flex items-center gap-2">
+                            <input
+                                type="date"
+                                value={startDate}
+                                onChange={(e) => setStartDate(e.target.value)}
+                                className="w-1/2 bg-[#f8fafc] border border-[transparent] hover:border-[#ecf0f6] text-[#0f172a] font-bold py-2.5 px-3 rounded-xl focus:outline-none transition-all cursor-pointer text-[12px]"
                             />
-                            <div className="flex items-center gap-2" data-html2canvas-ignore="true">
-                                <Button icon={FileText} loading={isExporting} onClick={handleExportPDF}>
-                                    {isExporting ? 'Generating…' : 'Export PDF'}
-                                </Button>
-                                <Button icon={FileSpreadsheet} onClick={handleExportExcel}>
-                                    Export Excel
-                                </Button>
-                            </div>
-                        </>
-                    }
-                />
+                            <span className="text-[#94a3b8] font-bold">-</span>
+                            <input
+                                type="date"
+                                value={endDate}
+                                onChange={(e) => setEndDate(e.target.value)}
+                                className="w-1/2 bg-[#f8fafc] border border-[transparent] hover:border-[#ecf0f6] text-[#0f172a] font-bold py-2.5 px-3 rounded-xl focus:outline-none transition-all cursor-pointer text-[12px]"
+                            />
+                        </div>
+                    </div>
 
-                {/* Filters */}
-                <div className="mb-5 grid grid-cols-1 gap-3 rounded-lg border border-edge bg-surface p-4 sm:grid-cols-2 xl:grid-cols-4">
-                    <InputField
-                        label="Start date"
-                        type="date"
-                        value={startDate}
-                        onChange={(e) => {
-                            setStartDate(e.target.value);
-                            setPeriod('custom');
-                        }}
-                    />
-                    <InputField
-                        label="End date"
-                        type="date"
-                        value={endDate}
-                        onChange={(e) => {
-                            setEndDate(e.target.value);
-                            setPeriod('custom');
-                        }}
-                    />
-                    <SelectField label="Category" defaultValue="all">
-                        <option value="all">All categories</option>
-                        <option value="pathology">Pathology</option>
-                        <option value="radiology">Radiology</option>
-                    </SelectField>
-                    <SelectField label="Payment status" defaultValue="all">
-                        <option value="all">All statuses</option>
-                        <option value="paid">Paid</option>
-                        <option value="pending">Pending</option>
-                    </SelectField>
+                    {/* Category */}
+                    <div className="flex flex-col gap-1.5 w-full md:w-[260px]">
+                        <label className="text-[10px] font-extrabold text-[#94a3b8] uppercase tracking-widest pl-1">CATEGORY</label>
+                        <div className="relative">
+                            <select className="w-full appearance-none bg-[#f8fafc] border border-[transparent] hover:border-[#ecf0f6] text-[#0f172a] font-bold py-3 pl-4 pr-10 rounded-xl focus:outline-none transition-all cursor-pointer text-[13px]">
+                                <option>All Categories</option>
+                                <option>Pathology</option>
+                                <option>Radiology</option>
+                            </select>
+                            <span className="material-icons absolute right-4 top-1/2 -translate-y-1/2 text-[#94a3b8] pointer-events-none text-lg">expand_more</span>
+                        </div>
+                    </div>
+
+                    {/* Payment Status */}
+                    <div className="flex flex-col gap-1.5 w-full md:w-[260px]">
+                        <label className="text-[10px] font-extrabold text-[#94a3b8] uppercase tracking-widest pl-1">PAYMENT STATUS</label>
+                        <div className="relative">
+                            <select className="w-full appearance-none bg-[#f8fafc] border border-[transparent] hover:border-[#ecf0f6] text-[#0f172a] font-bold py-3 pl-4 pr-10 rounded-xl focus:outline-none transition-all cursor-pointer text-[13px]">
+                                <option>All Statuses</option>
+                                <option>Paid</option>
+                                <option>Pending</option>
+                            </select>
+                            <span className="material-icons absolute right-4 top-1/2 -translate-y-1/2 text-[#94a3b8] pointer-events-none text-lg">expand_more</span>
+                        </div>
+                    </div>
                 </div>
 
-                {/* KPIs */}
-                <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                    <KpiTile
-                        label="Total patients"
-                        value={kpis.patients}
-                        icon={Users}
-                        delta={{ value: kpis.pChange, label: 'vs previous period' }}
-                    />
-                    <KpiTile
-                        label="Test orders"
-                        value={kpis.orders}
-                        icon={FlaskConical}
-                        delta={{ value: kpis.oChange, label: 'vs previous period' }}
-                    />
-                    <KpiTile
-                        label="Revenue (net collection)"
-                        value={`LKR ${kpis.revenue}M`}
-                        icon={Banknote}
-                        delta={{ value: kpis.rChange, label: 'vs previous period' }}
-                    />
-                    <KpiTile
-                        label="Pending reports"
-                        value={kpis.pending}
-                        icon={Clock}
-                        tone="warning"
-                        delta={{ value: kpis.peChange, label: 'vs previous period' }}
-                    />
-                </div>
-
-                {/* Charts */}
-                <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-                    <SectionCard
-                        title="Revenue trend"
-                        className="lg:col-span-2"
-                        actions={<span className="text-xs text-fg-muted">{rangeLabel}</span>}
+                {/* Export Buttons */}
+                <div className="flex items-center gap-3 self-end xl:self-center mt-4 xl:mt-0 xl:pt-5" data-html2canvas-ignore="true">
+                    <button
+                        onClick={handleExportPDF}
+                        disabled={isExporting}
+                        className={`flex items-center justify-center gap-2 bg-white border border-[#ecf0f6] text-[#0f172a] px-5 py-2.5 rounded-xl font-bold shadow-sm text-[13px] ${isExporting ? 'opacity-50 cursor-wait' : 'hover:bg-[#f8fafc] transition-colors'}`}
                     >
-                        <p className="sr-only">
-                            Daily revenue for {rangeLabel}. Peak LKR {peakRevenue.toLocaleString()}.
-                        </p>
-                        <div className="h-[300px] w-full">
-                            <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={barData} barSize={28} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="var(--edge)" vertical={false} />
-                                    <XAxis
-                                        dataKey="name"
-                                        axisLine={false}
-                                        tickLine={false}
-                                        tick={AXIS_TICK}
-                                        tickFormatter={tickLabel}
-                                        interval={0}
-                                        dy={6}
-                                    />
-                                    <YAxis
-                                        axisLine={false}
-                                        tickLine={false}
-                                        tick={AXIS_TICK}
-                                        width={48}
-                                        tickFormatter={(v) => Number(v).toLocaleString()}
-                                    />
-                                    <Tooltip
-                                        cursor={{ fill: 'var(--primary-soft)' }}
-                                        contentStyle={TOOLTIP_STYLE}
-                                        itemStyle={{ color: 'var(--fg)' }}
-                                        labelStyle={{ color: 'var(--fg-muted)' }}
-                                        labelFormatter={(label) => tickLabel(label) || 'Revenue'}
-                                        formatter={(value) => [`LKR ${Number(value).toLocaleString()}`, 'Revenue']}
-                                    />
-                                    <Bar dataKey="revenue" name="Revenue" fill="var(--color-primary)" radius={[3, 3, 0, 0]} />
-                                </BarChart>
-                            </ResponsiveContainer>
+                        {isExporting ? (
+                            <span className="material-icons text-[#94a3b8] text-[18px] animate-spin">sync</span>
+                        ) : (
+                            <span className="material-icons text-[#ef4444] text-[18px]">picture_as_pdf</span>
+                        )}
+                        {isExporting ? 'Generating...' : 'PDF'}
+                    </button>
+                    <button
+                        onClick={handleExportCSV}
+                        className="flex items-center justify-center gap-2 bg-white border border-[#ecf0f6] hover:bg-[#f8fafc] text-[#0f172a] px-5 py-2.5 rounded-xl font-bold transition-colors shadow-sm text-[13px]"
+                    >
+                        <span className="material-icons text-[#22c55e] text-[18px]">table_chart</span>
+                        CSV
+                    </button>
+                </div>
+            </div>
+
+            {/* KPIs Row */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-6">
+
+                {/* Total Patients */}
+                <div className="bg-white rounded-2xl p-6 border border-[#ecf0f6] shadow-sm flex flex-col justify-between">
+                    <div className="flex justify-between items-start mb-6">
+                        <span className="text-[13px] font-extrabold text-[#64748b]">Total Patients</span>
+                        <div className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center text-blue-500">
+                            <span className="material-icons text-[16px]">person</span>
                         </div>
                     </SectionCard>
 
@@ -434,6 +315,9 @@ export default function BranchReportsPage() {
                                 <span className="mt-1 text-[12px] text-fg-muted">Lab tests</span>
                             </div>
                         </div>
+                        <span className="text-[11px] font-medium text-[#94a3b8]">Total tests performed</span>
+                    </div>
+                </div>
 
                         <div className="mt-3 overflow-x-auto">
                             <table className="w-full table-fixed text-left text-sm">
@@ -460,17 +344,59 @@ export default function BranchReportsPage() {
                                             <td className="px-3 py-2 pr-4 text-right font-medium tabular-nums text-fg">{item.value}%</td>
                                         </tr>
                                     ))}
-                                </tbody>
-                                <tfoot>
-                                    <tr className="border-t border-edge bg-surface-muted text-xs">
-                                        <th scope="row" className="px-3 py-2 pl-4 text-left font-medium text-fg-muted">Total</th>
-                                        <td className="px-3 py-2 pr-4 text-right font-semibold tabular-nums text-fg">{pieTotal}%</td>
-                                    </tr>
-                                </tfoot>
-                            </table>
-                        </div>
-                    </SectionCard>
+                                </Bar>
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </div>
                 </div>
+
+                {/* Revenue by Category (Donut Chart) - takes 33% */}
+                <div className="bg-white rounded-2xl p-6 border border-[#ecf0f6] shadow-sm h-[400px] flex flex-col">
+                    <h2 className="text-[15px] font-extrabold text-[#0f172a] mb-4">Revenue by Category</h2>
+
+                    <div className="flex-1 relative flex items-center justify-center min-h-[200px]">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                                <Pie
+                                    data={pieData}
+                                    innerRadius={70}
+                                    outerRadius={95}
+                                    paddingAngle={5}
+                                    dataKey="value"
+                                    stroke="none"
+                                >
+                                    {pieData.map((entry, index) => (
+                                        <Cell key={`cell-${index}`} fill={entry.color} />
+                                    ))}
+                                </Pie>
+                                <Tooltip
+                                    contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                                    itemStyle={{ color: '#0f172a', fontWeight: 'bold' }}
+                                />
+                            </PieChart>
+                        </ResponsiveContainer>
+                        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                            <span className="text-[22px] font-extrabold text-[#0f172a]">
+                                {pieData.reduce((acc, curr) => acc + curr.value, 0)}%
+                            </span>
+                            <span className="text-[9px] font-extrabold text-[#94a3b8] uppercase tracking-widest mt-1">LAB TESTS</span>
+                        </div>
+                    </div>
+
+                    {/* Custom Legend */}
+                    <div className="mt-6 flex flex-col gap-3">
+                        {pieData.map((item) => (
+                            <div key={item.name} className="flex justify-between items-center">
+                                <div className="flex items-center gap-2">
+                                    <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: item.color }}></div>
+                                    <span className="text-[13px] font-semibold text-[#64748b]">{item.name}</span>
+                                </div>
+                                <span className="text-[13px] font-extrabold text-[#0f172a]">{item.value}%</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
             </div>
         </div>
     );

@@ -17,6 +17,8 @@ import java.util.List;
 import java.util.Map;
 
 import jakarta.ws.rs.core.Response;
+import com.uom.lims.metadata.BranchRepository;
+import com.uom.lims.entity.BranchEntity;
 
 /**
  * User lifecycle management via the Keycloak Admin API, branch-scoped.
@@ -33,6 +35,8 @@ public class AdminUserService {
     private static final String BRANCH_ATTR = "branch_id";
 
     private final Keycloak adminKeycloak;
+    private final com.uom.lims.service.KeycloakAdminService keycloakAdminService;
+    private final BranchRepository branchRepository;
 
     @Value("${app.keycloak-admin.realm:lims-realm}")
     private String realm;
@@ -50,12 +54,32 @@ public class AdminUserService {
     }
 
     public AdminUserResponse createUser(CreateUserRequest request) {
+        // Extract current admin's username from the security context
+        Object principal = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        String currentUsername = null;
+        if (principal instanceof org.springframework.security.oauth2.jwt.Jwt) {
+            currentUsername = ((org.springframework.security.oauth2.jwt.Jwt) principal).getClaimAsString("preferred_username");
+        }
+        
+        if (currentUsername == null) {
+            throw new RuntimeException("Unable to determine current admin username.");
+        }
+
+        // Verify the admin's password before proceeding
+        keycloakAdminService.verifyUserPassword(currentUsername, request.adminPassword());
+
         String scope = SecurityUtils.resolveBranchScope();
         // A branch admin can only create into their own branch; super-admin uses
         // the requested branch.
         String branch = (scope == null) ? request.branchCode() : scope;
         if (branch == null || branch.isBlank()) {
             throw new BusinessRuleException("A branch is required for the new user");
+        }
+
+        BranchEntity branchEntity = branchRepository.findByCode(branch)
+                .orElseThrow(() -> new BusinessRuleException("Branch not found: " + branch));
+        if (!"Active".equalsIgnoreCase(branchEntity.getStatus())) {
+            throw new BusinessRuleException("Users can only be created or assigned to active branches.");
         }
 
         UserRepresentation user = new UserRepresentation();
@@ -117,7 +141,7 @@ public class AdminUserService {
 
     /** Create-user request. */
     public record CreateUserRequest(String username, String email, String firstName, String lastName,
-                                    String role, String branchCode, String temporaryPassword) {
+                                    String role, String branchCode, String temporaryPassword, String adminPassword) {
     }
 
     /** User view. */

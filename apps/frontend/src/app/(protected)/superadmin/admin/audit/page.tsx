@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
-import { AlertTriangle, FileSpreadsheet, Globe, History, Radio, SearchX, ShieldX, X } from "lucide-react";
+import { AlertTriangle, FileSpreadsheet, Globe, History, Radio, SearchX, ShieldX, X, Loader2 } from "lucide-react";
 import Button from "@/components/ui/Button";
 import PageHeader from "@/components/ui/PageHeader";
 import { InputField, SelectField } from "@/components/ui/Field";
@@ -12,102 +12,115 @@ import EmptyState from "@/components/ui/EmptyState";
 import KpiTile from "@/components/ui/KpiTile";
 import StatusChip, { humanizeStatus, toneForStatus, type ChipTone } from "@/components/ui/StatusChip";
 import Pagination from "@/components/ui/Pagination";
-import DemoDataBanner from "@/components/shared/DemoDataBanner";
+import Modal from "@/components/ui/Modal";
 import { formatAuditTime } from "@/components/patient-dashboard/dashboard-data";
+import { getAuditLogs, getBranches, AuditLog } from "@/lib/api";
 
 const PAGE_SIZE = 10;
-
-// Mock Data for Global Audit Trail
-const MOCK_LOGS = [
-    {
-        id: "LOG-5001",
-        timestamp: "Oct 27, 2023 11:15 AM",
-        user: "Admin",
-        role: "Super Admin",
-        branch: "Global",
-        module: "System Setting",
-        action: "Modify Configuration",
-        entityId: "CFG-SEC-01",
-        status: "WARNING",
-        ipAddress: "10.0.0.1",
-    },
-    {
-        id: "LOG-5002",
-        timestamp: "Oct 27, 2023 10:45 AM",
-        user: "Nimal Kuruppu",
-        role: "Branch Head",
-        branch: "Colombo",
-        module: "User Management",
-        action: "Update Role",
-        entityId: "USR-00125",
-        status: "SUCCESS",
-        ipAddress: "192.168.1.45",
-    },
-    {
-        id: "LOG-5003",
-        timestamp: "Oct 27, 2023 10:42 AM",
-        user: "System",
-        role: "System",
-        branch: "Global",
-        module: "Authentication",
-        action: "Failed Login",
-        entityId: "-",
-        status: "FAILED",
-        ipAddress: "103.24.11.2",
-    },
-    {
-        id: "LOG-5004",
-        timestamp: "Oct 27, 2023 10:30 AM",
-        user: "Sunil Perera",
-        role: "Lab Technician",
-        branch: "Kandy",
-        module: "Lab Reports",
-        action: "Upload Result",
-        entityId: "RPT-88219",
-        status: "SUCCESS",
-        ipAddress: "192.168.2.50",
-    },
-    {
-        id: "LOG-5005",
-        timestamp: "Oct 27, 2023 10:15 AM",
-        user: "Dr. Samantha Gunaratne",
-        role: "Consultant",
-        branch: "Colombo",
-        module: "Patient Records",
-        action: "View History",
-        entityId: "PAT-110293",
-        status: "SUCCESS",
-        ipAddress: "192.168.1.22",
-    },
-    {
-        id: "LOG-5006",
-        timestamp: "Oct 26, 2023 4:45 PM",
-        user: "Nilani Fernando",
-        role: "Nursing Head",
-        branch: "Galle",
-        module: "Inventory",
-        action: "Approve Stock",
-        entityId: "INV-REQ-991",
-        status: "SUCCESS",
-        ipAddress: "192.168.3.14",
-    },
-];
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
 
-/** Audit outcome → chip tone. FAILED comes from the shared STATUS_TONE map. */
+const ACRONYMS = new Set(["otp", "ip", "id", "nic"]);
+
+function formatLabel(value?: string | null): string {
+    if (!value) return "—";
+    if (value === "UPDATE_SUPERADMIN_USER") return "Update user";
+    if (value === "CREATE_SUPERADMIN_USER") return "Create user";
+    
+    const words = value.toLowerCase().split("_").filter(Boolean);
+    if (words.length === 0) return "—";
+    return words
+        .map((w, i) => (ACRONYMS.has(w) ? w.toUpperCase() : i === 0 ? w.charAt(0).toUpperCase() + w.slice(1) : w))
+        .join(" ");
+}
+
+function parseDetails(details?: string): Record<string, unknown> | null {
+    if (!details) return null;
+    try {
+        const parsed = JSON.parse(details);
+        return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
+    } catch {
+        return null;
+    }
+}
+
+function detailValue(value: unknown): string {
+    if (value === null || value === undefined) return "—";
+    if (typeof value === "string") return value;
+    try {
+        return JSON.stringify(value);
+    } catch {
+        return String(value);
+    }
+}
+
+function summariseDetails(details?: string, action?: string): string {
+    if (!details) return "";
+    const parsed = parseDetails(details);
+    if (!parsed) return details;
+    
+    if (action === "UPDATE_SUPERADMIN_USER") {
+        const parts = [];
+        if (parsed.isActive && typeof parsed.isActive === "object" && 'old' in parsed.isActive) {
+            const oldStatus = (parsed.isActive as any).old ? "Active" : "Inactive";
+            const newStatus = (parsed.isActive as any).new ? "Active" : "Inactive";
+            if (oldStatus !== newStatus) {
+                parts.push(`status changed from ${oldStatus} to ${newStatus}`);
+            }
+        } else if (parsed.isActive !== undefined) {
+            parts.push(`status set to ${parsed.isActive ? "Active" : "Inactive"}`);
+        }
+        
+        if (parsed.role && typeof parsed.role === "object" && 'old' in parsed.role) {
+            if ((parsed.role as any).old !== (parsed.role as any).new) {
+                parts.push(`role changed from ${(parsed.role as any).old} to ${(parsed.role as any).new}`);
+            }
+        } else if (parsed.role !== undefined) {
+            parts.push(`role updated to ${parsed.role}`);
+        }
+        
+        if (parsed.email && typeof parsed.email === "object" && 'old' in parsed.email) {
+            if ((parsed.email as any).old !== (parsed.email as any).new) {
+                parts.push(`email changed from ${(parsed.email as any).old || 'none'} to ${(parsed.email as any).new}`);
+            }
+        } else if (parsed.email !== undefined) {
+            parts.push(`email updated to ${parsed.email}`);
+        }
+        
+        if (parts.length > 0) {
+            return `Updating user info: ${parts.join(', ')}`;
+        }
+    }
+    
+    // Generic fallback for objects containing old/new
+    const formattedEntries = Object.entries(parsed).map(([k, v]) => {
+        if (v && typeof v === "object" && 'old' in v && 'new' in v) {
+            if ((v as any).old !== (v as any).new) {
+                return `${k} changed from ${detailValue((v as any).old)} to ${detailValue((v as any).new)}`;
+            }
+            return null; // Don't print if it didn't change
+        }
+        return `${k}: ${detailValue(v)}`;
+    }).filter(Boolean);
+    
+    if (formattedEntries.length === 0) {
+        return `Updating info: no changes made`;
+    }
+    
+    return formattedEntries.join(" · ");
+}
+
 const LOG_STATUS_TONE: Record<string, ChipTone> = {
     SUCCESS: "success",
     WARNING: "pending",
 };
 
 function toneForLogStatus(status: string): ChipTone {
-    return LOG_STATUS_TONE[status.toUpperCase()] ?? toneForStatus(status);
+    return LOG_STATUS_TONE[status?.toUpperCase()] ?? toneForStatus(status);
 }
 
-/** Full, unambiguous timestamp for tooltips. */
 function formatFullTimestamp(ts: string): string {
     const d = new Date(ts);
     if (Number.isNaN(d.getTime())) return ts || "—";
@@ -121,130 +134,134 @@ function formatFullTimestamp(ts: string): string {
     });
 }
 
-/** "09:12" (24h) for the secondary time line on non-relative dates. */
 function formatClock(ts: string): string | null {
     const d = new Date(ts);
     if (Number.isNaN(d.getTime())) return null;
     return d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
-/* ------------------------------------------------------------------ */
-/*  Page                                                               */
-/* ------------------------------------------------------------------ */
-
 export default function GlobalAuditTrailsPage() {
-    // Filter states
     const [searchQuery, setSearchQuery] = useState("");
-    const [selectedBranch, setSelectedBranch] = useState("All Branches");
-    const [selectedRole, setSelectedRole] = useState("All Roles");
-    const [selectedModule, setSelectedModule] = useState("All Modules");
-    const [selectedAction, setSelectedAction] = useState("All Actions");
+    const [selectedBranch, setSelectedBranch] = useState("ALL");
     const [startDate, setStartDate] = useState("");
     const [endDate, setEndDate] = useState("");
-    // 1-based client-side paging over the filtered mock list
     const [page, setPage] = useState(1);
+    const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
+    const [isLoading, setIsLoading] = useState(true);
+    const [logs, setLogs] = useState<AuditLog[]>([]);
+    const [totalElements, setTotalElements] = useState(0);
+    const [totalPages, setTotalPages] = useState(1);
+    
+    const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null);
+    
+    // For mapping branch codes to names
+    const [branchMap, setBranchMap] = useState<Record<string, string>>({});
+    const [branchesList, setBranchesList] = useState<{code: string, name: string}[]>([]);
 
-    // Filter logic
-    const filteredLogs = MOCK_LOGS.filter(log => {
-        // Search Filter (User, Entity ID, IP)
-        const query = searchQuery.toLowerCase();
-        const matchesSearch = log.user.toLowerCase().includes(query) ||
-            log.entityId.toLowerCase().includes(query) ||
-            log.ipAddress.toLowerCase().includes(query);
-
-        // Dropdown Filters
-        const matchesBranch = selectedBranch === "All Branches" || log.branch === selectedBranch;
-        const matchesRole = selectedRole === "All Roles" || log.role === selectedRole;
-        const matchesModule = selectedModule === "All Modules" || log.module === selectedModule;
-        const matchesAction = selectedAction === "All Actions" || log.action === selectedAction;
-
-        // Date Filter
-        let matchesDate = true;
-        if (startDate || endDate) {
-            const logDate = new Date(log.timestamp);
-            if (!isNaN(logDate.getTime())) {
-                if (startDate) {
-                    const start = new Date(startDate);
-                    start.setHours(0, 0, 0, 0);
-                    matchesDate = matchesDate && logDate >= start;
-                }
-                if (endDate) {
-                    const end = new Date(endDate);
-                    end.setHours(23, 59, 59, 999);
-                    matchesDate = matchesDate && logDate <= end;
-                }
+    useEffect(() => {
+        const fetchBranches = async () => {
+            try {
+                // Fetch a large number of branches to populate the dropdown
+                const branchData = await getBranches(0, 100);
+                const map: Record<string, string> = {};
+                branchData.content.forEach(b => {
+                    map[b.code] = b.name;
+                });
+                setBranchMap(map);
+                setBranchesList(branchData.content.map(b => ({ code: b.code, name: b.name })));
+            } catch (err) {
+                console.error("Failed to fetch branches", err);
             }
-        }
+        };
+        fetchBranches();
+    }, []);
 
-        return matchesSearch && matchesBranch && matchesRole && matchesModule && matchesAction && matchesDate;
-    });
+    useEffect(() => {
+        const fetchLogs = async () => {
+            setIsLoading(true);
+            try {
+                const params: any = {
+                    page: page - 1,
+                    size: PAGE_SIZE,
+                    sortDir: sortDir
+                };
+                if (searchQuery) params.search = searchQuery;
+                if (selectedBranch && selectedBranch !== "ALL") params.branchCode = selectedBranch;
+                if (startDate) params.startDate = new Date(startDate);
+                if (endDate) params.endDate = new Date(endDate);
+                
+                const data = await getAuditLogs(params);
+                setLogs(data.content);
+                setTotalElements(data.totalElements);
+                setTotalPages(data.totalPages);
+            } catch (err) {
+                console.error("Failed to fetch audit logs", err);
+                toast.error("Failed to load audit logs");
+            } finally {
+                setIsLoading(false);
+            }
+        };
+        
+        // Debounce search slightly
+        const timeoutId = setTimeout(fetchLogs, 300);
+        return () => clearTimeout(timeoutId);
+    }, [page, searchQuery, selectedBranch, sortDir, startDate, endDate]);
 
-    const uniqueBranches = ["All Branches", ...Array.from(new Set(MOCK_LOGS.map(log => log.branch)))];
-    const uniqueRoles = ["All Roles", ...Array.from(new Set(MOCK_LOGS.map(log => log.role)))];
-    const uniqueModules = ["All Modules", ...Array.from(new Set(MOCK_LOGS.map(log => log.module)))];
-    const uniqueActions = ["All Actions", ...Array.from(new Set(MOCK_LOGS.map(log => log.action)))];
-
-    const hasFilters = Boolean(
-        searchQuery ||
-            startDate ||
-            endDate ||
-            selectedBranch !== "All Branches" ||
-            selectedRole !== "All Roles" ||
-            selectedModule !== "All Modules" ||
-            selectedAction !== "All Actions"
-    );
+    const hasFilters = Boolean(searchQuery || selectedBranch !== "ALL" || startDate || endDate);
 
     const clearFilters = () => {
         setSearchQuery("");
+        setSelectedBranch("ALL");
         setStartDate("");
         setEndDate("");
-        setSelectedBranch("All Branches");
-        setSelectedRole("All Roles");
-        setSelectedModule("All Modules");
-        setSelectedAction("All Actions");
         setPage(1);
     };
 
-    /** Wrap a filter setter so any change returns to the first page. */
-    const withPageReset =
-        (setter: (value: string) => void) =>
-        (value: string) => {
-            setter(value);
-            setPage(1);
-        };
+    const withPageReset = (setter: (value: string) => void) => (value: string) => {
+        setter(value);
+        setPage(1);
+    };
 
-    const totalPages = Math.max(1, Math.ceil(filteredLogs.length / PAGE_SIZE));
-    const currentPage = Math.min(page, totalPages);
-    const pageRows = filteredLogs.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+    const handleExportExcel = async () => {
+        try {
+            // Fetch up to 1000 logs for export
+            const params: any = { page: 0, size: 1000 };
+            if (searchQuery) params.search = searchQuery;
+            if (selectedBranch && selectedBranch !== "ALL") params.branchCode = selectedBranch;
+            if (startDate) params.startDate = new Date(startDate);
+            if (endDate) params.endDate = new Date(endDate);
+            
+            const data = await getAuditLogs(params);
+            
+            if (!data.content || data.content.length === 0) {
+                toast.message("No logs to export based on current filters.");
+                return;
+            }
 
-    const handleExportExcel = () => {
-        if (filteredLogs.length === 0) {
-            toast.message("No logs to export based on current filters.");
-            return;
+            const headers = ["Timestamp", "User", "Branch", "Action", "Entity Type", "Entity ID", "IP Address", "Details"];
+            const rows = data.content.map((log) => [
+                formatFullTimestamp(log.timestamp),
+                log.performedBy || "System",
+                branchMap[log.branchCode || "SYSTEM"] || log.branchCode || "SYSTEM",
+                log.action,
+                log.entityType,
+                log.entityId || "-",
+                log.ipAddress || "-",
+                log.details || "-",
+            ]);
+
+            const worksheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+            const colWidths = headers.map((h, i) => ({
+                wch: Math.min(Math.max(h.length, ...rows.map((r) => String(r[i] ?? "").length)) + 2, 80),
+            }));
+            worksheet["!cols"] = colWidths;
+
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Global Audit Logs");
+            XLSX.writeFile(workbook, `Global_Audit_Logs_${new Date().toISOString().split('T')[0]}.xlsx`);
+        } catch (err) {
+            toast.error("Failed to export logs");
         }
-
-        const headers = ["Timestamp", "User", "Role", "Branch", "Module", "Action", "Entity ID", "Status", "IP Address"];
-        const rows = filteredLogs.map((log) => [
-            log.timestamp,
-            log.user,
-            log.role,
-            log.branch,
-            log.module,
-            log.action,
-            log.entityId,
-            log.status,
-            log.ipAddress,
-        ]);
-
-        const worksheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
-        const colWidths = headers.map((h, i) => ({
-            wch: Math.min(Math.max(h.length, ...rows.map((r) => String(r[i] ?? "").length)) + 2, 50),
-        }));
-        worksheet["!cols"] = colWidths;
-
-        const workbook = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(workbook, worksheet, "Global Audit Logs");
-        XLSX.writeFile(workbook, `Global_Audit_Logs_${new Date().toISOString().split('T')[0]}.xlsx`);
     };
 
     return (
@@ -267,27 +284,23 @@ export default function GlobalAuditTrailsPage() {
                 }
             />
 
-            <DemoDataBanner note="Demo data — this audit trail is not yet connected to a live backend; entries and metrics are placeholders." />
-
             {/* Screen-reader status for filter changes */}
             <p role="status" aria-live="polite" className="sr-only">
-                {`${filteredLogs.length} of ${MOCK_LOGS.length} audit ${MOCK_LOGS.length === 1 ? "entry" : "entries"} shown${
-                    totalPages > 1 ? `, page ${currentPage} of ${totalPages}` : ""
-                }.`}
+                {`${totalElements} audit ${totalElements === 1 ? "entry" : "entries"} found.`}
             </p>
 
             {/* KPI row */}
             <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                <KpiTile label="Global actions" value="84,204" icon={Globe} note="Past 30 days" />
+                <KpiTile label="Global actions" value={totalElements.toLocaleString()} icon={Globe} note="Total logs recorded" />
                 <KpiTile label="Failed logins" value="412" icon={ShieldX} tone="danger" delta={{ value: 12, label: "vs previous 30 days" }} />
                 <KpiTile label="Critical incidents" value="42" icon={AlertTriangle} tone="warning" note="Requires audit" />
                 <KpiTile label="Active sessions" value="1,248" icon={Radio} tone="success" note="Across 12 nodes" />
             </div>
 
-            <SectionCard title="System audit trail" count={filteredLogs.length} flush>
+            <SectionCard title="System audit trail" count={totalElements} flush>
                 {/* Filter toolbar */}
                 <div className="border-b border-edge bg-surface-muted px-3 py-3">
-                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-6">
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-12">
                         <InputField
                             label="Search"
                             type="search"
@@ -295,65 +308,50 @@ export default function GlobalAuditTrailsPage() {
                             onChange={(e) => withPageReset(setSearchQuery)(e.target.value)}
                             placeholder="User, entity id or IP address"
                             autoComplete="off"
-                            className="sm:col-span-2"
+                            className="sm:col-span-2 lg:col-span-3"
                         />
+                        <SelectField label="Branch" value={selectedBranch} onChange={(e) => withPageReset(setSelectedBranch)(e.target.value)} className="lg:col-span-2">
+                            <option value="ALL">All branches</option>
+                            {branchesList.map(branch => (
+                                <option key={branch.code} value={branch.code}>
+                                    {branch.name} ({branch.code})
+                                </option>
+                            ))}
+                        </SelectField>
                         <InputField
-                            label="From date"
-                            type="date"
+                            label="Start Date"
+                            type="datetime-local"
                             value={startDate}
                             onChange={(e) => withPageReset(setStartDate)(e.target.value)}
+                            className="lg:col-span-3"
                         />
                         <InputField
-                            label="To date"
-                            type="date"
+                            label="End Date"
+                            type="datetime-local"
                             value={endDate}
                             onChange={(e) => withPageReset(setEndDate)(e.target.value)}
+                            className="lg:col-span-3"
                         />
-                        <SelectField label="Branch" value={selectedBranch} onChange={(e) => withPageReset(setSelectedBranch)(e.target.value)}>
-                            {uniqueBranches.map(branch => (
-                                <option key={branch} value={branch}>
-                                    {branch === "All Branches" ? "All branches" : branch}
-                                </option>
-                            ))}
-                        </SelectField>
-                        <SelectField label="User role" value={selectedRole} onChange={(e) => withPageReset(setSelectedRole)(e.target.value)}>
-                            {uniqueRoles.map(role => (
-                                <option key={role} value={role}>
-                                    {role === "All Roles" ? "All roles" : role}
-                                </option>
-                            ))}
-                        </SelectField>
-                        <SelectField label="Module" value={selectedModule} onChange={(e) => withPageReset(setSelectedModule)(e.target.value)}>
-                            {uniqueModules.map(mod => (
-                                <option key={mod} value={mod}>
-                                    {mod === "All Modules" ? "All modules" : mod}
-                                </option>
-                            ))}
-                        </SelectField>
-                        <SelectField label="Action type" value={selectedAction} onChange={(e) => withPageReset(setSelectedAction)(e.target.value)}>
-                            {uniqueActions.map(action => (
-                                <option key={action} value={action}>
-                                    {action === "All Actions" ? "All actions" : action}
-                                </option>
-                            ))}
-                        </SelectField>
                         {hasFilters && (
-                            <div className="flex items-end sm:col-span-2 lg:col-span-4 lg:justify-end">
+                            <div className="flex items-end lg:col-span-1 lg:justify-end">
                                 <Button variant="ghost" icon={X} onClick={clearFilters}>
-                                    Clear filters
+                                    Clear
                                 </Button>
                             </div>
                         )}
                     </div>
                 </div>
 
-                {/* Empty state lives outside the table so it centres on small screens */}
-                {filteredLogs.length === 0 ? (
+                {isLoading ? (
+                    <div className="flex justify-center p-8 text-fg-muted">
+                        <Loader2 className="h-6 w-6 animate-spin" />
+                    </div>
+                ) : logs.length === 0 ? (
                     hasFilters ? (
                         <EmptyState
                             icon={SearchX}
                             title="No entries match"
-                            description="Try a different search term, date range, branch, role, module or action."
+                            description="Try a different search term or branch."
                             action={
                                 <Button size="sm" icon={X} onClick={clearFilters}>
                                     Clear filters
@@ -399,12 +397,13 @@ export default function GlobalAuditTrailsPage() {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-edge whitespace-nowrap">
-                                {pageRows.map((log) => {
+                                {logs.map((log) => {
                                     const relative = formatAuditTime(log.timestamp);
                                     const clock = formatClock(log.timestamp);
-                                    // Relative labels ("Today 09:12", "2h ago") already carry the time.
                                     const showClock = clock !== null && !relative.includes(":") && !relative.endsWith("ago") && relative !== "Just now";
                                     const fullTime = formatFullTimestamp(log.timestamp);
+                                    const displayBranchName = branchMap[log.branchCode || "SYSTEM"] || log.branchCode || "SYSTEM";
+                                    
                                     return (
                                         <tr key={log.id} className="transition-colors hover:bg-surface-hover">
                                             {/* Time */}
@@ -414,23 +413,28 @@ export default function GlobalAuditTrailsPage() {
                                             </td>
                                             {/* User */}
                                             <td className="px-3 py-2">
-                                                <span className="block truncate font-medium text-fg" title={log.user}>
-                                                    {log.user}
+                                                <span className="block truncate font-medium text-fg" title={log.performedBy || "System"}>
+                                                    {log.performedBy || "System"}
                                                 </span>
-                                                <span className="block truncate text-xs text-fg-muted">{log.role}</span>
                                             </td>
                                             {/* Branch */}
                                             <td className="hidden px-3 py-2 md:table-cell">
-                                                <StatusChip tone={log.branch === "Global" ? "info" : "neutral"} size="sm" title={log.branch}>
-                                                    {log.branch}
+                                                <StatusChip tone={log.branchCode === "SYSTEM" ? "neutral" : "info"} size="sm" title={displayBranchName}>
+                                                    {displayBranchName}
                                                 </StatusChip>
                                             </td>
                                             {/* Module / action */}
                                             <td className="px-3 py-2">
-                                                <span className="block truncate text-fg" title={log.action}>
-                                                    {log.action}
-                                                </span>
-                                                <span className="block truncate text-xs text-fg-muted">{log.module}</span>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setSelectedLog(log)}
+                                                    className="flex flex-col items-start rounded px-2 py-1 -ml-2 transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary text-left"
+                                                >
+                                                    <span className="block w-full truncate text-fg font-medium" title={log.action}>
+                                                        {formatLabel(log.action)}
+                                                    </span>
+                                                    <span className="block w-full truncate text-xs text-fg-muted">{formatLabel(log.entityType)}</span>
+                                                </button>
                                             </td>
                                             {/* Entity id */}
                                             <td className="hidden px-3 py-2 font-mono text-xs lg:table-cell">
@@ -445,15 +449,9 @@ export default function GlobalAuditTrailsPage() {
                                                     <span className="text-fg-faint">—</span>
                                                 )}
                                             </td>
-                                            {/* Status */}
-                                            <td className="px-3 py-2">
-                                                <StatusChip tone={toneForLogStatus(log.status)} dot size="sm">
-                                                    {humanizeStatus(log.status)}
-                                                </StatusChip>
-                                            </td>
                                             {/* IP */}
                                             <td className="hidden truncate px-3 py-2 font-mono text-xs text-fg-muted xl:table-cell" title={log.ipAddress}>
-                                                {log.ipAddress}
+                                                {log.ipAddress || "-"}
                                             </td>
                                         </tr>
                                     );
@@ -463,17 +461,76 @@ export default function GlobalAuditTrailsPage() {
                     </div>
                 )}
 
-                {filteredLogs.length > 0 && (
+                {logs.length > 0 && (
                     <Pagination
-                        currentPage={currentPage}
+                        currentPage={page}
                         totalPages={totalPages}
-                        totalItems={filteredLogs.length}
+                        totalItems={totalElements}
                         pageSize={PAGE_SIZE}
                         onPageChange={setPage}
-                        itemLabel={filteredLogs.length === 1 ? "entry" : "entries"}
+                        itemLabel={totalElements === 1 ? "entry" : "entries"}
                     />
                 )}
             </SectionCard>
+
+            <Modal
+                open={selectedLog !== null}
+                onClose={() => setSelectedLog(null)}
+                title="Audit Log Details"
+                size="md"
+                footer={<Button onClick={() => setSelectedLog(null)}>Close</Button>}
+            >
+                {selectedLog && (
+                    <div className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <span className="block text-xs text-fg-muted font-medium mb-1">Time</span>
+                                <span className="text-sm">{formatFullTimestamp(selectedLog.timestamp)}</span>
+                            </div>
+                            <div>
+                                <span className="block text-xs text-fg-muted font-medium mb-1">User</span>
+                                <span className="text-sm">{selectedLog.performedBy || "System"}</span>
+                            </div>
+                            <div>
+                                <span className="block text-xs text-fg-muted font-medium mb-1">Action</span>
+                                <span className="text-sm font-medium">{formatLabel(selectedLog.action)}</span>
+                            </div>
+                            <div>
+                                <span className="block text-xs text-fg-muted font-medium mb-1">Entity Type</span>
+                                <span className="text-sm">{formatLabel(selectedLog.entityType)}</span>
+                            </div>
+                            <div>
+                                <span className="block text-xs text-fg-muted font-medium mb-1">Entity ID</span>
+                                <span className="text-sm font-mono">{selectedLog.entityId || "-"}</span>
+                            </div>
+                            <div>
+                                <span className="block text-xs text-fg-muted font-medium mb-1">IP Address</span>
+                                <span className="text-sm font-mono">{selectedLog.ipAddress || "-"}</span>
+                            </div>
+                            <div className="col-span-2">
+                                <span className="block text-xs text-fg-muted font-medium mb-1">Description</span>
+                                <div className="text-sm bg-surface-muted p-2 rounded">
+                                    {summariseDetails(selectedLog.details, selectedLog.action) || "-"}
+                                </div>
+                            </div>
+                            <div className="col-span-2">
+                                <span className="block text-xs text-fg-muted font-medium mb-1">Raw Details</span>
+                                <pre className="text-sm font-mono bg-surface-muted p-2 rounded whitespace-pre-wrap">
+                                    {selectedLog.details ? (
+                                        (() => {
+                                            try {
+                                                return JSON.stringify(JSON.parse(selectedLog.details), null, 2);
+                                            } catch (e) {
+                                                return selectedLog.details;
+                                            }
+                                        })()
+                                    ) : "-"}
+                                </pre>
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </Modal>
 
             <p className="mt-4 text-xs text-fg-muted">&copy; 2023 Durdans Hospital &middot; Global Admin Suite v3.1.0</p>
         </div>

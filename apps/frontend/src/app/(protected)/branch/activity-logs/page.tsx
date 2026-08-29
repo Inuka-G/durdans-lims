@@ -1,583 +1,227 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { toast } from "sonner";
-import * as XLSX from "xlsx";
-import {
-    Activity,
-    AlertTriangle,
-    Building2,
-    FileSpreadsheet,
-    History,
-    LogIn,
-    RefreshCw,
-    Search,
-    Users,
-    X,
-} from "lucide-react";
-import { getAuditLogs, getMetadata, type AuditLog } from "@/lib/api";
-import Button from "@/components/ui/Button";
-import PageHeader from "@/components/ui/PageHeader";
-import { InputField, SelectField } from "@/components/ui/Field";
-import SectionCard from "@/components/ui/SectionCard";
-import EmptyState from "@/components/ui/EmptyState";
-import KpiTile from "@/components/ui/KpiTile";
-import StatusChip, { humanizeStatus, type ChipTone } from "@/components/ui/StatusChip";
-import Pagination from "@/components/ui/Pagination";
-import { formatAuditTime } from "@/components/patient-dashboard/dashboard-data";
+import { useEffect, useState } from "react";
+import { getBranchActivityLogs, BranchActivityLog } from "@/lib/api";
 
-type LogStatus = "SUCCESS" | "FAILED" | "WARNING";
-
-type ActivityLogRow = {
+interface FrontendLog {
     id: string;
-    rawTimestamp: string;
     timestamp: string;
     user: string;
     role: string;
     module: string;
     action: string;
     entityId: string;
-    status: LogStatus;
+    status: string;
     ipAddress: string;
-};
-
-/** Rows fetched from the API per refresh (filtered client-side). */
-const PAGE_SIZE = 200;
-/** Rows shown per table page (client-side pagination over the filtered set). */
-const TABLE_PAGE_SIZE = 25;
-const SKELETON_ROWS = 8;
-const REFRESH_INTERVAL_MS = 30000;
-
-/** Sentinel values for the "all" options — kept as-is so filter state semantics don't change. */
-const ALL_ROLES = "All Roles";
-const ALL_MODULES = "All Modules";
-const ALL_ACTIONS = "All Actions";
-
-const LOG_STATUS_TONE: Record<LogStatus, ChipTone> = {
-    SUCCESS: "success",
-    FAILED: "danger",
-    WARNING: "pending",
-};
-
-const ROLE_BY_ENTITY: Record<string, string> = {
-    PATIENT: "Front Desk Officer",
-    PATIENT_DOCUMENT: "Front Desk Officer",
-    PROFILE_PHOTO: "Front Desk Officer",
-    VERIFICATION: "Senior MLT",
-    ORDER: "Billing Officer",
-    BILL: "Billing Officer",
-    PAYMENT: "Billing Officer",
-    REVENUE_REPORT: "Billing Officer",
-    SAMPLE_COLLECTION: "Phlebotomist",
-    SAMPLE_ACCESSIONING: "Lab Receptionist",
-    TEST_RESULT: "MLT",
-    CLINICAL_AUTHORIZATION: "Doctor",
-    REPORT_DISPATCH: "Dispatch Officer",
-};
-
-function parseDetails(details?: string): Record<string, unknown> | null {
-    if (!details) return null;
-
-    try {
-        const parsed = JSON.parse(details);
-        return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-            ? (parsed as Record<string, unknown>)
-            : null;
-    } catch {
-        return null;
-    }
-}
-
-function getDetail(details: Record<string, unknown> | null, key: string) {
-    const value = details?.[key];
-    return typeof value === "string" && value.trim() ? value.trim() : "";
-}
-
-function formatLabel(value?: string | null) {
-    if (!value) return "-";
-
-    return value
-        .replace(/_/g, " ")
-        .toLowerCase()
-        .split(" ")
-        .filter(Boolean)
-        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-        .join(" ");
-}
-
-/** Full timestamp used for the Excel export and row tooltips. */
-function formatTimestamp(value?: string) {
-    if (!value) return "-";
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return value;
-
-    return date.toLocaleString("en-LK", {
-        year: "numeric",
-        month: "short",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-    });
-}
-
-function inferRole(log: AuditLog) {
-    const actor = log.performedBy?.trim();
-    if (!actor || actor.toUpperCase() === "SYSTEM") return "System";
-
-    const entityType = log.entityType?.toUpperCase();
-    if (entityType && ROLE_BY_ENTITY[entityType]) return ROLE_BY_ENTITY[entityType];
-
-    const action = log.action?.toUpperCase() ?? "";
-    if (action.includes("CLINICAL") || action.includes("AUTHORIZE")) return "Doctor";
-    if (action.includes("VERIFY")) return "Senior MLT";
-    if (action.includes("DISPATCH") || action.includes("DELIVER")) return "Dispatch Officer";
-    if (action.includes("ORDER") || action.includes("BILL") || action.includes("PAYMENT")) return "Billing Officer";
-
-    return "Branch Staff";
-}
-
-function inferStatus(action?: string): LogStatus {
-    const normalized = action?.toUpperCase() ?? "";
-    if (/(FAILED|FAILURE|ERROR|DENIED|REJECTED)/.test(normalized)) return "FAILED";
-    if (/(WARNING|CANCEL|RETURN|RETRY|OVERRIDE)/.test(normalized)) return "WARNING";
-    return "SUCCESS";
-}
-
-function toModule(entityType?: string) {
-    const type = entityType?.toUpperCase();
-    if (!type) return "System";
-
-    const moduleByEntity: Record<string, string> = {
-        PATIENT: "Patient Records",
-        PATIENT_DOCUMENT: "Patient Documents",
-        PROFILE_PHOTO: "Patient Profile",
-        VERIFICATION: "Verification",
-        ORDER: "Orders",
-        BILL: "Billing",
-        PAYMENT: "Payments",
-        REVENUE_REPORT: "Revenue Reports",
-        SAMPLE_COLLECTION: "Sample Collection",
-        SAMPLE_ACCESSIONING: "Sample Accessioning",
-        TEST_RESULT: "Lab Results",
-        CLINICAL_AUTHORIZATION: "Clinical Authorization",
-        REPORT_DISPATCH: "Report Dispatch",
-    };
-
-    return moduleByEntity[type] ?? formatLabel(type);
-}
-
-function toEntityId(log: AuditLog) {
-    const details = parseDetails(log.details);
-    return (
-        log.patientCode ||
-        log.entityId ||
-        getDetail(details, "orderId") ||
-        getDetail(details, "reportReference") ||
-        getDetail(details, "sampleId") ||
-        "-"
-    );
-}
-
-function toRow(log: AuditLog): ActivityLogRow {
-    return {
-        id: log.id || `${log.action}-${log.timestamp}`,
-        rawTimestamp: log.timestamp,
-        timestamp: formatTimestamp(log.timestamp),
-        user: log.performedBy || "SYSTEM",
-        role: inferRole(log),
-        module: toModule(log.entityType),
-        action: formatLabel(log.action),
-        entityId: toEntityId(log),
-        status: inferStatus(log.action),
-        ipAddress: log.ipAddress || "-",
-    };
-}
-
-function isWithinDateRange(log: ActivityLogRow, startDate: string, endDate: string) {
-    if (!startDate && !endDate) return true;
-
-    const logDate = new Date(log.rawTimestamp);
-    if (Number.isNaN(logDate.getTime())) return true;
-
-    if (startDate) {
-        const start = new Date(startDate);
-        start.setHours(0, 0, 0, 0);
-        if (logDate < start) return false;
-    }
-
-    if (endDate) {
-        const end = new Date(endDate);
-        end.setHours(23, 59, 59, 999);
-        if (logDate > end) return false;
-    }
-
-    return true;
-}
-
-/** Renders "-" placeholders from the row model as a muted dash. */
-function Cell({ value, mono = false }: { value: string; mono?: boolean }) {
-    if (!value || value === "-") return <span className="text-fg-faint">—</span>;
-    return <span className={mono ? "font-mono text-xs" : undefined}>{value}</span>;
 }
 
 export default function ActivityLogsPage() {
-    const [branchName, setBranchName] = useState("Durdans Branch");
-    const [logs, setLogs] = useState<ActivityLogRow[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [hasLoaded, setHasLoaded] = useState(false);
-    const [error, setError] = useState("");
-
-    const [searchQuery, setSearchQuery] = useState("");
-    const [selectedRole, setSelectedRole] = useState(ALL_ROLES);
-    const [selectedModule, setSelectedModule] = useState(ALL_MODULES);
-    const [selectedAction, setSelectedAction] = useState(ALL_ACTIONS);
-    const [startDate, setStartDate] = useState("");
-    const [endDate, setEndDate] = useState("");
-    const [tablePage, setTablePage] = useState(1);
-
-    const loadLogs = useCallback(async () => {
-        try {
-            setLoading(true);
-
-            const [metadata, auditData] = await Promise.all([
-                getMetadata().catch(() => null),
-                getAuditLogs({ page: 0, size: PAGE_SIZE }),
-            ]);
-
-            setBranchName(metadata?.currentBranchName || "Durdans Branch");
-            setLogs((auditData.content || []).map(toRow));
-            // Clear a previous failure only once fresh data has arrived, so the
-            // error state (with its spinning Retry button) stays visible while
-            // a retry is in flight instead of flashing "No activity yet".
-            setError("");
-        } catch (loadError) {
-            console.error("Failed to load branch activity logs", loadError);
-            setError("Couldn't load branch activity logs. Check your connection and retry.");
-            setLogs([]);
-        } finally {
-            setLoading(false);
-            setHasLoaded(true);
-        }
-    }, []);
+    const [branchName, setBranchName] = useState("Colombo Branch");
+    const [logs, setLogs] = useState<FrontendLog[]>([]);
 
     useEffect(() => {
-        void loadLogs();
-        const refresh = window.setInterval(loadLogs, REFRESH_INTERVAL_MS);
+        getBranchActivityLogs().then((data) => {
+            const mapped: FrontendLog[] = data.map((log: BranchActivityLog) => {
+                const dateObj = new Date(log.timestamp);
+                const formattedDate = dateObj.toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" });
+                const formattedTime = dateObj.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
 
-        return () => window.clearInterval(refresh);
-    }, [loadLogs]);
+                return {
+                    id: `LOG-${log.id}`,
+                    timestamp: `${formattedDate} ${formattedTime}`,
+                    user: log.performedBy || "System",
+                    role: "System",
+                    module: log.entityType || "-",
+                    action: log.action || "-",
+                    entityId: log.entityId?.toString() || log.patientCode || "-",
+                    status: "SUCCESS",
+                    ipAddress: log.ipAddress || "-",
+                };
+            });
+            setLogs(mapped);
+        }).catch(err => console.error("Failed to fetch logs", err));
+    }, []);
 
-    const filteredLogs = useMemo(() => {
-        const query = searchQuery.trim().toLowerCase();
+    // Filter states
+    const [searchQuery, setSearchQuery] = useState("");
+    const [selectedRole, setSelectedRole] = useState("All Roles");
+    const [selectedModule, setSelectedModule] = useState("All Modules");
+    const [selectedAction, setSelectedAction] = useState("All Actions");
+    const [startDate, setStartDate] = useState("");
+    const [endDate, setEndDate] = useState("");
 
-        return logs.filter((log) => {
-            const matchesSearch =
-                !query ||
-                log.user.toLowerCase().includes(query) ||
-                log.entityId.toLowerCase().includes(query) ||
-                log.ipAddress.toLowerCase().includes(query) ||
-                log.action.toLowerCase().includes(query);
-            const matchesRole = selectedRole === ALL_ROLES || log.role === selectedRole;
-            const matchesModule = selectedModule === ALL_MODULES || log.module === selectedModule;
-            const matchesAction = selectedAction === ALL_ACTIONS || log.action === selectedAction;
+    // Filter logic
+    const filteredLogs = logs.filter(log => {
+        // Search Filter (User, Entity ID, IP)
+        const query = searchQuery.toLowerCase();
+        const matchesSearch = log.user.toLowerCase().includes(query) ||
+            log.entityId.toLowerCase().includes(query) ||
+            log.ipAddress.toLowerCase().includes(query);
 
-            return (
-                matchesSearch &&
-                matchesRole &&
-                matchesModule &&
-                matchesAction &&
-                isWithinDateRange(log, startDate, endDate)
-            );
-        });
-    }, [endDate, logs, searchQuery, selectedAction, selectedModule, selectedRole, startDate]);
+        // Dropdown Filters
+        const matchesRole = selectedRole === "All Roles" || log.role === selectedRole;
+        const matchesModule = selectedModule === "All Modules" || log.module === selectedModule;
+        const matchesAction = selectedAction === "All Actions" || log.action === selectedAction;
 
-    const uniqueRoles = useMemo(() => [ALL_ROLES, ...Array.from(new Set(logs.map((log) => log.role)))], [logs]);
-    const uniqueModules = useMemo(() => [ALL_MODULES, ...Array.from(new Set(logs.map((log) => log.module)))], [logs]);
-    const uniqueActions = useMemo(() => [ALL_ACTIONS, ...Array.from(new Set(logs.map((log) => log.action)))], [logs]);
+        // Date Filter
+        let matchesDate = true;
+        if (startDate || endDate) {
+            const logDate = new Date(log.timestamp);
+            if (!isNaN(logDate.getTime())) {
+                if (startDate) {
+                    const start = new Date(startDate);
+                    start.setHours(0, 0, 0, 0);
+                    matchesDate = matchesDate && logDate >= start;
+                }
+                if (endDate) {
+                    const end = new Date(endDate);
+                    end.setHours(23, 59, 59, 999);
+                    matchesDate = matchesDate && logDate <= end;
+                }
+            }
+        }
 
-    const now = new Date();
-    const sevenDaysAgo = new Date(now);
-    sevenDaysAgo.setDate(now.getDate() - 7);
+        return matchesSearch && matchesRole && matchesModule && matchesAction && matchesDate;
+    });
 
-    const totalActionsLastSevenDays = logs.filter((log) => {
-        const date = new Date(log.rawTimestamp);
-        return !Number.isNaN(date.getTime()) && date >= sevenDaysAgo;
-    }).length;
-    const failedLogins = logs.filter((log) => log.status === "FAILED" && log.action.toLowerCase().includes("login")).length;
-    const criticalActions = logs.filter((log) => log.status === "FAILED" || log.status === "WARNING").length;
-    const activeUsers = new Set(logs.map((log) => log.user).filter((user) => user && user.toUpperCase() !== "SYSTEM")).size;
+    const uniqueRoles = ["All Roles", ...Array.from(new Set(logs.map(log => log.role)))];
+    const uniqueModules = ["All Modules", ...Array.from(new Set(logs.map(log => log.module)))];
+    const uniqueActions = ["All Actions", ...Array.from(new Set(logs.map(log => log.action)))];
 
-    // Client-side paging over the filtered set. The page is clamped so a
-    // background refresh that shrinks the list never strands the user on an
-    // empty page.
-    const totalPages = Math.max(1, Math.ceil(filteredLogs.length / TABLE_PAGE_SIZE));
-    const currentPage = Math.min(tablePage, totalPages);
-    const pageRows = filteredLogs.slice((currentPage - 1) * TABLE_PAGE_SIZE, currentPage * TABLE_PAGE_SIZE);
-
-    const hasFilters =
-        Boolean(searchQuery) ||
-        selectedRole !== ALL_ROLES ||
-        selectedModule !== ALL_MODULES ||
-        selectedAction !== ALL_ACTIONS ||
-        Boolean(startDate) ||
-        Boolean(endDate);
-
-    const clearFilters = () => {
-        setSearchQuery("");
-        setSelectedRole(ALL_ROLES);
-        setSelectedModule(ALL_MODULES);
-        setSelectedAction(ALL_ACTIONS);
-        setStartDate("");
-        setEndDate("");
-        setTablePage(1);
-    };
-
-    const handleExportExcel = () => {
+    const handleExportCSV = () => {
         if (filteredLogs.length === 0) {
-            toast.message("No logs to export based on current filters.");
+            alert("No logs to export based on current filters.");
             return;
         }
 
         const headers = ["Timestamp", "User", "Role", "Module", "Action", "Entity ID", "Status", "IP Address"];
-        const rows = filteredLogs.map((log) => [
-            log.timestamp,
+        const rows = filteredLogs.map(log => [
+            log.timestamp.replace(/,/g, ''),
             log.user,
             log.role,
             log.module,
             log.action,
             log.entityId,
             log.status,
-            log.ipAddress,
+            log.ipAddress
         ]);
 
-        const worksheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
-        const colWidths = headers.map((h, i) => ({
-            wch: Math.min(Math.max(h.length, ...rows.map((r) => String(r[i] ?? "").length)) + 2, 50),
-        }));
-        worksheet["!cols"] = colWidths;
-
-        const workbook = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(workbook, worksheet, "Activity Logs");
-        XLSX.writeFile(workbook, `Activity_Logs_${new Date().toISOString().slice(0, 10)}.xlsx`);
+        const csvContent = [headers.join(","), ...rows.map(row => row.join(","))].join("\n");
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.setAttribute("download", `Activity_Logs_${new Date().toISOString().split('T')[0]}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
     };
 
-    const initialLoading = loading && !hasLoaded;
-    const refreshing = loading && hasLoaded;
-
     return (
-        <div className="mx-auto max-w-[1400px]">
-            <PageHeader
-                title="Activity logs"
-                crumbs={[{ label: "Branch", href: "/branch" }, { label: "Activity logs" }]}
-                meta={
-                    <>
-                        <Building2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                        <span>{branchName}</span>
-                        <span aria-hidden="true">·</span>
-                        <span>Branch workflow, user actions and security events</span>
-                        <span aria-hidden="true">·</span>
-                        <span>Refreshes every 30 s</span>
-                    </>
-                }
-                actions={
-                    <>
-                        <Button icon={FileSpreadsheet} onClick={handleExportExcel} disabled={initialLoading}>
-                            Export Excel
-                        </Button>
-                        <Button icon={RefreshCw} onClick={() => void loadLogs()} loading={refreshing}>
-                            Refresh
-                        </Button>
-                    </>
-                }
-            />
+        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-6 w-full font-sans text-slate-900 bg-[#f8fafc] min-h-screen flex flex-col">
 
-            {/* Screen-reader status for async changes */}
-            <p role="status" aria-live="polite" className="sr-only">
-                {initialLoading
-                    ? "Loading branch activity logs"
-                    : error
-                      ? "Branch activity logs failed to load"
-                      : `Branch activity logs loaded. Showing ${pageRows.length} of ${filteredLogs.length} entries${
-                            totalPages > 1 ? `, page ${currentPage} of ${totalPages}` : ""
-                        }.`}
-            </p>
-
-            {/* Summary tiles */}
-            <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                <KpiTile
-                    label="Actions, last 7 days"
-                    value={totalActionsLastSevenDays.toLocaleString()}
-                    icon={Activity}
-                    loading={initialLoading}
-                    note="From the latest audit entries"
-                />
-                <KpiTile
-                    label="Failed logins"
-                    value={failedLogins.toLocaleString()}
-                    icon={LogIn}
-                    tone={failedLogins > 0 ? "danger" : "neutral"}
-                    loading={initialLoading}
-                    note={failedLogins > 0 ? "Needs review" : "No failures recorded"}
-                />
-                <KpiTile
-                    label="Critical actions"
-                    value={criticalActions.toLocaleString()}
-                    icon={AlertTriangle}
-                    tone={criticalActions > 0 ? "warning" : "neutral"}
-                    loading={initialLoading}
-                    note="Failed or warning-level actions"
-                />
-                <KpiTile
-                    label="Active users"
-                    value={activeUsers.toLocaleString()}
-                    icon={Users}
-                    loading={initialLoading}
-                    note="Distinct users in loaded entries"
-                />
+            {/* Breadcrumb */}
+            <div className="text-xs text-slate-500 mb-4 flex items-center gap-2">
+                <span className="cursor-pointer hover:text-slate-800 transition-colors">Home</span>
+                <span>/</span>
+                <span className="cursor-pointer hover:text-slate-800 transition-colors">Audit</span>
+                <span>/</span>
+                <span className="font-semibold text-slate-800">Activity Logs</span>
             </div>
 
-            <SectionCard title="Audit trail" count={hasLoaded && !error ? filteredLogs.length.toLocaleString() : undefined} flush>
-                {/* Filter toolbar */}
-                <div className="flex flex-wrap items-center gap-2 border-b border-edge bg-surface-muted px-3 py-2">
-                    <InputField
-                        label="Search activity logs"
-                        hideLabel
-                        type="search"
-                        value={searchQuery}
-                        onChange={(event) => {
-                            setSearchQuery(event.target.value);
-                            setTablePage(1);
-                        }}
-                        placeholder="Search user, entity ID, action or IP address"
-                        autoComplete="off"
-                        className="min-w-[200px] flex-1"
-                    />
-                    <SelectField
-                        label="User role"
-                        hideLabel
-                        value={selectedRole}
-                        onChange={(event) => {
-                            setSelectedRole(event.target.value);
-                            setTablePage(1);
-                        }}
-                        className="w-full sm:w-44"
-                    >
-                        {uniqueRoles.map((role) => (
-                            <option key={role} value={role}>
-                                {role === ALL_ROLES ? "All roles" : role}
-                            </option>
-                        ))}
-                    </SelectField>
-                    <SelectField
-                        label="Module"
-                        hideLabel
-                        value={selectedModule}
-                        onChange={(event) => {
-                            setSelectedModule(event.target.value);
-                            setTablePage(1);
-                        }}
-                        className="w-full sm:w-44"
-                    >
-                        {uniqueModules.map((module) => (
-                            <option key={module} value={module}>
-                                {module === ALL_MODULES ? "All modules" : module}
-                            </option>
-                        ))}
-                    </SelectField>
-                    <SelectField
-                        label="Action type"
-                        hideLabel
-                        value={selectedAction}
-                        onChange={(event) => {
-                            setSelectedAction(event.target.value);
-                            setTablePage(1);
-                        }}
-                        className="w-full sm:w-44"
-                    >
-                        {uniqueActions.map((action) => (
-                            <option key={action} value={action}>
-                                {action === ALL_ACTIONS ? "All actions" : action}
-                            </option>
-                        ))}
-                    </SelectField>
-                    <div className="flex flex-wrap items-center gap-1.5">
-                        <InputField
-                            label="From date"
-                            hideLabel
-                            type="date"
-                            value={startDate}
-                            onChange={(event) => {
-                                setStartDate(event.target.value);
-                                setTablePage(1);
-                            }}
-                            className="w-[8.75rem]"
-                        />
-                        <span className="text-xs text-fg-muted" aria-hidden="true">
-                            to
-                        </span>
-                        <InputField
-                            label="To date"
-                            hideLabel
-                            type="date"
-                            value={endDate}
-                            onChange={(event) => {
-                                setEndDate(event.target.value);
-                                setTablePage(1);
-                            }}
-                            className="w-[8.75rem]"
-                        />
+            {/* Header */}
+            <div className="mb-6">
+                <h1 className="text-2xl font-bold text-slate-900">
+                    Activity Logs – {branchName}
+                </h1>
+                <p className="text-slate-500 text-sm mt-1">
+                    Audit trail for system events, user actions, and security incidents.
+                </p>
+            </div>
+
+            {/* Filters Section */}
+            <div className="bg-white rounded-xl border border-slate-200 p-5 mb-6 shadow-sm flex flex-col gap-4">
+                <div className="flex flex-wrap md:flex-nowrap gap-4 items-end">
+                    <div className="flex flex-col gap-1.5 flex-1 min-w-[280px]">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Date Range</label>
+                        <div className="flex items-center gap-2 border border-slate-200 rounded-lg px-2 py-1 bg-slate-50/50 hover:bg-slate-50 transition-colors">
+                            <input
+                                type="date"
+                                value={startDate}
+                                onChange={(e) => setStartDate(e.target.value)}
+                                className="w-1/2 bg-transparent text-slate-700 font-medium text-sm focus:outline-none cursor-pointer py-1"
+                            />
+                            <span className="text-slate-400 font-bold">-</span>
+                            <input
+                                type="date"
+                                value={endDate}
+                                onChange={(e) => setEndDate(e.target.value)}
+                                className="w-1/2 bg-transparent text-slate-700 font-medium text-sm focus:outline-none cursor-pointer py-1"
+                            />
+                        </div>
                     </div>
-                    {hasFilters && (
-                        <Button variant="ghost" icon={X} onClick={clearFilters}>
-                            Clear filters
-                        </Button>
-                    )}
+
+                    <div className="flex flex-col gap-1.5 flex-1 min-w-[150px]">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">User Role</label>
+                        <div className="relative">
+                            <select
+                                value={selectedRole}
+                                onChange={(e) => setSelectedRole(e.target.value)}
+                                className="w-full appearance-none border border-slate-200 rounded-lg px-3 py-2 bg-slate-50/50 hover:bg-slate-50 transition-colors cursor-pointer text-sm font-medium text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            >
+                                {uniqueRoles.map(role => <option key={role} value={role}>{role}</option>)}
+                            </select>
+                            <span className="material-icons absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-lg">expand_more</span>
+                        </div>
+                    </div>
+
+                    <div className="flex flex-col gap-1.5 flex-1 min-w-[150px]">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Module</label>
+                        <div className="relative">
+                            <select
+                                value={selectedModule}
+                                onChange={(e) => setSelectedModule(e.target.value)}
+                                className="w-full appearance-none border border-slate-200 rounded-lg px-3 py-2 bg-slate-50/50 hover:bg-slate-50 transition-colors cursor-pointer text-sm font-medium text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            >
+                                {uniqueModules.map(mod => <option key={mod} value={mod}>{mod}</option>)}
+                            </select>
+                            <span className="material-icons absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-lg">expand_more</span>
+                        </div>
+                    </div>
+
+                    <div className="flex flex-col gap-1.5 flex-1 min-w-[150px]">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Action Type</label>
+                        <div className="relative">
+                            <select
+                                value={selectedAction}
+                                onChange={(e) => setSelectedAction(e.target.value)}
+                                className="w-full appearance-none border border-slate-200 rounded-lg px-3 py-2 bg-slate-50/50 hover:bg-slate-50 transition-colors cursor-pointer text-sm font-medium text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            >
+                                {uniqueActions.map(action => <option key={action} value={action}>{action}</option>)}
+                            </select>
+                            <span className="material-icons absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-lg">expand_more</span>
+                        </div>
+                    </div>
+
+                    <div className="flex gap-2">
+                        <button className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg font-semibold text-sm transition-all shadow-sm shadow-blue-600/20 whitespace-nowrap">
+                            Apply Filters
+                        </button>
+                        <button className="flex items-center justify-center border border-slate-200 rounded-lg w-10 h-10 hover:bg-slate-50 transition-colors text-slate-500">
+                            <span className="material-icons text-[20px]">download</span>
+                        </button>
+                    </div>
                 </div>
 
-                {/* States live outside the table so they centre on small screens */}
-                {initialLoading ? (
-                    <ul aria-hidden="true" className="divide-y divide-edge">
-                        {Array.from({ length: SKELETON_ROWS }).map((_, i) => (
-                            <li key={i} className="flex items-center gap-3 px-4 py-2.5">
-                                <span className="h-3 w-20 shrink-0 rounded bg-skeleton" />
-                                <span className="h-4 w-28 shrink-0 rounded bg-skeleton" />
-                                <span className="hidden h-3 w-28 rounded bg-skeleton md:block" />
-                                <span className="hidden h-3 w-28 rounded bg-skeleton lg:block" />
-                                <span className="h-3 w-1/4 rounded bg-skeleton" />
-                                <span className="h-3 w-24 rounded bg-skeleton" />
-                                <span className="h-4 w-16 rounded bg-skeleton" />
-                                <span className="ml-auto hidden h-3 w-24 rounded bg-skeleton xl:block" />
-                            </li>
-                        ))}
-                    </ul>
-                ) : error ? (
-                    <EmptyState
-                        icon={AlertTriangle}
-                        title="Activity logs unavailable"
-                        description={error}
-                        action={
-                            <Button size="sm" icon={RefreshCw} onClick={() => void loadLogs()} loading={loading}>
-                                Retry
-                            </Button>
-                        }
-                    />
-                ) : filteredLogs.length === 0 ? (
-                    hasFilters ? (
-                        <EmptyState
-                            icon={Search}
-                            title="No entries match"
-                            description="Try a different search term, role, module, action or date range."
-                            action={
-                                <Button size="sm" icon={X} onClick={clearFilters}>
-                                    Clear filters
-                                </Button>
-                            }
-                        />
-                    ) : (
-                        <EmptyState
-                            icon={History}
-                            title="No activity yet"
-                            description="Branch workflow, user actions and security events will be recorded here."
+                <div className="flex flex-wrap md:flex-nowrap gap-4 items-center">
+                    <div className="flex-1 relative">
+                        <span className="material-icons absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">search</span>
+                        <input
+                            type="text"
+                            placeholder="Search by User Name, Entity ID or IP Address..."
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all placeholder:text-slate-400"
                         />
                     )
                 ) : (
@@ -649,18 +293,155 @@ export default function ActivityLogsPage() {
                                 </tbody>
                             </table>
                         </div>
+                        <span className="text-[11px] font-semibold text-slate-400">Last 7 days</span>
+                    </div>
+                </div>
 
-                        <Pagination
-                            currentPage={currentPage}
-                            totalPages={totalPages}
-                            totalItems={filteredLogs.length}
-                            pageSize={TABLE_PAGE_SIZE}
-                            onPageChange={setTablePage}
-                            itemLabel={filteredLogs.length === 1 ? "entry" : "entries"}
-                        />
-                    </>
-                )}
-            </SectionCard>
+                {/* Failed Logins */}
+                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
+                    <div className="flex justify-between items-start mb-2">
+                        <h3 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Failed Logins</h3>
+                        <div className="bg-red-50 text-red-500 w-7 h-7 rounded-md flex items-center justify-center border border-red-100">
+                            <span className="material-icons text-[16px]">login</span>
+                        </div>
+                    </div>
+                    <div className="flex items-baseline gap-2 mt-2">
+                        <span className="text-3xl font-extrabold text-slate-900">124</span>
+                        <span className="text-[11px] font-bold text-red-500">+5%</span>
+                    </div>
+                </div>
+
+                {/* Critical Actions */}
+                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
+                    <div className="flex justify-between items-start mb-2">
+                        <h3 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Critical Actions</h3>
+                        <div className="bg-orange-50 text-orange-500 w-7 h-7 rounded-md flex items-center justify-center">
+                            <span className="material-icons text-[16px]">priority_high</span>
+                        </div>
+                    </div>
+                    <div className="flex items-baseline gap-2 mt-2">
+                        <span className="text-3xl font-extrabold text-slate-900">18</span>
+                        <span className="text-[11px] font-bold text-orange-500">Requires Audit</span>
+                    </div>
+                </div>
+
+                {/* Active Users */}
+                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
+                    <div className="flex justify-between items-start mb-2">
+                        <h3 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Active Users</h3>
+                        <div className="bg-emerald-50 text-emerald-500 w-7 h-7 rounded-md flex items-center justify-center">
+                            <span className="material-icons text-[16px]">people</span>
+                        </div>
+                    </div>
+                    <div className="flex items-baseline gap-2 mt-2">
+                        <span className="text-3xl font-extrabold text-slate-900">86</span>
+                        <span className="text-[11px] font-bold text-emerald-500">Currently Online</span>
+                    </div>
+                </div>
+            </div>
+
+            {/* Audit Trail Table Section */}
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col flex-1 pb-4">
+                <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                        <span className="material-icons text-slate-400 text-[18px]">list_alt</span>
+                        <h2 className="text-[15px] font-extrabold text-slate-800">Audit Trail</h2>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-slate-400 text-xs font-semibold cursor-pointer hover:text-slate-600 transition-colors">
+                        <span>Auto-refresh in 45s</span>
+                        <span className="material-icons text-[14px]">refresh</span>
+                    </div>
+                </div>
+
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left text-sm whitespace-nowrap">
+                        <thead className="bg-white border-b border-slate-100">
+                            <tr>
+                                <th className="px-5 py-3.5 text-[10px] font-extrabold text-slate-500 uppercase tracking-widest">Timestamp</th>
+                                <th className="px-5 py-3.5 text-[10px] font-extrabold text-slate-500 uppercase tracking-widest">User</th>
+                                <th className="px-5 py-3.5 text-[10px] font-extrabold text-slate-500 uppercase tracking-widest">Role</th>
+                                <th className="px-5 py-3.5 text-[10px] font-extrabold text-slate-500 uppercase tracking-widest">Module</th>
+                                <th className="px-5 py-3.5 text-[10px] font-extrabold text-slate-500 uppercase tracking-widest">Action</th>
+                                <th className="px-5 py-3.5 text-[10px] font-extrabold text-slate-500 uppercase tracking-widest">Entity ID</th>
+                                <th className="px-5 py-3.5 text-[10px] font-extrabold text-slate-500 uppercase tracking-widest">Status</th>
+                                <th className="px-5 py-3.5 text-[10px] font-extrabold text-slate-500 uppercase tracking-widest">IP Address</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-50">
+                            {filteredLogs.length > 0 ? (
+                                filteredLogs.map((log) => (
+                                    <tr key={log.id} className="hover:bg-slate-50/50 transition-colors">
+                                        <td className="px-5 py-3 text-xs text-slate-500 font-medium whitespace-nowrap">
+                                            {log.timestamp}
+                                        </td>
+                                        <td className="px-5 py-3 text-xs font-semibold text-slate-800 whitespace-nowrap">
+                                            {log.user}
+                                        </td>
+                                        <td className="px-5 py-3 text-xs text-slate-600 whitespace-nowrap">
+                                            {log.role}
+                                        </td>
+                                        <td className="px-5 py-3 text-xs text-slate-600 whitespace-nowrap">
+                                            {log.module}
+                                        </td>
+                                        <td className="px-5 py-3 text-xs font-medium text-slate-800 whitespace-nowrap">
+                                            {log.action}
+                                        </td>
+                                        <td className="px-5 py-3 text-xs text-slate-500 font-mono whitespace-nowrap">
+                                            {log.entityId}
+                                        </td>
+                                        <td className="px-5 py-3 whitespace-nowrap">
+                                            {log.status === 'SUCCESS' && (
+                                                <span className="inline-flex items-center gap-1.5 text-emerald-600 text-[11px] font-bold tracking-wide">
+                                                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div> SUCCESS
+                                                </span>
+                                            )}
+                                            {log.status === 'FAILED' && (
+                                                <span className="inline-flex items-center gap-1.5 text-red-500 text-[11px] font-bold tracking-wide">
+                                                    <div className="w-1.5 h-1.5 rounded-full bg-red-500"></div> FAILED
+                                                </span>
+                                            )}
+                                            {log.status === 'WARNING' && (
+                                                <span className="inline-flex items-center gap-1.5 text-orange-500 text-[11px] font-bold tracking-wide">
+                                                    <div className="w-1.5 h-1.5 rounded-full bg-orange-500"></div> WARNING
+                                                </span>
+                                            )}
+                                        </td>
+                                        <td className="px-5 py-3 text-xs text-slate-400 font-mono whitespace-nowrap">
+                                            {log.ipAddress}
+                                        </td>
+                                    </tr>
+                                ))
+                            ) : (
+                                <tr>
+                                    <td colSpan={8} className="px-5 py-8 text-center text-sm text-slate-500">
+                                        No logs found matching your filters.
+                                    </td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            {/* Footer */}
+            <div className="mt-8 flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-slate-200 pt-6 px-2">
+                <div className="flex items-center flex-wrap gap-2 text-xs font-medium text-slate-400">
+                    <span>&copy; 2023 Durdans Hospital. Version 2.4.1</span>
+                    <span className="hidden sm:inline">•</span>
+                    <span className="flex items-center gap-1.5">
+                        System Status: <span className="text-emerald-500 font-bold">Audit Pipeline Online</span>
+                    </span>
+                </div>
+                <div className="flex items-center gap-3">
+                    <button className="px-4 py-2 border border-slate-200 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-colors bg-white">
+                        Report Issue
+                    </button>
+                    <button className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-semibold transition-colors shadow-sm shadow-slate-800/20">
+                        System Audit Trail
+                    </button>
+                </div>
+            </div>
+
         </div>
     );
 }

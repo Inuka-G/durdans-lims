@@ -143,49 +143,49 @@ services:
     restart: always
 
   # ---- LIMS core service (Spring Boot) ----
-  app:
-    build:
-      context: ../apps/lims-core-service
-      dockerfile: Dockerfile
-    image: durdans-lims/core-service:local
-    container_name: lims-core-service
-    networks: [lims-net]
-    ports:
-      - "11000:11000"   # API only — 11001 (management) stays on the private network
-    environment:
-      SPRING_PROFILES_ACTIVE: docker
-      DB_USERNAME: ${LIMS_DB_USERNAME:-postgres}
-      DB_PASSWORD: ${LIMS_DB_PASSWORD:-postgres}
-      KEYCLOAK_REALM: lims-realm
-      KEYCLOAK_INTERNAL_URL: http://keycloak:8080
-      KEYCLOAK_PUBLIC_URL: http://localhost:8081
-      # S3 -> LocalStack (test/test are LocalStack defaults, not real secrets)
-      AWS_ACCESS_KEY: test
-      AWS_SECRET_KEY: test
-      # Mail is disabled unless supplied (see .env.example)
-      MAIL_USERNAME: ${MAIL_USERNAME:-}
-      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
-      # SMS is mock by default; set these in infra/.env for OzoneDesk delivery.
-      SMS_PROVIDER: ${SMS_PROVIDER:-mock}
-      SMS_API_URL: ${SMS_API_URL:-http://sms.ozonedesk.com/api/v1/send.php}
-      SMS_USER_ID: ${SMS_USER_ID:-}
-      SMS_API_KEY: ${SMS_API_KEY:-}
-      SMS_SENDER_ID: ${SMS_SENDER_ID:-}
-      # G6: export traces to Tempo over OTLP/HTTP on the private network.
-      OTLP_ENDPOINT: http://tempo:4318/v1/traces
-      TRACING_SAMPLE_RATE: ${TRACING_SAMPLE_RATE:-1.0}
-    depends_on:
-      lims-postgres:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
-      localstack:
-        condition: service_healthy
-      keycloak:
-        condition: service_started
-      tempo:
-        condition: service_started
-    restart: always
+  # app:
+  #   build:
+  #     context: ../apps/lims-core-service
+  #     dockerfile: Dockerfile
+  #   image: durdans-lims/core-service:local
+  #   container_name: lims-core-service
+  #   networks: [lims-net]
+  #   ports:
+  #     - "11000:11000"   # API only — 11001 (management) stays on the private network
+  #   environment:
+  #     SPRING_PROFILES_ACTIVE: docker
+  #     DB_USERNAME: ${LIMS_DB_USERNAME:-postgres}
+  #     DB_PASSWORD: ${LIMS_DB_PASSWORD:-postgres}
+  #     KEYCLOAK_REALM: lims-realm
+  #     KEYCLOAK_INTERNAL_URL: http://keycloak:8080
+  #     KEYCLOAK_PUBLIC_URL: http://localhost:8081
+  #     # S3 -> LocalStack (test/test are LocalStack defaults, not real secrets)
+  #     AWS_ACCESS_KEY: test
+  #     AWS_SECRET_KEY: test
+  #     # Mail is disabled unless supplied (see .env.example)
+  #     MAIL_USERNAME: ${MAIL_USERNAME:-}
+  #     MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+  #     # SMS is mock by default; set these in infra/.env for OzoneDesk delivery.
+  #     SMS_PROVIDER: ${SMS_PROVIDER:-mock}
+  #     SMS_API_URL: ${SMS_API_URL:-http://sms.ozonedesk.com/api/v1/send.php}
+  #     SMS_USER_ID: ${SMS_USER_ID:-}
+  #     SMS_API_KEY: ${SMS_API_KEY:-}
+  #     SMS_SENDER_ID: ${SMS_SENDER_ID:-}
+  #     # G6: export traces to Tempo over OTLP/HTTP on the private network.
+  #     OTLP_ENDPOINT: http://tempo:4318/v1/traces
+  #     TRACING_SAMPLE_RATE: ${TRACING_SAMPLE_RATE:-1.0}
+  #   depends_on:
+  #     lims-postgres:
+  #       condition: service_healthy
+  #     kafka:
+  #       condition: service_healthy
+  #     localstack:
+  #       condition: service_healthy
+  #     keycloak:
+  #       condition: service_started
+  #     tempo:
+  #       condition: service_started
+  #   restart: always
 
   # ---- WhatsApp agent (Meta webhook ingress + agent core) ----
   # Runs outside the clinical core on purpose: it carries a public internet ingress and,
@@ -222,25 +222,25 @@ services:
     restart: always
 
   # ---- Frontend (Next.js, standalone) ----
-  frontend:
-    build:
-      context: ../apps/frontend
-      dockerfile: Dockerfile
-      args:
-        # Browser-facing URLs (published host ports), inlined at build time.
-        NEXT_PUBLIC_API_URL: http://localhost:11000
-        NEXT_PUBLIC_KEYCLOAK_URL: http://localhost:8081
-        NEXT_PUBLIC_KEYCLOAK_REALM: lims-realm
-        NEXT_PUBLIC_KEYCLOAK_CLIENT_ID: lims-frontend
-    image: durdans-lims/frontend:local
-    container_name: lims-frontend
-    networks: [lims-net]
-    ports:
-      - "3000:3000"
-    depends_on:
-      app:
-        condition: service_started
-    restart: always
+  # frontend:
+  #   build:
+  #     context: ../apps/frontend
+  #     dockerfile: Dockerfile
+  #     args:
+  #       # Browser-facing URLs (published host ports), inlined at build time.
+  #       NEXT_PUBLIC_API_URL: http://localhost:11000
+  #       NEXT_PUBLIC_KEYCLOAK_URL: http://localhost:8081
+  #       NEXT_PUBLIC_KEYCLOAK_REALM: lims-realm
+  #       NEXT_PUBLIC_KEYCLOAK_CLIENT_ID: lims-frontend
+  #   image: durdans-lims/frontend:local
+  #   container_name: lims-frontend
+  #   networks: [lims-net]
+  #   ports:
+  #     - "3000:3000"
+  #   depends_on:
+  #     app:
+  #       condition: service_started
+  #   restart: always
 
   # ---- Nightly logical backup of BOTH Postgres DBs (H5 / DR) ----
   # Runs pg-backup.sh on a schedule against the app DB and the Keycloak DB, writing
@@ -280,22 +280,22 @@ services:
     restart: always
 
   # ---- Prometheus (scrapes the app's internal management port) ----
-  prometheus:
-    image: prom/prometheus:v2.53.0
-    container_name: lims-prometheus
-    networks: [lims-net]
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./observability/rules:/etc/prometheus/rules:ro
-      - prometheus_data:/prometheus
-    depends_on:
-      app:
-        condition: service_started
-      alertmanager:
-        condition: service_started
-    restart: always
+  # prometheus:
+  #   image: prom/prometheus:v2.53.0
+  #   container_name: lims-prometheus
+  #   networks: [lims-net]
+  #   ports:
+  #     - "9090:9090"
+  #   volumes:
+  #     - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+  #     - ./observability/rules:/etc/prometheus/rules:ro
+  #     - prometheus_data:/prometheus
+  #   depends_on:
+  #     app:
+  #       condition: service_started
+  #     alertmanager:
+  #       condition: service_started
+  #   restart: always
 
   # ---- Alertmanager (routes firing alerts; G2) ----
   alertmanager:
@@ -323,23 +323,23 @@ services:
     restart: always
 
   # ---- Grafana ----
-  grafana:
-    image: grafana/grafana:11.1.0
-    container_name: lims-grafana
-    networks: [lims-net]
-    ports:
-      - "3001:3000"
-    environment:
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
-    volumes:
-      - grafana_data:/var/lib/grafana
-      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
-    depends_on:
-      prometheus:
-        condition: service_started
-      tempo:
-        condition: service_started
-    restart: always
+  # grafana:
+  #   image: grafana/grafana:11.1.0
+  #   container_name: lims-grafana
+  #   networks: [lims-net]
+  #   ports:
+  #     - "3001:3000"
+  #   environment:
+  #     GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+  #   volumes:
+  #     - grafana_data:/var/lib/grafana
+  #     - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+  #   depends_on:
+  #     prometheus:
+  #       condition: service_started
+  #     tempo:
+  #       condition: service_started
+  #   restart: always
 
 volumes:
   postgres_data:

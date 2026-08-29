@@ -12,6 +12,8 @@ const URL_MAP: Record<string, string> = {
     "/pathology": "/clinical/worklist",
     "/report-dispatch": "/dispatch/dashboard",
     "/orders-billing": "/orders-billing/create-order",
+    "/branch-admin": "/branch",
+    "/admin": "/superadmin",
 };
 
 
