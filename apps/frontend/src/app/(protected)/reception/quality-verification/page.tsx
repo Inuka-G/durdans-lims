@@ -43,10 +43,53 @@ const REJECTION_REASONS: RejectionReason[] = [
     'OTHER',
 ];
 
-const TUBE_TYPE_HINTS: Record<string, string> = {
-    'full blood count': 'EDTA purple top',
-    fbc: 'EDTA purple top',
-    esr: 'EDTA purple top',
+type TubeInfo = {
+    label: string;
+    capColor: string;
+    bgClass: string;
+};
+
+const TUBE_INFO_MAP: Record<string, TubeInfo> = {
+    'full blood count': { label: 'EDTA Purple Top', capColor: 'Purple', bgClass: 'bg-purple-500' },
+    fbc: { label: 'EDTA Purple Top', capColor: 'Purple', bgClass: 'bg-purple-500' },
+    esr: { label: 'EDTA Purple Top', capColor: 'Purple', bgClass: 'bg-purple-500' },
+    hba1c: { label: 'EDTA Purple Top', capColor: 'Purple', bgClass: 'bg-purple-500' },
+    'blood glucose': { label: 'Fluoride Grey Top', capColor: 'Grey', bgClass: 'bg-slate-400' },
+    glucose: { label: 'Fluoride Grey Top', capColor: 'Grey', bgClass: 'bg-slate-400' },
+    'serum creatinine': { label: 'SST Gold Top (Serum)', capColor: 'Gold', bgClass: 'bg-amber-400' },
+    creatinine: { label: 'SST Gold Top (Serum)', capColor: 'Gold', bgClass: 'bg-amber-400' },
+    'blood urea': { label: 'SST Gold Top (Serum)', capColor: 'Gold', bgClass: 'bg-amber-400' },
+    urea: { label: 'SST Gold Top (Serum)', capColor: 'Gold', bgClass: 'bg-amber-400' },
+    'lipid profile': { label: 'SST Gold Top (Serum)', capColor: 'Gold', bgClass: 'bg-amber-400' },
+    'liver function': { label: 'SST Gold Top (Serum)', capColor: 'Gold', bgClass: 'bg-amber-400' },
+    lft: { label: 'SST Gold Top (Serum)', capColor: 'Gold', bgClass: 'bg-amber-400' },
+    'uric acid': { label: 'SST Gold Top (Serum)', capColor: 'Gold', bgClass: 'bg-amber-400' },
+    electrolytes: { label: 'SST Gold Top (Serum)', capColor: 'Gold', bgClass: 'bg-amber-400' },
+    troponin: { label: 'SST Gold / Heparin Green', capColor: 'Gold', bgClass: 'bg-amber-400' },
+    'prothrombin time': { label: 'Sodium Citrate Blue Top', capColor: 'Blue', bgClass: 'bg-sky-500' },
+    'pt/inr': { label: 'Sodium Citrate Blue Top', capColor: 'Blue', bgClass: 'bg-sky-500' },
+    pt: { label: 'Sodium Citrate Blue Top', capColor: 'Blue', bgClass: 'bg-sky-500' },
+    inr: { label: 'Sodium Citrate Blue Top', capColor: 'Blue', bgClass: 'bg-sky-500' },
+    urine: { label: 'Sterile Urine Container', capColor: 'Yellow', bgClass: 'bg-yellow-400' },
+};
+
+function resolveTubeInfo(testName?: string | null): TubeInfo {
+    if (!testName) {
+        return { label: 'Match laboratory protocol', capColor: 'Default', bgClass: 'bg-primary' };
+    }
+    const normalized = testName.trim().toLowerCase();
+    for (const [key, info] of Object.entries(TUBE_INFO_MAP)) {
+        if (normalized.includes(key)) {
+            return info;
+        }
+    }
+    return { label: 'Match laboratory protocol', capColor: 'Default', bgClass: 'bg-primary' };
+}
+
+const PRIORITY_ORDER: Record<string, number> = {
+    STAT: 0,
+    URGENT: 1,
+    NORMAL: 2,
 };
 
 const REQUIRED_CHECKS = ['barcode', 'container', 'condition', 'window'];
@@ -184,11 +227,8 @@ export default function QualityVerificationPage() {
     const filteredSamples = useMemo(() => {
         const query = searchQuery.trim().toLowerCase();
 
-        if (!query) {
-            return samples;
-        }
-
-        return samples.filter((sample) => {
+        const filtered = samples.filter((sample) => {
+            if (!query) return true;
             return (
                 sample.barcode.toLowerCase().includes(query) ||
                 sample.patientId.toLowerCase().includes(query) ||
@@ -196,11 +236,24 @@ export default function QualityVerificationPage() {
                 sample.testName.toLowerCase().includes(query)
             );
         });
+
+        // Strict Priority Hierarchy: STAT (0) -> URGENT (1) -> NORMAL (2)
+        // Secondary: FIFO (oldest collected / registered first within the same priority)
+        return filtered.sort((a, b) => {
+            const priorityA = PRIORITY_ORDER[a.priority] ?? 3;
+            const priorityB = PRIORITY_ORDER[b.priority] ?? 3;
+            if (priorityA !== priorityB) {
+                return priorityA - priorityB;
+            }
+            const timeA = a.collectedAt ? new Date(a.collectedAt).getTime() : 0;
+            const timeB = b.collectedAt ? new Date(b.collectedAt).getTime() : 0;
+            return timeA - timeB;
+        });
     }, [samples, searchQuery]);
 
     const checklist = useMemo<ChecklistItem[]>(() => {
         const testName = selectedSample?.testName ?? 'Selected test';
-        const tubeHint = resolveTubeHint(testName);
+        const tubeInfo = resolveTubeInfo(testName);
         const collectionDescription = selectedSample?.collectedAt
             ? `Collected ${formatRelativeCollectionTime(selectedSample.collectedAt)} and within the pre-analytical handling window.`
             : 'Collection timestamp is available and within the pre-analytical handling window.';
@@ -214,7 +267,7 @@ export default function QualityVerificationPage() {
             {
                 id: 'container',
                 label: 'Correct container',
-                description: `Verify the specimen container against ${testName} requirements (${tubeHint}).`,
+                description: `Verify the specimen container against ${testName} requirements (${tubeInfo.label}).`,
             },
             {
                 id: 'volume',
@@ -489,7 +542,7 @@ export default function QualityVerificationPage() {
                                                         <p className="truncate font-mono text-xs font-semibold text-primary-strong">
                                                             {sample.barcode}
                                                         </p>
-                                                        <p className="mt-0.5 truncate text-[13px] font-medium text-fg">
+                                                        <p className="mt-0.5 truncate text-sm font-medium text-fg">
                                                             {sample.patientId}
                                                         </p>
                                                         <p className="truncate text-xs text-fg-muted">{sample.orderId}</p>
@@ -528,7 +581,7 @@ export default function QualityVerificationPage() {
                             <h3 className="mt-0.5 break-all font-mono text-lg font-semibold text-fg">{selectedSample.barcode}</h3>
 
                             <div className="mt-4 border-t border-edge pt-4">
-                                <p className="mb-2 text-xs font-medium text-fg-muted">Patient</p>
+                                <p className="mb-2 text-xs font-semibold text-fg-muted">Patient</p>
                                 <div className="flex items-center gap-3">
                                     <div
                                         aria-hidden="true"
@@ -561,29 +614,36 @@ export default function QualityVerificationPage() {
                             </div>
 
                             <div className="mt-4 border-t border-edge pt-4">
-                                <p className="mb-2 text-xs font-medium text-fg-muted">Specimen</p>
-                                <div className="flex items-start gap-3">
-                                    {/* Specimen tube colour is physical (cap colour) so it stays literal in both themes */}
-                                    <span aria-hidden="true" className="mt-0.5 h-10 w-2.5 shrink-0 rounded-full bg-purple-500" />
-                                    <dl className="grid min-w-0 flex-1 grid-cols-2 gap-x-4 gap-y-3">
-                                        <div className="col-span-2 min-w-0">
-                                            <dt className="text-xs text-fg-muted">Test</dt>
-                                            <dd className="mt-0.5 break-words text-sm font-semibold text-fg">{selectedSample.testName}</dd>
+                                <p className="mb-2 text-xs font-semibold text-fg-muted">Specimen</p>
+                                {(() => {
+                                    const tubeInfo = resolveTubeInfo(selectedSample.testName);
+                                    return (
+                                        <div className="flex items-start gap-3">
+                                            {/* Specimen tube colour is physical (cap colour) so it stays literal in both themes */}
+                                            <span aria-hidden="true" className={`mt-0.5 h-10 w-2.5 shrink-0 rounded-full ${tubeInfo.bgClass}`} />
+                                            <dl className="grid min-w-0 flex-1 grid-cols-2 gap-x-4 gap-y-3">
+                                                <div className="col-span-2 min-w-0">
+                                                    <dt className="text-xs text-fg-muted">Test</dt>
+                                                    <dd className="mt-0.5 break-words text-sm font-semibold text-fg">{selectedSample.testName}</dd>
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <dt className="text-xs text-fg-muted">Container</dt>
+                                                    <dd className="mt-0.5">
+                                                        <span className="inline-flex items-center rounded-md bg-surface-muted px-2 py-0.5 text-xs font-medium text-fg ring-1 ring-inset ring-edge">
+                                                            {tubeInfo.label}
+                                                        </span>
+                                                    </dd>
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <dt className="text-xs text-fg-muted">Priority</dt>
+                                                    <dd className="mt-0.5">
+                                                        <PriorityBadge priority={selectedSample.priority} />
+                                                    </dd>
+                                                </div>
+                                            </dl>
                                         </div>
-                                        <div className="min-w-0">
-                                            <dt className="text-xs text-fg-muted">Container</dt>
-                                            <dd className="mt-0.5 text-xs text-fg-secondary">
-                                                {resolveTubeHint(selectedSample.testName)}
-                                            </dd>
-                                        </div>
-                                        <div className="min-w-0">
-                                            <dt className="text-xs text-fg-muted">Priority</dt>
-                                            <dd className="mt-0.5">
-                                                <PriorityBadge priority={selectedSample.priority} />
-                                            </dd>
-                                        </div>
-                                    </dl>
-                                </div>
+                                    );
+                                })()}
                             </div>
                         </SectionCard>
 
@@ -781,18 +841,6 @@ export default function QualityVerificationPage() {
             </div>
         </div>
     );
-}
-
-function resolveTubeHint(testName: string) {
-    const normalized = testName.trim().toLowerCase();
-
-    for (const [key, value] of Object.entries(TUBE_TYPE_HINTS)) {
-        if (normalized.includes(key)) {
-            return value;
-        }
-    }
-
-    return 'Match against the laboratory collection protocol';
 }
 
 function buildInitials(name: string) {

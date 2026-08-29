@@ -14,8 +14,14 @@ for Patient Management; every other module adopts the same primitives.
 3. **One anatomy per component.** Every KPI tile, card header, table, form field
    and button looks and behaves the same.
 4. **Sentence case everywhere.** No ALL CAPS labels, no Title Case buttons.
-5. **Dense but legible.** 13px table text, 12px meta, 11px only for badges.
-   `tabular-nums` on every number column.
+5. **Dense but legible.** 14px table text (`text-sm`), 13px meta (`text-xs` —
+   re-scaled from 12px in `globals.css` after branch users flagged legibility),
+   12px only for badges (`text-[12px]`). Nothing smaller on screen; below 12px
+   is reserved for printed labels. `tabular-nums` on every number column.
+   Weights (same feedback round — small grey text at 400 read as "thin"):
+   labels over content (table headers, KPI labels, `<dt>`s, sidebar group
+   labels) are `font-semibold`; primary cell text and feed messages
+   `font-medium`; chips `font-semibold`. Plain body/secondary text stays 400.
 6. **States are designed.** Loading = skeleton (never a spinner in content),
    empty = invitation + action, error = what happened + retry.
 7. **Dark mode is free** if you use the tokens below — never raw `slate-*`,
@@ -83,8 +89,8 @@ Do not use Material Icons in module pages.
 
 - Page: `PageHeader` then content; max width `max-w-[1400px] mx-auto` for
   dashboards, `max-w-5xl` for forms/detail.
-- Table: inside `SectionCard flush`; `<table className="w-full min-w-[640px] table-fixed text-left text-[13px]">`,
-  header row `text-xs font-medium text-fg-muted border-b border-edge`, body
+- Table: inside `SectionCard flush`; `<table className="w-full min-w-[640px] table-fixed text-left text-sm">`,
+  header row `text-xs font-semibold text-fg-muted border-b border-edge`, body
   `divide-y divide-edge whitespace-nowrap`, cell padding `px-3 py-2`, first cell
   `pl-4`. Row hover `hover:bg-surface-hover`. Put empty / loading states
   **outside** the table so they centre on small screens. Wrap in

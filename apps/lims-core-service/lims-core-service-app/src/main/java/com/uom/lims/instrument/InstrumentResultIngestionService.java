@@ -46,6 +46,7 @@ public class InstrumentResultIngestionService {
     private final AutoverificationService autoverificationService;
     private final com.uom.lims.notification.CriticalValueNotificationService criticalValueNotificationService;
     private final com.uom.lims.qc.QcGateService qcGateService;
+    private final com.uom.lims.service.ResultNumberService resultNumberService;
 
     @Transactional
     public IngestOutcome ingest(AstmMessage.SpecimenResults specimen, String instrumentId) {
@@ -151,7 +152,9 @@ public class InstrumentResultIngestionService {
         if (ingested > 0 && (sample.getStatus() == SampleStatus.ACCEPTED
                 || sample.getStatus() == SampleStatus.IN_TESTING)) {
             // All auto-released -> ready for clinical authorization; otherwise the
-            // sample goes to the supervisor's verification queue.
+            // sample goes to the supervisor's verification queue. Either way the
+            // specimen now carries a result, so it gets its case number here.
+            resultNumberService.ensureResultNo(sample);
             sample.setStatus(allAutoVerified ? SampleStatus.VERIFIED : SampleStatus.SENT_FOR_VERIFICATION);
             sampleRepository.save(sample);
         }

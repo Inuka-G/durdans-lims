@@ -2,12 +2,13 @@ package com.uom.lims.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.uom.lims.api.dto.response.VerificationPendingItemResponse;
 import com.uom.lims.api.enums.ResultFlag;
 import com.uom.lims.api.enums.SampleStatus;
 import com.uom.lims.api.verification.dto.request.BulkVerificationRequest;
 import com.uom.lims.api.verification.dto.request.VerificationRequest;
 import com.uom.lims.api.verification.dto.response.BulkVerificationBatchResponse;
+import com.uom.lims.api.verification.dto.response.BulkVerificationCaseResponse;
+import com.uom.lims.api.verification.dto.response.BulkVerificationParameterPreviewResponse;
 import com.uom.lims.api.verification.dto.response.PreviousVisitSummaryResponse;
 import com.uom.lims.api.verification.dto.response.TestResultDetailResponse;
 import com.uom.lims.api.verification.dto.response.TestResultSummaryResponse;
@@ -40,6 +41,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.time.Period;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Comparator;
@@ -48,7 +50,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @lombok.extern.slf4j.Slf4j
@@ -87,77 +88,20 @@ public class VerificationService {
     private final PatientRepository patientRepository;
     private final ObjectMapper objectMapper;
     private final QcGateService qcGateService;
+    private final CaseContextResolver caseContextResolver;
 
-    @Transactional(readOnly = true)
-    public List<VerificationPendingItemResponse> getPendingSamples() {
-        List<SampleEntity> samples = sampleRepository.findByStatusInAndDeletedFalseOrderByCollectedAtAsc(
-                List.of(SampleStatus.SENT_FOR_VERIFICATION));
+    /** Result statuses the supervisor can act on; anything else is released or with the MLT. */
+    private static final List<ResultStatus> AWAITING_SUPERVISOR = List.of(
+            ResultStatus.ENTERED,
+            ResultStatus.RETURNED_FOR_RECHECK,
+            ResultStatus.RETURNED_TO_MLT);
 
-        List<UUID> testIds = samples.stream()
-                .map(sample -> sample.getOrderItem().getTestId())
-                .distinct()
-                .toList();
+    private static final List<ResultStatus> RETURNED_STATUSES = List.of(
+            ResultStatus.RETURNED_FOR_RECHECK,
+            ResultStatus.RETURNED_TO_MLT);
 
-        Map<UUID, String> testNameById = testCatalogRepository.findAllById(testIds).stream()
-                .collect(Collectors.toMap(
-                        TestCatalogEntity::getId,
-                        TestCatalogEntity::getTestName,
-                        (existing, replacement) -> existing));
-
-        List<UUID> sampleIds = samples.stream()
-                .map(SampleEntity::getId)
-                .toList();
-
-        Map<UUID, List<TestResultEntity>> resultsBySampleId = testResultRepository.findBySampleIdIn(sampleIds)
-                .stream()
-                .collect(Collectors.groupingBy(result -> result.getSample().getId()));
-
-        Map<String, String> patientNameByCode = samples.stream()
-                .map(sample -> sample.getOrderItem().getOrder().getPatientId())
-                .distinct()
-                .collect(Collectors.toMap(
-                        Function.identity(),
-                        patientCode -> patientRepository.findByPatientCode(patientCode)
-                                .map(PatientEntity::getFullName)
-                                .orElse("UNKNOWN_PATIENT")));
-
-        return samples.stream()
-                .map(sample -> {
-                    List<TestResultEntity> results = resultsBySampleId.getOrDefault(sample.getId(), List.of());
-                    TestResultEntity latestResult = results.stream()
-                            .max(Comparator.comparing(
-                                    result -> result.getLastModifiedAt() != null
-                                            ? result.getLastModifiedAt()
-                                            : result.getCreatedAt()))
-                            .orElse(null);
-
-                    ResultFlag overallFlag = results.stream()
-                            .map(TestResultEntity::getFlag)
-                            .filter(flag -> flag != null)
-                            .max(Comparator.comparingInt(this::flagSeverity))
-                            .orElse(null);
-
-                    return new VerificationPendingItemResponse(
-                            sample.getId(),
-                            sample.getBarcode(),
-                            sample.getOrderItem().getOrder().getId(),
-                            sample.getOrderItem().getOrder().getPatientId(),
-                            patientNameByCode.getOrDefault(
-                                    sample.getOrderItem().getOrder().getPatientId(),
-                                    "UNKNOWN_PATIENT"),
-                            testNameById.getOrDefault(sample.getOrderItem().getTestId(), "UNKNOWN_TEST"),
-                            sample.getPriority().name(),
-                            sample.getStatus().name(),
-                            overallFlag != null ? overallFlag.name() : null,
-                            latestResult != null
-                                    ? (latestResult.getLastModifiedBy() != null
-                                            ? latestResult.getLastModifiedBy()
-                                            : latestResult.getCreatedBy())
-                                    : null,
-                            sample.getLastModifiedAt());
-                })
-                .toList();
-    }
+    /** How many parameters a bulk-approval card previews before "+n more". */
+    private static final int BULK_CARD_PARAMETER_PREVIEW = 4;
 
     @Transactional(readOnly = true)
     public Page<TestResultSummaryResponse> getPendingResults(int page, int size) {
@@ -200,8 +144,7 @@ public class VerificationService {
         List<TestResultEntity> pending = testResultRepository.findBySampleId(sample.getId()).stream()
                 .filter(tr -> !tr.isDeleted())
                 .filter(tr -> !Boolean.TRUE.equals(tr.getDraft()))
-                .filter(tr -> tr.getStatus() == ResultStatus.ENTERED
-                        || tr.getStatus() == ResultStatus.RETURNED_FOR_RECHECK)
+                .filter(tr -> isAwaitingSupervisor(tr.getStatus()))
                 .toList();
 
         if (pending.isEmpty()) {
@@ -289,10 +232,12 @@ public class VerificationService {
 
     @Transactional(readOnly = true)
     public List<BulkVerificationBatchResponse> getBulkWorklist() {
+        String branchScope = SecurityUtils.resolveBranchScope();
         List<TestResultEntity> pendingResults = testResultRepository.findSupervisorPendingResults(
                 ResultStatus.ENTERED,
-                ResultStatus.RETURNED_FOR_RECHECK,
-                SampleStatus.SENT_FOR_VERIFICATION);
+                RETURNED_STATUSES,
+                SampleStatus.SENT_FOR_VERIFICATION,
+                branchScope);
 
         Map<UUID, TestCatalogEntity> catalogsById = testCatalogRepository.findAllByIdInAndActiveTrueAndDeletedFalse(
                         pendingResults.stream()
@@ -302,10 +247,25 @@ public class VerificationService {
                 ).stream()
                 .collect(Collectors.toMap(TestCatalogEntity::getId, catalog -> catalog));
 
+        // Cards show who the case belongs to; one lookup for the whole worklist.
+        List<String> patientCodes = pendingResults.stream()
+                .map(VerificationService::patientCodeOf)
+                .filter(code -> code != null && !code.isBlank())
+                .distinct()
+                .toList();
+        Map<String, String> patientNamesByCode = patientCodes.isEmpty()
+                ? Map.of()
+                : patientRepository.findByPatientCodeIn(new java.util.HashSet<>(patientCodes)).stream()
+                .collect(Collectors.toMap(
+                        PatientEntity::getPatientCode,
+                        PatientEntity::getFullName,
+                        (first, second) -> first));
+
         return pendingResults.stream()
                 .collect(Collectors.groupingBy(result -> result.getSample().getOrderItem().getTestId()))
                 .entrySet().stream()
-                .map(entry -> toBulkBatchResponse(entry.getKey(), entry.getValue(), catalogsById.get(entry.getKey())))
+                .map(entry -> toBulkBatchResponse(
+                        entry.getKey(), entry.getValue(), catalogsById.get(entry.getKey()), patientNamesByCode))
                 .sorted(
                         Comparator.comparing(
                                 BulkVerificationBatchResponse::getUpdatedAt,
@@ -335,21 +295,22 @@ public class VerificationService {
                 .findHistoryByEntityTypeAndActions(
                         VERIFICATION_ENTITY_TYPE,
                         actions,
-                        normalizeSearch(search),
+                        CaseContextResolver.normalizeHistorySearch(search),
                         fromTimestamp,
                         PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "timestamp"))
                 );
 
-        Map<UUID, HistoryPatient> patients = resolveHistoryPatients(auditPage.getContent());
-        return auditPage.map(auditLog -> toHistoryItemResponse(auditLog, patients));
+        Map<UUID, HistoryCaseRef> cases = resolveHistoryCases(auditPage.getContent());
+        return auditPage.map(auditLog -> toHistoryItemResponse(auditLog, cases));
     }
 
-    /** Patient identity for one audited action, resolved for display in the history table. */
-    private record HistoryPatient(String code, String name) {
+    /** Patient identity and case number for one audited action, resolved for the history table. */
+    private record HistoryCaseRef(String patientCode, String patientName, String resultNo) {
     }
 
     /**
-     * Resolve the patient behind each audit row for a whole page at once.
+     * Resolve the patient and case number behind each audit row for a whole page
+     * at once.
      *
      * <p>The audit row itself cannot be trusted for this: the verification writes
      * put the specimen barcode in the patient_code column, so the identity has to
@@ -358,7 +319,7 @@ public class VerificationService {
      * <p>Batched deliberately. Resolving per row turned a 25-row page into 50
      * queries; this is two regardless of page size.
      */
-    private Map<UUID, HistoryPatient> resolveHistoryPatients(List<AuditLog> auditLogs) {
+    private Map<UUID, HistoryCaseRef> resolveHistoryCases(List<AuditLog> auditLogs) {
         List<UUID> resultIds = auditLogs.stream()
                 .map(AuditLog::getEntityId)
                 .filter(Objects::nonNull)
@@ -369,17 +330,20 @@ public class VerificationService {
         }
 
         Map<UUID, String> codeByResultId = new HashMap<>();
+        Map<UUID, String> resultNoByResultId = new HashMap<>();
         for (TestResultEntity result : testResultRepository.findAllById(resultIds)) {
             String code = patientCodeOf(result);
             if (code != null && !code.isBlank()) {
                 codeByResultId.put(result.getId(), code.trim());
             }
-        }
-        if (codeByResultId.isEmpty()) {
-            return Map.of();
+            if (result.getSample() != null && result.getSample().getResultNo() != null) {
+                resultNoByResultId.put(result.getId(), result.getSample().getResultNo());
+            }
         }
 
-        Map<String, String> nameByCode = patientRepository
+        Map<String, String> nameByCode = codeByResultId.isEmpty()
+                ? Map.of()
+                : patientRepository
                 .findByPatientCodeIn(new java.util.HashSet<>(codeByResultId.values()))
                 .stream()
                 .collect(Collectors.toMap(
@@ -387,9 +351,15 @@ public class VerificationService {
                         PatientEntity::getFullName,
                         (first, second) -> first));
 
-        Map<UUID, HistoryPatient> resolved = new HashMap<>();
-        codeByResultId.forEach((resultId, code) ->
-                resolved.put(resultId, new HistoryPatient(code, nameByCode.get(code))));
+        Map<UUID, HistoryCaseRef> resolved = new HashMap<>();
+        for (UUID resultId : resultIds) {
+            String code = codeByResultId.get(resultId);
+            String resultNo = resultNoByResultId.get(resultId);
+            if (code == null && resultNo == null) {
+                continue;
+            }
+            resolved.put(resultId, new HistoryCaseRef(code, code == null ? null : nameByCode.get(code), resultNo));
+        }
         return resolved;
     }
 
@@ -412,11 +382,12 @@ public class VerificationService {
         String patientName = patient != null ? patient.getFullName() : null;
         Integer patientAge = patient == null ? null : calculatePatientAge(patient);
         String patientGender = patient == null || patient.getGender() == null ? null : patient.getGender().name();
-        List<PreviousVisitSummaryResponse> previousVisits = resolvePreviousVisits(
-                patientId,
-                testId,
-                result.getSample().getId()
-        );
+
+        // One query serves both the "previous visits" panel and the per-parameter
+        // delta column, so the two can never disagree about what "previous" means.
+        List<TestResultEntity> priorResults = caseContextResolver.priorResults(patientId, testId, result.getSample());
+        List<PreviousVisitSummaryResponse> previousVisits = toPreviousVisits(priorResults);
+        Map<UUID, TestResultEntity> priorByParameter = caseContextResolver.latestReleasedByParameter(priorResults);
 
         return testResultMapper.toDetailResponse(
                 result,
@@ -426,7 +397,9 @@ public class VerificationService {
                 testType,
                 patientAge,
                 patientGender,
-                previousVisits
+                previousVisits,
+                priorByParameter,
+                caseContextResolver.receivedAt(result.getSample().getId())
         );
     }
 
@@ -434,12 +407,12 @@ public class VerificationService {
     public TestResultDetailResponse verifyResult(UUID resultId, VerificationRequest request) {
         TestResultEntity anchor = findResultById(resultId);
 
-        if (anchor.getStatus() != ResultStatus.ENTERED
-                && anchor.getStatus() != ResultStatus.RETURNED_FOR_RECHECK) {
+        if (!isAwaitingSupervisor(anchor.getStatus())) {
             throw new IllegalStateException(
-                    "Cannot verify result not in ENTERED or RETURNED_FOR_RECHECK status. Current: "
+                    "Cannot verify result not in ENTERED, RETURNED_FOR_RECHECK or RETURNED_TO_MLT status. Current: "
                             + anchor.getStatus());
         }
+        assertNotWithMlt(anchor);
 
         String username = SecurityUtils.getCurrentUsername();
         String actorName = currentActorName();
@@ -450,8 +423,7 @@ public class VerificationService {
         List<TestResultEntity> targets = testResultRepository.findBySampleId(anchor.getSample().getId()).stream()
                 .filter(tr -> !tr.isDeleted())
                 .filter(tr -> !Boolean.TRUE.equals(tr.getDraft()))
-                .filter(tr -> tr.getStatus() == ResultStatus.ENTERED
-                        || tr.getStatus() == ResultStatus.RETURNED_FOR_RECHECK)
+                .filter(tr -> isAwaitingSupervisor(tr.getStatus()))
                 .toList();
 
         if (targets.isEmpty()) {
@@ -487,26 +459,44 @@ public class VerificationService {
         return getResultDetails(resultId);
     }
 
+    /**
+     * Return the case to the MLT for re-run / re-entry.
+     *
+     * <p>The reason travels in {@code supervisorNote} and is stamped on the result
+     * as a return (reason / by / at) so the MLT, the pending queue and the audit
+     * trail all show the same thing. The MLT's own notes are preserved alongside it
+     * — an earlier version overwrote them with the return reason, which lost the
+     * bench's account of the run at the exact moment it mattered most.
+     */
     @Transactional
     public TestResultDetailResponse rejectResult(UUID resultId, VerificationRequest request) {
         TestResultEntity anchor = findResultById(resultId);
 
-        if (anchor.getStatus() != ResultStatus.ENTERED
-                && anchor.getStatus() != ResultStatus.RETURNED_FOR_RECHECK) {
+        if (!isAwaitingSupervisor(anchor.getStatus())) {
             throw new IllegalStateException(
-                    "Cannot reject result not in ENTERED or RETURNED_FOR_RECHECK status. Current: "
+                    "Cannot return result not in ENTERED, RETURNED_FOR_RECHECK or RETURNED_TO_MLT status. Current: "
                             + anchor.getStatus());
+        }
+        assertNotWithMlt(anchor);
+
+        // Older clients sent the reason as mltNotes ("Returned by X: reason"); the
+        // supervisor note is the field the reason belongs in.
+        String returnReason = trimToNull(request.getSupervisorNote());
+        if (returnReason == null) {
+            returnReason = sanitizeHistoryNote(request.getMltNotes());
+        }
+        if (returnReason == null) {
+            throw new BusinessRuleException("A return reason is required to send a case back to the MLT.");
         }
 
         String username = SecurityUtils.getCurrentUsername();
+        String actorName = currentActorName();
         Instant now = Instant.now();
-        String storedNotes = composeStoredNotes(request.getMltNotes(), request.getSupervisorNote());
 
         List<TestResultEntity> targets = testResultRepository.findBySampleId(anchor.getSample().getId()).stream()
                 .filter(tr -> !tr.isDeleted())
                 .filter(tr -> !Boolean.TRUE.equals(tr.getDraft()))
-                .filter(tr -> tr.getStatus() == ResultStatus.ENTERED
-                        || tr.getStatus() == ResultStatus.RETURNED_FOR_RECHECK)
+                .filter(tr -> isAwaitingSupervisor(tr.getStatus()))
                 .toList();
 
         if (targets.isEmpty()) {
@@ -517,18 +507,21 @@ public class VerificationService {
         sample.setStatus(SampleStatus.IN_TESTING);
 
         for (TestResultEntity result : targets) {
-            result.setStatus(ResultStatus.RETURNED_FOR_RECHECK);
-            result.setMltNotes(storedNotes);
-            // Do NOT stamp technicallyVerifiedBy/At on a reject — the result was
+            result.setStatus(ResultStatus.RETURNED_TO_MLT);
+            // Keep the MLT's note; file the supervisor's reason in its own section.
+            String existingMltNote = extractMltNote(result.getMltNotes());
+            result.setMltNotes(composeStoredNotes(existingMltNote, returnReason));
+            result.setReturnReason(returnReason);
+            result.setReturnedBy(actorName);
+            result.setReturnedAt(now);
+            // Do NOT stamp technicallyVerifiedBy/At on a return — the result was
             // returned, not verified. lastModified captures who/when.
             result.setLastModifiedBy(username);
             result.setLastModifiedAt(now);
             testResultRepository.save(result);
         }
 
-        logVerificationEvent(anchor, ACTION_RETURNED_TO_MLT, resolveHistoryNotes(
-                ACTION_RETURNED_TO_MLT,
-                sanitizeHistoryNote(extractMltNote(storedNotes))));
+        logVerificationEvent(anchor, ACTION_RETURNED_TO_MLT, returnReason);
         return getResultDetails(resultId);
     }
 
@@ -614,10 +607,13 @@ public class VerificationService {
         }
 
         String reason = request == null ? null : request.getQcOverrideReason();
-        if (reason == null || reason.trim().length() < MIN_OVERRIDE_REASON) {
+        if (reason == null || reason.trim().isBlank()) {
+            reason = (request != null && request.getSupervisorNote() != null) ? request.getSupervisorNote().trim() : null;
+        }
+
+        if (reason == null || reason.trim().length() < 10) {
             throw new BusinessRuleException(
-                    "QC hold — " + summary + ". Releasing over QC requires a documented reason of at least "
-                            + MIN_OVERRIDE_REASON + " characters.");
+                    "QC hold — " + summary + ". A documented reason (at least 10 characters) is required to release over QC.");
         }
 
         String username = SecurityUtils.getCurrentUsername();
@@ -713,7 +709,8 @@ public class VerificationService {
     private BulkVerificationBatchResponse toBulkBatchResponse(
             UUID testId,
             List<TestResultEntity> results,
-            TestCatalogEntity catalog
+            TestCatalogEntity catalog,
+            Map<String, String> patientNamesByCode
     ) {
         // Bulk approval operates on cases (one specimen), not on individual analyte
         // rows. Approving an anchor verifies every pending parameter on its sample,
@@ -728,16 +725,19 @@ public class VerificationService {
 
         List<String> safeCaseIds = new ArrayList<>();
         List<String> reviewCaseIds = new ArrayList<>();
+        List<BulkVerificationCaseResponse> cases = new ArrayList<>();
         resultsBySample.forEach((sampleId, caseResults) -> {
             String anchorResultId = resolveCaseAnchorResultId(caseResults);
             if (anchorResultId == null) {
                 return;
             }
-            if (isCaseSafeForBulkApproval(caseResults)) {
+            boolean safe = isCaseSafeForBulkApproval(caseResults);
+            if (safe) {
                 safeCaseIds.add(anchorResultId);
             } else {
                 reviewCaseIds.add(anchorResultId);
             }
+            cases.add(toBulkCaseResponse(anchorResultId, caseResults, safe, patientNamesByCode));
         });
         int totalCases = safeCaseIds.size() + reviewCaseIds.size();
 
@@ -762,6 +762,70 @@ public class VerificationService {
                 .updatedAt(updatedAt)
                 .resultIds(safeCaseIds)
                 .reviewResultIds(reviewCaseIds)
+                .cases(cases)
+                .build();
+    }
+
+    /** One card's worth of a case: who, how urgent, what the first few values look like. */
+    private BulkVerificationCaseResponse toBulkCaseResponse(
+            String anchorResultId,
+            List<TestResultEntity> caseResults,
+            boolean safe,
+            Map<String, String> patientNamesByCode
+    ) {
+        TestResultEntity first = caseResults.get(0);
+        SampleEntity sample = first.getSample();
+        String patientCode = patientCodeOf(first);
+
+        List<TestResultEntity> ordered = caseResults.stream()
+                .sorted(Comparator
+                        .comparing(
+                                (TestResultEntity tr) -> tr.getParameter() == null
+                                        ? null
+                                        : tr.getParameter().getDisplayOrder(),
+                                Comparator.nullsLast(Comparator.naturalOrder()))
+                        .thenComparing(
+                                tr -> tr.getParameter() == null ? "" : tr.getParameter().getName(),
+                                String.CASE_INSENSITIVE_ORDER))
+                .toList();
+
+        List<BulkVerificationParameterPreviewResponse> previews = ordered.stream()
+                .limit(BULK_CARD_PARAMETER_PREVIEW)
+                .map(tr -> BulkVerificationParameterPreviewResponse.builder()
+                        .parameterName(tr.getParameter() == null ? null : tr.getParameter().getName())
+                        .resultValue(tr.getResultValue())
+                        .unit(tr.getParameter() == null ? null : tr.getParameter().getUnit())
+                        .flag(tr.getFlag() == null ? null : tr.getFlag().name())
+                        .build())
+                .toList();
+
+        Instant updatedAt = caseResults.stream()
+                .map(TestResultEntity::getLastModifiedAt)
+                .filter(Objects::nonNull)
+                .max(Comparator.naturalOrder())
+                .orElse(sample == null ? null : sample.getLastModifiedAt());
+
+        ResultFlag overallFlag = resolveOverallFlag(caseResults);
+        String aggregateStatus = caseResults.stream()
+                .anyMatch(tr -> tr.getStatus() == ResultStatus.RETURNED_FOR_RECHECK)
+                ? ResultStatus.RETURNED_FOR_RECHECK.name()
+                : ResultStatus.ENTERED.name();
+
+        return BulkVerificationCaseResponse.builder()
+                .resultId(anchorResultId)
+                .resultNo(sample == null ? null : sample.getResultNo())
+                .sampleId(sample == null ? null : sample.getId().toString())
+                .sampleBarcode(sample == null ? null : sample.getBarcode())
+                .patientCode(patientCode)
+                .patientName(patientCode == null ? null : patientNamesByCode.get(patientCode))
+                .priorityLevel(sample == null || sample.getPriority() == null ? null : sample.getPriority().name())
+                .status(aggregateStatus)
+                .flag(overallFlag == null ? null : overallFlag.name())
+                .hasCriticalFinding(hasCriticalFinding(caseResults))
+                .safeForApproval(safe)
+                .updatedAt(updatedAt)
+                .parameterCount(caseResults.size())
+                .parameters(previews)
                 .build();
     }
 
@@ -795,6 +859,24 @@ public class VerificationService {
                 && (result.getFlag() == null || result.getFlag() == ResultFlag.NORMAL);
     }
 
+    private static boolean isAwaitingSupervisor(ResultStatus status) {
+        return status != null && AWAITING_SUPERVISOR.contains(status);
+    }
+
+    /**
+     * A case the supervisor sent back is the MLT's until they resubmit it; acting
+     * on it from the supervisor side in the meantime would race the bench.
+     */
+    private static void assertNotWithMlt(TestResultEntity anchor) {
+        SampleEntity sample = anchor.getSample();
+        if (anchor.getStatus() == ResultStatus.RETURNED_TO_MLT
+                && sample != null
+                && sample.getStatus() == SampleStatus.IN_TESTING) {
+            throw new IllegalStateException(
+                    "This case was returned to the MLT and is awaiting re-entry; it comes back to the queue when they resubmit.");
+        }
+    }
+
     private int flagSeverity(ResultFlag flag) {
         return switch (flag) {
             case NORMAL -> 0;
@@ -819,23 +901,31 @@ public class VerificationService {
 
     private VerificationHistoryItemResponse toHistoryItemResponse(
             AuditLog auditLog,
-            Map<UUID, HistoryPatient> patients) {
+            Map<UUID, HistoryCaseRef> cases) {
         Map<String, String> details = parseDetails(auditLog.getDetails());
-        HistoryPatient patient = auditLog.getEntityId() == null
+        HistoryCaseRef caseRef = auditLog.getEntityId() == null
                 ? null
-                : patients.get(auditLog.getEntityId());
+                : cases.get(auditLog.getEntityId());
+        // AuditService writes LocalDateTime.now(UTC); read it back the same way so a
+        // host in another zone does not shift every history time by its offset.
+        Instant actionAt = auditLog.getTimestamp() == null
+                ? null
+                : auditLog.getTimestamp().atOffset(ZoneOffset.UTC).toInstant();
         return VerificationHistoryItemResponse.builder()
                 .resultId(auditLog.getEntityId() == null ? "" : auditLog.getEntityId().toString())
+                .resultNo(caseRef != null && caseRef.resultNo() != null
+                        ? caseRef.resultNo()
+                        : details.get("resultNo"))
                 .actionType(auditLog.getAction())
-                .patientCode(patient == null ? null : patient.code())
-                .patientName(patient == null ? null : patient.name())
+                .patientCode(caseRef == null ? details.get("patientCode") : caseRef.patientCode())
+                .patientName(caseRef == null ? details.get("patientName") : caseRef.patientName())
                 .testName(details.getOrDefault("testName", "Unknown Test Group"))
                 .specimenPriority(details.get("specimenPriority"))
                 .actionSummary(getActionSummary(auditLog.getAction()))
                 .performedBy(auditLog.getPerformedBy())
-                .actionAt(auditLog.getTimestamp() == null ? null : auditLog.getTimestamp().atZone(java.time.ZoneId.systemDefault()).toInstant())
+                .actionAt(actionAt)
                 .notes(details.get("notes"))
-                .updatedAt(auditLog.getTimestamp() == null ? null : auditLog.getTimestamp().atZone(java.time.ZoneId.systemDefault()).toInstant())
+                .updatedAt(actionAt)
                 .build();
     }
 
@@ -917,27 +1007,9 @@ public class VerificationService {
         return Period.between(patient.getDob(), LocalDate.now()).getYears();
     }
 
-    private List<PreviousVisitSummaryResponse> resolvePreviousVisits(String patientId, UUID testId, UUID currentSampleId) {
-        if (patientId == null || patientId.isBlank() || testId == null || currentSampleId == null) {
-            return List.of();
-        }
-
-        TestResultEntity currentResult = testResultRepository.findBySampleId(currentSampleId).stream()
-                .findFirst()
-                .orElse(null);
-        Instant currentVisitAt = currentResult == null
-                ? null
-                : currentResult.getSample().getCollectedAt() != null
-                ? currentResult.getSample().getCollectedAt()
-                : currentResult.getSample().getCreatedAt();
-
-        if (currentVisitAt == null) {
-            return List.of();
-        }
-
-        Map<UUID, List<TestResultEntity>> resultsBySample = testResultRepository
-                .findPreviousResultsForPatientAndTest(patientId.trim(), testId, currentSampleId, currentVisitAt)
-                .stream()
+    /** Prior results (newest visit first) grouped into the last five visits. */
+    private List<PreviousVisitSummaryResponse> toPreviousVisits(List<TestResultEntity> priorResults) {
+        Map<UUID, List<TestResultEntity>> resultsBySample = priorResults.stream()
                 .collect(Collectors.groupingBy(
                         result -> result.getSample().getId(),
                         LinkedHashMap::new,
@@ -952,9 +1024,7 @@ public class VerificationService {
 
     private PreviousVisitSummaryResponse toPreviousVisitSummary(List<TestResultEntity> sampleResults) {
         TestResultEntity primaryResult = sampleResults.get(0);
-        Instant visitedAt = primaryResult.getSample().getCollectedAt() != null
-                ? primaryResult.getSample().getCollectedAt()
-                : primaryResult.getSample().getCreatedAt();
+        Instant visitedAt = CaseContextResolver.visitedAt(primaryResult.getSample());
         int abnormalCount = (int) sampleResults.stream()
                 .filter(result -> result.getFlag() != null && result.getFlag() != ResultFlag.NORMAL)
                 .count();
@@ -964,6 +1034,7 @@ public class VerificationService {
 
         return PreviousVisitSummaryResponse.builder()
                 .resultId(primaryResult.getId().toString())
+                .resultNo(primaryResult.getSample().getResultNo())
                 .sampleId(primaryResult.getSample().getId().toString())
                 .status(primaryResult.getStatus() == null ? null : primaryResult.getStatus().name())
                 .priorityLevel(primaryResult.getSample().getPriority() == null
@@ -981,12 +1052,12 @@ public class VerificationService {
             return notes;
         }
         if (ACTION_VERIFICATION_APPROVED.equals(action)) {
-            return "Technically verified by lab supervisor.";
+            return "Passed to Pathologist";
         }
         if (ACTION_RETURNED_TO_MLT.equals(action)) {
             return "Returned to MLT for correction and re-entry.";
         }
-        return notes;
+        return null;
     }
 
     private String resolveApprovalHistoryNotes(String supervisorNote) {
@@ -994,7 +1065,7 @@ public class VerificationService {
             return sanitizeHistoryNote(supervisorNote);
         }
 
-        return resolveHistoryNotes(ACTION_VERIFICATION_APPROVED, null);
+        return "Passed to Pathologist";
     }
 
     private String composeStoredNotes(String mltNotes, String supervisorNote) {
@@ -1093,10 +1164,29 @@ public class VerificationService {
         TestCatalogEntity catalog = testCatalogRepository.findById(result.getSample().getOrderItem().getTestId())
                 .orElse(null);
 
+        // Everything the history screen shows and searches on is written into the
+        // row itself, so the audit trail stays readable even if the result it points
+        // at is later purged, and so the all-fields search has something to match.
         Map<String, String> details = new HashMap<>();
         details.put("testName", catalog == null ? "Unknown Test Group" : catalog.getTestName());
+        details.put("actionSummary", getActionSummary(action));
         if (result.getSample().getPriority() != null) {
             details.put("specimenPriority", result.getSample().getPriority().name());
+        }
+        if (result.getSample().getResultNo() != null) {
+            details.put("resultNo", result.getSample().getResultNo());
+        }
+        String patientCode = patientCodeOf(result);
+        if (patientCode != null && !patientCode.isBlank()) {
+            details.put("patientCode", patientCode);
+            String patientName = safelyResolvePatientName(patientCode);
+            if (patientName != null && !patientName.isBlank()) {
+                details.put("patientName", patientName);
+            }
+        }
+        String performedById = SecurityUtils.getCurrentUserId();
+        if (performedById != null && !performedById.isBlank()) {
+            details.put("performedById", performedById);
         }
         if (notes != null && !notes.isBlank()) {
             details.put("notes", notes);

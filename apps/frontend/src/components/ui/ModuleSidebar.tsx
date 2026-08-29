@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
-import { ExternalLink, LifeBuoy } from "lucide-react";
+import { ExternalLink, LifeBuoy, Mail } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -33,6 +33,8 @@ export type SidebarItem = {
 
 export type SidebarGroup = { label?: string; items: SidebarItem[] };
 
+const HELP_EMAIL = "support@durdans.com";
+
 function defaultActive(pathname: string, href: string) {
     if (href.startsWith("http")) return false;
     return pathname === href || pathname.startsWith(href + "/");
@@ -55,20 +57,20 @@ export default function ModuleSidebar({
     return (
         <aside
             aria-label={ariaLabel}
-            className="fixed top-16 hidden h-[calc(100vh-4rem)] w-64 flex-col overflow-y-auto border-r border-edge bg-surface lg:flex"
+            className="fixed top-16 hidden h-[calc(100vh-4rem)] w-64 flex-col overflow-hidden border-r border-edge bg-surface lg:flex"
         >
-            <nav className="flex-1 px-3 py-4">
+            <nav className="flex-1 overflow-y-auto px-3 py-4">
                 {groups.map((group, gi) => (
                     <div key={group.label ?? gi} className={cn(gi > 0 && "mt-6")}>
                         {group.label && (
-                            <p className="mb-1 px-2 text-[11px] font-medium uppercase tracking-wide text-fg-muted">{group.label}</p>
+                            <p className="mb-1 px-2 text-xs font-semibold uppercase tracking-wide text-fg-muted">{group.label}</p>
                         )}
                         <ul className="space-y-0.5">
                             {group.items.map((item) => {
                                 const active = item.isActive ? item.isActive(pathname) : defaultActive(pathname, item.href);
                                 const Icon = item.icon;
                                 const className = cn(
-                                    "group flex items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                                    "group flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
                                     active ? "bg-primary-soft text-primary-strong" : "text-fg-secondary hover:bg-surface-hover hover:text-fg"
                                 );
                                 const content = (
@@ -113,15 +115,27 @@ export default function ModuleSidebar({
             </nav>
 
             {(footer || !hideHelp) && (
-                <div className="border-t border-edge px-3 py-3">
-                    {footer}
+                <div className="shrink-0 border-t border-edge bg-surface px-3 py-3">
+                    {footer && <div className={cn(!hideHelp && "mb-2")}>{footer}</div>}
                     {!hideHelp && (
                         <a
-                            href="mailto:support@durdans.com"
-                            className="flex items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] font-medium text-fg-secondary transition-colors hover:bg-surface-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                            href={`mailto:${HELP_EMAIL}`}
+                            aria-label={`Help and support - email ${HELP_EMAIL}`}
+                            className="group flex items-center gap-2.5 rounded-md border border-transparent px-2 py-2 transition-colors hover:border-edge hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                         >
-                            <LifeBuoy className="h-4 w-4 text-fg-faint" aria-hidden="true" />
-                            Help and support
+                            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-edge bg-surface-muted text-fg-muted transition-colors group-hover:text-fg-secondary">
+                                <LifeBuoy className="h-4 w-4" aria-hidden="true" />
+                            </span>
+                            <span className="min-w-0 flex-1">
+                                <span className="block truncate text-sm font-medium text-fg-secondary group-hover:text-fg">
+                                    Help and support
+                                </span>
+                                <span className="block truncate text-xs text-fg-muted">{HELP_EMAIL}</span>
+                            </span>
+                            <Mail
+                                className="h-3.5 w-3.5 shrink-0 text-fg-faint opacity-0 transition-opacity group-hover:opacity-100"
+                                aria-hidden="true"
+                            />
                         </a>
                     )}
                 </div>

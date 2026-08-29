@@ -22,8 +22,13 @@ public class AutoverificationService {
     public record Decision(boolean autoVerify, String reason) {
     }
 
-    /** Percent change from the patient's prior result that holds for manual review. */
-    private static final double DELTA_THRESHOLD_PCT = 40.0;
+    /**
+     * Percent change from the patient's prior result that holds for manual review.
+     * Public because the review screens mark the same threshold on their delta
+     * column — one number, so what the analyser holds and what the supervisor
+     * sees highlighted never drift apart.
+     */
+    public static final double DELTA_THRESHOLD_PCT = 40.0;
 
     public Decision decide(TestResultEntity result) {
         return decide(result, null);

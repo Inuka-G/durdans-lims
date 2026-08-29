@@ -48,6 +48,7 @@ export default function MLTAllWorklistPage() {
     const [searchQuery, setSearchQuery] = useState('');
     const [department, setDepartment] = useState('All Departments');
     const [testType, setTestType] = useState('All Test Types');
+    const [statusFilter, setStatusFilter] = useState('ALL');
     const [currentPage, setCurrentPage] = useState(1);
 
     const loadSamples = useCallback(async () => {
@@ -82,6 +83,13 @@ export default function MLTAllWorklistPage() {
         return ['All Test Types', ...uniqueTestTypes];
     }, [samples]);
 
+    const statuses = useMemo(() => {
+        const uniqueStatuses = Array.from(
+            new Set(samples.map((sample) => sample.status).filter(Boolean))
+        ).sort();
+        return ['ALL', ...uniqueStatuses];
+    }, [samples]);
+
     const filtered = useMemo(() => {
         const query = searchQuery.trim().toLowerCase();
 
@@ -94,10 +102,11 @@ export default function MLTAllWorklistPage() {
                 sample.orderId.toLowerCase().includes(query);
             const matchesDept = department === 'All Departments' || sample.department === department;
             const matchesTest = testType === 'All Test Types' || sample.testName === testType;
+            const matchesStatus = statusFilter === 'ALL' || sample.status === statusFilter;
 
-            return matchesSearch && matchesDept && matchesTest;
+            return matchesSearch && matchesDept && matchesTest && matchesStatus;
         });
-    }, [samples, searchQuery, department, testType]);
+    }, [samples, searchQuery, department, testType, statusFilter]);
 
     const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
     const paginated = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
@@ -109,12 +118,16 @@ export default function MLTAllWorklistPage() {
     }, [currentPage, totalPages]);
 
     const hasFilters =
-        searchQuery.trim().length > 0 || department !== 'All Departments' || testType !== 'All Test Types';
+        searchQuery.trim().length > 0 ||
+        department !== 'All Departments' ||
+        testType !== 'All Test Types' ||
+        statusFilter !== 'ALL';
 
     const clearFilters = () => {
         setSearchQuery('');
         setDepartment('All Departments');
         setTestType('All Test Types');
+        setStatusFilter('ALL');
         setCurrentPage(1);
     };
 
@@ -124,6 +137,7 @@ export default function MLTAllWorklistPage() {
     const scopeLabel = [
         department !== 'All Departments' ? `in ${department}` : null,
         testType !== 'All Test Types' ? `— ${testType}` : null,
+        statusFilter !== 'ALL' ? `(${humanizeStatus(statusFilter)})` : null,
     ]
         .filter(Boolean)
         .join(' ');
@@ -208,11 +222,27 @@ export default function MLTAllWorklistPage() {
                             setTestType(event.target.value);
                             setCurrentPage(1);
                         }}
-                        className="w-full sm:w-56"
+                        className="w-full sm:w-48"
                     >
                         {testTypes.map((item) => (
                             <option key={item} value={item}>
                                 {OPTION_LABELS[item] ?? item}
+                            </option>
+                        ))}
+                    </SelectField>
+                    <SelectField
+                        label="Status"
+                        hideLabel
+                        value={statusFilter}
+                        onChange={(event) => {
+                            setStatusFilter(event.target.value);
+                            setCurrentPage(1);
+                        }}
+                        className="w-full sm:w-44"
+                    >
+                        {statuses.map((status) => (
+                            <option key={status} value={status}>
+                                {status === 'ALL' ? 'All statuses' : humanizeStatus(status)}
                             </option>
                         ))}
                     </SelectField>
@@ -297,26 +327,26 @@ export default function MLTAllWorklistPage() {
                                 + 192 (Status) + 192 (Actions) = 816px of fixed columns. The auto
                                 "Test type" column takes whatever is left, so min-w must stay at
                                 816 + 160 (text-column floor) = 976 or the column collapses. */}
-                            <table className="w-full min-w-[980px] table-fixed text-left text-[13px]">
+                            <table className="w-full min-w-[1040px] table-fixed text-left text-sm">
                                 <caption className="sr-only">Samples across all departments</caption>
                                 <thead>
-                                    <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
-                                        <th scope="col" className="w-36 py-2 pl-4 pr-3 font-medium">
+                                    <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
+                                        <th scope="col" className="w-48 py-2 pl-4 pr-3 font-semibold">
                                             Sample ID
                                         </th>
-                                        <th scope="col" className="w-48 px-3 py-2 font-medium">
+                                        <th scope="col" className="w-48 px-3 py-2 font-semibold">
                                             Patient
                                         </th>
-                                        <th scope="col" className="px-3 py-2 font-medium">
+                                        <th scope="col" className="px-3 py-2 font-semibold">
                                             Test type
                                         </th>
-                                        <th scope="col" className="w-24 px-3 py-2 font-medium">
+                                        <th scope="col" className="w-24 px-3 py-2 font-semibold">
                                             Priority
                                         </th>
-                                        <th scope="col" className="w-48 px-3 py-2 font-medium">
+                                        <th scope="col" className="w-48 px-3 py-2 font-semibold">
                                             Status
                                         </th>
-                                        <th scope="col" className="w-48 py-2 pl-2 pr-3 text-right font-medium">
+                                        <th scope="col" className="w-48 py-2 pl-2 pr-3 text-right font-semibold">
                                             <span className="sr-only">Actions</span>
                                         </th>
                                     </tr>

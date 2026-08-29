@@ -271,43 +271,70 @@ export default function GlobalUserControlPage() {
                             {roles.map(r => (
                                 <option key={r} value={r}>{r}</option>
                             ))}
-                        </select>
-                        <span className="material-icons absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-lg">expand_more</span>
-                    </div>
-
-                    {/* Create Button */}
-                    <button
-                        onClick={() => setIsCreateModalOpen(true)}
-                        className="w-full sm:w-auto flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-bold transition-colors shadow-sm shadow-blue-500/30 active:scale-95 whitespace-nowrap"
-                    >
-                        <span className="material-icons text-[18px]">person_add</span>
-                        Create New User
-                    </button>
-                </div>
-            </div>
-
-            {/* Data Table */}
-            {activeTab === "directory" && (
-                <div className="bg-white border border-slate-200 shadow-sm rounded-2xl overflow-hidden flex-1 flex flex-col">
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left border-collapse min-w-[1000px]">
-                            <thead>
-                                <tr className="border-b border-slate-200 bg-slate-50/50">
-                                    <th className="py-4 px-6 text-[11px] font-extrabold text-slate-500 uppercase tracking-widest">User ID</th>
-                                    <th className="py-4 px-6 text-[11px] font-extrabold text-slate-500 uppercase tracking-widest">User Details</th>
-                                    <th className="py-4 px-6 text-[11px] font-extrabold text-slate-500 uppercase tracking-widest">Branch</th>
-                                    <th className="py-4 px-6 text-[11px] font-extrabold text-slate-500 uppercase tracking-widest">Assigned Roles</th>
-                                    <th className="py-4 px-6 text-[11px] font-extrabold text-slate-500 uppercase tracking-widest text-center">Status</th>
-                                    <th className="py-4 px-6 text-[11px] font-extrabold text-slate-500 uppercase tracking-widest">Last Login</th>
-                                    <th className="py-4 px-6 text-[11px] font-extrabold text-slate-500 uppercase tracking-widest text-center">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100">
-                                {loading ? (
-                                    <tr>
-                                        <td colSpan={7} className="py-12 text-center">
-                                            <span className="material-icons animate-spin text-blue-600 text-3xl">sync</span>
-                                        </td>
+                        </ul>
+                    ) : showErrorState ? (
+                        <EmptyState
+                            icon={AlertTriangle}
+                            title="User administration unavailable"
+                            description={error ?? undefined}
+                            action={
+                                <Button size="sm" icon={RefreshCw} onClick={load}>
+                                    Retry
+                                </Button>
+                            }
+                        />
+                    ) : users.length === 0 ? (
+                        <EmptyState
+                            icon={Users}
+                            title="No users yet"
+                            description="Create the first user to give staff access to the system."
+                            action={
+                                <Button size="sm" icon={UserPlus} onClick={() => setIsCreateModalOpen(true)}>
+                                    Create user
+                                </Button>
+                            }
+                        />
+                    ) : visibleUsers.length === 0 ? (
+                        <EmptyState
+                            icon={Search}
+                            title="No users match"
+                            description="Try a different name, ID or email."
+                            action={
+                                <Button size="sm" icon={X} onClick={() => setSearch("")}>
+                                    Clear search
+                                </Button>
+                            }
+                        />
+                    ) : (
+                        <div className="overflow-x-auto">
+                            {/* min-w must cover the fixed columns plus a >=160px floor for the auto
+                                Name column at every band. lg reveals Roles (w-48) + Last login (w-32),
+                                pushing the fixed sum to 752px, so the table needs >=912px there. */}
+                            <table className="w-full min-w-[760px] table-fixed text-left text-sm lg:min-w-[920px]">
+                                <caption className="sr-only">User directory</caption>
+                                <thead>
+                                    <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
+                                        <th scope="col" className="w-28 py-2 pl-4 pr-3 font-semibold">
+                                            User ID
+                                        </th>
+                                        <th scope="col" className="px-3 py-2 font-semibold">
+                                            Name
+                                        </th>
+                                        <th scope="col" className="hidden w-28 px-3 py-2 font-semibold md:table-cell">
+                                            Branch
+                                        </th>
+                                        <th scope="col" className="hidden w-48 px-3 py-2 font-semibold lg:table-cell">
+                                            Roles
+                                        </th>
+                                        <th scope="col" className="w-24 px-3 py-2 font-semibold">
+                                            Status
+                                        </th>
+                                        <th scope="col" className="hidden w-32 px-3 py-2 font-semibold lg:table-cell">
+                                            Last login
+                                        </th>
+                                        <th scope="col" className="w-28 py-2 pl-3 pr-4 text-right font-semibold">
+                                            Actions
+                                        </th>
                                     </tr>
                                 ) : filteredUsers.length === 0 ? (
                                     <tr>

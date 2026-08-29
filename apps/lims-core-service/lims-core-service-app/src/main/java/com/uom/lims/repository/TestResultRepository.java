@@ -28,6 +28,11 @@ public interface TestResultRepository extends JpaRepository<TestResultEntity, UU
 
     List<TestResultEntity> findByStatusInAndDraftFalse(List<ResultStatus> statuses);
 
+    /**
+     * Everything waiting on the supervisor: freshly ENTERED rows, plus returned rows
+     * (either direction) whose specimen is back in the verification queue — a
+     * returned row on a specimen still with the MLT is the MLT's, not the supervisor's.
+     */
     @Query("""
             select tr
             from TestResultEntity tr
@@ -38,14 +43,14 @@ public interface TestResultRepository extends JpaRepository<TestResultEntity, UU
               and (
                     tr.status = :enteredStatus
                     or (
-                        tr.status = :returnedStatus
+                        tr.status in (:returnedStatuses)
                         and s.status = :supervisorQueueStatus
                     )
               )
             """)
     Page<TestResultEntity> findSupervisorPendingResults(
             @Param("enteredStatus") ResultStatus enteredStatus,
-            @Param("returnedStatus") ResultStatus returnedStatus,
+            @Param("returnedStatuses") List<ResultStatus> returnedStatuses,
             @Param("supervisorQueueStatus") SampleStatus supervisorQueueStatus,
             Pageable pageable);
 
@@ -53,21 +58,23 @@ public interface TestResultRepository extends JpaRepository<TestResultEntity, UU
             select tr
             from TestResultEntity tr
             join tr.sample s
+            join s.orderItem oi
+            join oi.order o
             where tr.draft = false
               and tr.deleted = false
               and s.deleted = false
+              and s.status = :supervisorQueueStatus
               and (
                     tr.status = :enteredStatus
-                    or (
-                        tr.status = :returnedStatus
-                        and s.status = :supervisorQueueStatus
-                    )
+                    or tr.status in (:returnedStatuses)
               )
+              and (:branch is null or o.branchCode = :branch)
             """)
     List<TestResultEntity> findSupervisorPendingResults(
             @Param("enteredStatus") ResultStatus enteredStatus,
-            @Param("returnedStatus") ResultStatus returnedStatus,
-            @Param("supervisorQueueStatus") SampleStatus supervisorQueueStatus);
+            @Param("returnedStatuses") List<ResultStatus> returnedStatuses,
+            @Param("supervisorQueueStatus") SampleStatus supervisorQueueStatus,
+            @Param("branch") String branch);
 
     @Query("""
             select tr

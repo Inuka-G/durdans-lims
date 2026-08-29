@@ -324,18 +324,18 @@ export default function CollectionHistoryPage() {
                             lg   (+ Collected by 144):              976 + 160 = 1136 -> lg:min-w 1140 (Tests 164)
                           The card's overflow-x-auto scrolls the surplus; the page never does.
                         */}
-                        <table className="w-full min-w-[860px] table-fixed text-left text-[13px] md:min-w-[1000px] lg:min-w-[1140px]">
+                        <table className="w-full min-w-[860px] table-fixed text-left text-sm md:min-w-[1000px] lg:min-w-[1140px]">
                             <caption className="sr-only">Collection history</caption>
                             <thead>
-                                <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
-                                    <th scope="col" className="w-32 py-2 pl-4 pr-3 font-medium">Sample ID</th>
-                                    <th scope="col" className="w-44 px-3 py-2 font-medium">Patient</th>
-                                    <th scope="col" className="hidden px-3 py-2 font-medium md:table-cell">Tests</th>
-                                    <th scope="col" className="w-24 px-3 py-2 font-medium">Priority</th>
-                                    <th scope="col" className="w-44 px-3 py-2 font-medium">Status</th>
-                                    <th scope="col" className="w-40 px-3 py-2 font-medium">Collected at</th>
-                                    <th scope="col" className="hidden w-36 px-3 py-2 font-medium lg:table-cell">Collected by</th>
-                                    <th scope="col" className="w-24 px-3 py-2 text-right font-medium">Wait</th>
+                                <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
+                                    <th scope="col" className="w-32 py-2 pl-4 pr-3 font-semibold">Sample ID</th>
+                                    <th scope="col" className="w-44 px-3 py-2 font-semibold">Patient</th>
+                                    <th scope="col" className="hidden px-3 py-2 font-semibold md:table-cell">Tests</th>
+                                    <th scope="col" className="w-24 px-3 py-2 font-semibold">Priority</th>
+                                    <th scope="col" className="w-44 px-3 py-2 font-semibold">Status</th>
+                                    <th scope="col" className="w-40 px-3 py-2 font-semibold">Collected at</th>
+                                    <th scope="col" className="hidden w-36 px-3 py-2 font-semibold lg:table-cell">Collected by</th>
+                                    <th scope="col" className="w-24 px-3 py-2 text-right font-semibold">Wait</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-edge whitespace-nowrap">
