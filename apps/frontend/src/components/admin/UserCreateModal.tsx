@@ -127,7 +127,7 @@ export default function UserCreateModal({ isOpen, onClose }: UserCreateModalProp
                 {error && (
                     <div
                         role="alert"
-                        className="flex items-start gap-2 rounded-md bg-status-danger-bg px-3 py-2 text-[13px] text-status-danger-fg ring-1 ring-inset ring-status-danger-edge sm:col-span-2"
+                        className="flex items-start gap-2 rounded-md bg-status-danger-bg px-3 py-2 text-sm text-status-danger-fg ring-1 ring-inset ring-status-danger-edge sm:col-span-2"
                     >
                         <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
                         <span>{error}</span>

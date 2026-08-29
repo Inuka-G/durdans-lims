@@ -13,6 +13,8 @@ import java.time.Instant;
 @AllArgsConstructor
 public class PreviousVisitSummaryResponse {
     private String resultId;
+    /** Human-readable case number of that visit (RES<year>-<sequence>). */
+    private String resultNo;
     private String sampleId;
     private String status;
     /** Specimen priority for that visit (STAT, URGENT, NORMAL). */

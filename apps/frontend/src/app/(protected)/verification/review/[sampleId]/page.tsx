@@ -20,19 +20,28 @@ import {
 } from 'lucide-react';
 import {
     approveTechnically,
+    getBulkVerificationWorklist,
+    getPendingVerificationResults,
     getVerificationResultDetails,
     rejectTechnically,
     TestResultDetail,
 } from '@/lib/api';
 import { useAuth } from '@/hooks/useAuth';
-import { formatDisplayId } from '@/lib/format-id';
+import {
+    deltaTone,
+    displayResultNo,
+    formatDeltaPercent,
+    resultStatusLabel,
+    resultStatusTone,
+} from '@/lib/result-display';
+import { cn } from '@/lib/utils';
 import Button from '@/components/ui/Button';
 import PageHeader, { type Crumb } from '@/components/ui/PageHeader';
 import SectionCard from '@/components/ui/SectionCard';
 import EmptyState from '@/components/ui/EmptyState';
 import KpiTile from '@/components/ui/KpiTile';
 import Modal from '@/components/ui/Modal';
-import StatusChip, { humanizeStatus, toneForStatus, type ChipTone } from '@/components/ui/StatusChip';
+import StatusChip, { humanizeStatus, type ChipTone } from '@/components/ui/StatusChip';
 import { TextareaField } from '@/components/ui/Field';
 import PriorityBadge from '@/components/shared/PriorityBadge';
 import { formatAuditTime, formatRegistered } from '@/components/patient-dashboard/dashboard-data';
@@ -47,13 +56,33 @@ const REVIEW_CRUMBS: Crumb[] = [
 const CHECKBOX_CLASS =
     'h-4 w-4 shrink-0 rounded border-edge-strong accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-50';
 
-/** Supervisor gate — every check must be confirmed before a case can be approved. */
+/**
+ * Supervisor quality gate — every check must be confirmed before a case can be
+ * approved and released to the pathologist. The five checks are the lab's own
+ * technical-verification standard (pre-analytical, delta, calibration, MLT
+ * remarks, critical notification).
+ */
 const SUPERVISOR_CHECKLIST = [
-    { id: 'patientTestMatch', label: 'Patient and test group match confirmed' },
-    { id: 'allParametersEntered', label: 'All required parameters are entered' },
-    { id: 'flagsReviewed', label: 'Abnormal and critical flags have been reviewed' },
-    { id: 'qcReviewed', label: 'QC status and instrument output reviewed' },
-    { id: 'notesReviewed', label: 'MLT notes and any return/recheck context reviewed' },
+    {
+        id: 'patientAndTestMatch',
+        label: 'Patient and test group match confirmed',
+    },
+    {
+        id: 'allRequiredParams',
+        label: 'All required parameters are entered',
+    },
+    {
+        id: 'abnormalCriticalReviewed',
+        label: 'Abnormal and critical flags have been reviewed',
+    },
+    {
+        id: 'qcAndInstrumentReviewed',
+        label: 'QC status and instrument output reviewed',
+    },
+    {
+        id: 'mltNotesReviewed',
+        label: 'MLT notes and any return/recheck context reviewed',
+    },
 ] as const;
 
 const createEmptyChecklist = (): Record<string, boolean> =>
@@ -89,35 +118,6 @@ const isCriticalFlag = (flag?: string | null) => {
     return normalized === 'CRITICAL_HIGH' || normalized === 'CRITICAL_LOW';
 };
 
-/** Verification workflow status → chip tone. */
-const WORKFLOW_TONE: Record<string, ChipTone> = {
-    ENTERED: 'pending',
-    RETURNED_FOR_RECHECK: 'pending',
-    TECHNICALLY_VERIFIED: 'success',
-    CLINICALLY_AUTHORIZED: 'success',
-    REJECTED: 'danger',
-};
-
-const toneForWorkflowStatus = (status?: string | null): ChipTone => {
-    if (!status) {
-        return 'pending';
-    }
-
-    return WORKFLOW_TONE[status.toUpperCase()] ?? toneForStatus(status);
-};
-
-const formatWorkflowStatusLabel = (status?: string | null) => {
-    if (!status) {
-        return 'Pending verification';
-    }
-
-    if (status === 'RETURNED_FOR_RECHECK') {
-        return 'Returned to supervisor';
-    }
-
-    return humanizeStatus(status);
-};
-
 const formatGenderLabel = (gender?: string | null) => {
     if (!gender) {
         return null;
@@ -138,6 +138,22 @@ const toDate = (value?: string | null): Date | null => {
 /** "Today 09:12" / "Yesterday 14:02" / "16 Aug 2026" */
 const formatWhen = (value?: string | null) => formatRegistered(toDate(value));
 
+/** Full date and time, for the specimen timeline where the exact clock matters. */
+const formatExact = (value?: string | null) => {
+    const date = toDate(value);
+    if (!date) {
+        return '—';
+    }
+    return date.toLocaleString('en-GB', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+    });
+};
+
 /** "2h ago" / "Today 09:12" / "16 Aug 2026" — for activity-style meta lines. */
 const formatRelative = (value?: string | null) => (value ? formatAuditTime(value) : '—');
 
@@ -149,10 +165,19 @@ const initialsFor = (name: string | null | undefined, fallback: string) =>
         .map((segment) => segment.charAt(0).toUpperCase())
         .join('') || fallback;
 
+const DELTA_CHIP_TONE: Record<ReturnType<typeof deltaTone>, ChipTone> = {
+    neutral: 'neutral',
+    pending: 'pending',
+    danger: 'danger',
+};
+
 const REVIEWED_NOTICE =
     'This case has already been processed. Actions reopen only after a clinical return for recheck.';
 
-const CHECKLIST_NOTICE = 'Complete all supervisor verification checks before approving this case.';
+const WITH_MLT_NOTICE =
+    'This case was returned to the MLT and is awaiting re-entry. It comes back to the queue when they resubmit.';
+
+const CHECKLIST_NOTICE = 'Complete all checklist items before approving and releasing this case.';
 
 export default function ReviewCasePage() {
     const router = useRouter();
@@ -176,7 +201,43 @@ export default function ReviewCasePage() {
         try {
             setLoading(true);
             setError(null);
-            const response = await getVerificationResultDetails(resultId);
+
+            let targetId = resultId;
+            const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+            // If resultId in URL is not a UUID (e.g. human-readable RES2026-XXXXX), resolve its real UUID
+            if (!UUID_PATTERN.test(targetId)) {
+                try {
+                    const pendingList = await getPendingVerificationResults(0, 100);
+                    const matched = pendingList.content?.find(
+                        (item) =>
+                            item.resultNo === targetId ||
+                            displayResultNo(item.resultNo, item.resultId) === targetId ||
+                            item.resultId === targetId
+                    );
+                    if (matched?.resultId) {
+                        targetId = matched.resultId;
+                    } else {
+                        const bulkBatches = await getBulkVerificationWorklist();
+                        for (const b of bulkBatches) {
+                            const foundCase = b.cases?.find(
+                                (c) =>
+                                    c.resultNo === targetId ||
+                                    displayResultNo(c.resultNo, c.resultId) === targetId ||
+                                    c.resultId === targetId
+                            );
+                            if (foundCase?.resultId) {
+                                targetId = foundCase.resultId;
+                                break;
+                            }
+                        }
+                    }
+                } catch (resolveErr) {
+                    console.warn('Could not resolve non-UUID result identifier', resolveErr);
+                }
+            }
+
+            const response = await getVerificationResultDetails(targetId);
             setResultDetail(response);
         } catch (loadError) {
             console.error('Failed to load verification result details', loadError);
@@ -220,16 +281,21 @@ export default function ReviewCasePage() {
                 referenceRange: formatReferenceRange(parameter.referenceRangeLow, parameter.referenceRangeHigh),
                 isAbnormal,
                 isCritical: isCriticalFlag(parameter.flag),
+                previousValue: parameter.previousValue ?? null,
+                previousVisitedAt: parameter.previousVisitedAt ?? null,
+                previousSampleBarcode: parameter.previousSampleBarcode ?? null,
+                deltaPercent: parameter.deltaPercent ?? null,
+                deltaSignificant: parameter.deltaSignificant ?? null,
             };
         });
     }, [resultDetail]);
 
     const abnormalCount = labResults.filter((row) => row.isAbnormal).length;
     const criticalCount = labResults.filter((row) => row.isCritical).length;
+    const significantDeltaCount = labResults.filter((row) => row.deltaSignificant).length;
 
     const mltNotesAuthor =
         resultDetail?.mltName?.trim() ||
-        resultDetail?.technicianName?.trim() ||
         'Unknown technician';
     const patientDemographics = [
         resultDetail?.patientAge != null ? `${resultDetail.patientAge} y` : null,
@@ -239,11 +305,13 @@ export default function ReviewCasePage() {
         .join(' · ');
     const reviewerName = user?.name || user?.preferred_username || 'Current user';
     const reviewerRole = 'Lab Supervisor';
+    const isWithMlt = resultDetail?.status === 'RETURNED_TO_MLT';
     const canReviewActions =
         resultDetail?.status === 'ENTERED' || resultDetail?.status === 'RETURNED_FOR_RECHECK';
+    const lockedNotice = isWithMlt ? WITH_MLT_NOTICE : REVIEWED_NOTICE;
     const completedChecklistCount = SUPERVISOR_CHECKLIST.filter((item) => reviewChecklist[item.id]).length;
     const isChecklistComplete = completedChecklistCount === SUPERVISOR_CHECKLIST.length;
-    const displayId = formatDisplayId(resultId, 'RES');
+    const displayId = displayResultNo(resultDetail?.resultNo, resultId);
 
     const resolveSubmitErrorMessage = (
         action: 'approve' | 'return',
@@ -301,7 +369,7 @@ export default function ReviewCasePage() {
 
     const openReturnModal = () => {
         if (!canReviewActions) {
-            setSubmitError(REVIEWED_NOTICE);
+            setSubmitError(lockedNotice);
             return;
         }
         setShowReturnModal(true);
@@ -311,7 +379,7 @@ export default function ReviewCasePage() {
 
     const openApproveModal = () => {
         if (!canReviewActions) {
-            setSubmitError(REVIEWED_NOTICE);
+            setSubmitError(lockedNotice);
             return;
         }
         if (!isChecklistComplete) {
@@ -324,7 +392,7 @@ export default function ReviewCasePage() {
 
     const handleApprove = async () => {
         if (!canReviewActions) {
-            setSubmitError(REVIEWED_NOTICE);
+            setSubmitError(lockedNotice);
             return;
         }
         if (!isChecklistComplete) {
@@ -332,11 +400,6 @@ export default function ReviewCasePage() {
             return;
         }
         const trimmedSupervisorNote = approveNote.trim();
-
-        if (requiresQcOverride && trimmedSupervisorNote.length < 20) {
-            setSubmitError('A QC override reason of at least 20 characters is required.');
-            return;
-        }
 
         const supervisorNote = trimmedSupervisorNote
             ? `Added by ${reviewerName} (${reviewerRole}): ${trimmedSupervisorNote}`
@@ -359,9 +422,6 @@ export default function ReviewCasePage() {
         } catch (submitError) {
             console.error('Failed to approve result', submitError);
             const message = resolveSubmitErrorMessage('approve', submitError);
-            if (message.startsWith('QC hold')) {
-                setRequiresQcOverride(true);
-            }
             setSubmitError(message);
         } finally {
             setIsSubmitting(false);
@@ -370,7 +430,7 @@ export default function ReviewCasePage() {
 
     const handleReturn = async () => {
         if (!canReviewActions) {
-            setReturnError('This case has already been processed. Return is available again only after a clinical recheck request.');
+            setReturnError(lockedNotice);
             return;
         }
         const trimmedReason = returnReason.trim();
@@ -384,15 +444,17 @@ export default function ReviewCasePage() {
             setIsSubmitting(true);
             setReturnError(null);
             setSubmitError(null);
+            // The reason travels as the supervisor note; the MLT's own notes go back
+            // untouched so the bench's account of the run is not overwritten.
             await rejectTechnically(resultId, {
-                status: 'REJECTED',
-                mltNotes: `Returned by ${reviewerName} (${reviewerRole}): ${trimmedReason}`,
+                mltNotes: resultDetail?.mltNotes ?? undefined,
+                supervisorNote: trimmedReason,
             });
             setShowReturnModal(false);
             setReturnReason('');
             router.push('/verification/pending');
         } catch (submitError) {
-            console.error('Failed to reject result', submitError);
+            console.error('Failed to return result to MLT', submitError);
             setReturnError(resolveSubmitErrorMessage('return', submitError));
         } finally {
             setIsSubmitting(false);
@@ -402,7 +464,7 @@ export default function ReviewCasePage() {
     // ── Loading state ─────────────────────────────────────────────────────────
     if (loading) {
         return (
-            <div className="mx-auto max-w-5xl">
+            <div className="mx-auto max-w-6xl">
                 <PageHeader title="Result review" crumbs={[...REVIEW_CRUMBS, { label: 'Loading…' }]} />
                 <p role="status" aria-live="polite" className="sr-only">
                     Loading verification result
@@ -410,9 +472,10 @@ export default function ReviewCasePage() {
                 <div aria-hidden="true">
                     <div className="mb-4 rounded-lg border border-edge bg-surface px-4 py-3">
                         <span className="block h-4 w-48 rounded bg-skeleton" />
+                        <span className="mt-2 block h-3 w-80 max-w-full rounded bg-skeleton" />
                     </div>
-                    <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                        {Array.from({ length: 3 }).map((_, i) => (
+                    <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-4">
+                        {Array.from({ length: 4 }).map((_, i) => (
                             <span key={i} className="block h-[86px] rounded-lg border border-edge bg-surface" />
                         ))}
                     </div>
@@ -442,10 +505,6 @@ export default function ReviewCasePage() {
                                     ))}
                                 </div>
                             </div>
-                            <div className="rounded-lg border border-edge bg-surface p-4">
-                                <span className="block h-4 w-20 rounded bg-skeleton" />
-                                <span className="mt-4 block h-16 rounded bg-skeleton" />
-                            </div>
                         </div>
                     </div>
                 </div>
@@ -456,7 +515,7 @@ export default function ReviewCasePage() {
     // ── Error / not found state ───────────────────────────────────────────────
     if (error || !resultDetail) {
         return (
-            <div className="mx-auto max-w-5xl">
+            <div className="mx-auto max-w-6xl">
                 <PageHeader title="Result review" crumbs={[...REVIEW_CRUMBS, { label: displayId }]} />
                 <div role={error ? 'alert' : undefined} className="rounded-lg border border-edge bg-surface">
                     <EmptyState
@@ -482,13 +541,24 @@ export default function ReviewCasePage() {
     }
 
     const workflowChip = (
-        <StatusChip tone={toneForWorkflowStatus(resultDetail.status)} dot>
-            {formatWorkflowStatusLabel(resultDetail.status)}
+        <StatusChip tone={resultStatusTone(resultDetail.status)} dot>
+            {resultStatusLabel(resultDetail.status)}
         </StatusChip>
     );
 
+    const specimenFacts: { label: string; value: string; mono?: boolean }[] = [
+        { label: 'Patient ID', value: resultDetail.patientCode ?? '—', mono: true },
+        { label: 'Specimen type', value: resultDetail.tubeType ? humanizeStatus(resultDetail.tubeType) : '—' },
+        { label: 'Tube barcode', value: resultDetail.sampleBarcode ?? '—', mono: true },
+        { label: 'Collected', value: formatExact(resultDetail.collectedAt) },
+        { label: 'Received', value: formatExact(resultDetail.receivedAt) },
+    ];
+
+    const hasReturnContext = Boolean(resultDetail.returnReason) &&
+        (resultDetail.status === 'RETURNED_FOR_RECHECK' || resultDetail.status === 'RETURNED_TO_MLT');
+
     return (
-        <div className="mx-auto max-w-5xl">
+        <div className="mx-auto max-w-6xl">
             <PageHeader
                 title="Result review"
                 crumbs={[...REVIEW_CRUMBS, { label: displayId }]}
@@ -523,7 +593,7 @@ export default function ReviewCasePage() {
                 }
             />
 
-            {/* Sample context banner */}
+            {/* Sample & patient demographics header */}
             <section
                 aria-label="Case context"
                 className="sticky top-16 z-20 mb-4 rounded-lg border border-edge bg-surface px-4 py-3"
@@ -547,6 +617,16 @@ export default function ReviewCasePage() {
                         {resultDetail.priority && <PriorityBadge priority={resultDetail.priority} />}
                     </div>
                 </div>
+                <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 border-t border-edge pt-2 text-xs sm:grid-cols-5">
+                    {specimenFacts.map((fact) => (
+                        <div key={fact.label} className="min-w-0">
+                            <dt className="text-fg-muted">{fact.label}</dt>
+                            <dd className={cn('truncate text-fg', fact.mono && 'font-mono')} title={fact.value}>
+                                {fact.value}
+                            </dd>
+                        </div>
+                    ))}
+                </dl>
             </section>
 
             {submitError && !showApproveModal && !showReturnModal && (
@@ -559,17 +639,35 @@ export default function ReviewCasePage() {
                 </div>
             )}
 
+            {hasReturnContext && (
+                <div
+                    role="note"
+                    className="mb-4 rounded-lg border border-status-pending-edge bg-status-pending-bg px-4 py-3 text-sm text-status-pending-fg"
+                >
+                    <p className="font-semibold">
+                        {resultStatusLabel(resultDetail.status)}
+                        {resultDetail.returnedBy && <span className="font-normal"> · by {resultDetail.returnedBy}</span>}
+                        {resultDetail.returnedAt && (
+                            <span className="font-normal"> · {formatWhen(resultDetail.returnedAt)}</span>
+                        )}
+                    </p>
+                    <p className="mt-1 break-words text-fg">{resultDetail.returnReason}</p>
+                </div>
+            )}
+
             {!canReviewActions && (
                 <p
                     role="status"
                     className="mb-4 rounded-lg border border-edge bg-surface-muted px-4 py-2.5 text-xs text-fg-secondary"
                 >
-                    This case is already reviewed. Actions reopen only when clinical sends it back for recheck.
+                    {isWithMlt
+                        ? WITH_MLT_NOTICE
+                        : 'This case is already reviewed. Actions reopen only when clinical sends it back for recheck.'}
                 </p>
             )}
 
             {/* Review summary */}
-            <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <KpiTile label="Parameters" value={labResults.length} icon={ListChecks} note="In this test group" />
                 <KpiTile
                     label="Abnormal"
@@ -584,6 +682,13 @@ export default function ReviewCasePage() {
                     icon={AlertOctagon}
                     tone={criticalCount > 0 ? 'danger' : 'neutral'}
                     note={criticalCount > 0 ? 'Needs immediate attention' : 'No critical values'}
+                />
+                <KpiTile
+                    label="Delta alerts"
+                    value={significantDeltaCount}
+                    icon={Activity}
+                    tone={significantDeltaCount > 0 ? 'warning' : 'neutral'}
+                    note={significantDeltaCount > 0 ? 'Large change vs previous visit' : 'No significant change'}
                 />
             </div>
 
@@ -604,58 +709,89 @@ export default function ReviewCasePage() {
                         />
                     ) : (
                         <div className="overflow-x-auto">
-                            <table className="w-full min-w-[640px] table-fixed text-left text-[13px]">
+                            <table className="w-full min-w-[820px] table-fixed text-left text-sm">
                                 <thead>
-                                    <tr className="border-b border-edge text-xs font-medium text-fg-muted">
-                                        <th scope="col" className="py-2 pl-4 pr-3 font-medium">
+                                    <tr className="border-b border-edge text-xs font-semibold text-fg-muted">
+                                        <th scope="col" className="py-2 pl-4 pr-3 font-semibold">
                                             Parameter
                                         </th>
-                                        <th scope="col" className="w-28 px-3 py-2 font-medium">
+                                        <th scope="col" className="w-24 px-3 py-2 font-semibold">
                                             Result
                                         </th>
-                                        <th scope="col" className="w-20 px-3 py-2 font-medium">
+                                        <th scope="col" className="w-20 px-3 py-2 font-semibold">
                                             Unit
                                         </th>
-                                        <th scope="col" className="w-32 px-3 py-2 font-medium">
+                                        <th scope="col" className="w-32 px-3 py-2 font-semibold">
                                             Flag
                                         </th>
-                                        <th scope="col" className="w-36 px-3 py-2 font-medium">
+                                        <th scope="col" className="w-32 px-3 py-2 font-semibold">
                                             Reference range
+                                        </th>
+                                        <th scope="col" className="w-48 px-3 py-2 font-semibold">
+                                            Delta / previous visit
                                         </th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-edge whitespace-nowrap">
-                                    {labResults.map((row) => (
-                                        <tr key={row.key} className="hover:bg-surface-hover">
-                                            <td className="truncate py-2 pl-4 pr-3 font-medium text-fg" title={row.parameter}>
-                                                {row.parameter}
-                                            </td>
-                                            <td
-                                                className={`px-3 py-2 font-semibold tabular-nums ${
-                                                    row.isCritical
-                                                        ? 'text-status-danger-fg'
-                                                        : row.isAbnormal
-                                                          ? 'text-status-pending-fg'
-                                                          : 'text-fg'
-                                                }`}
-                                            >
-                                                {row.result}
-                                            </td>
-                                            <td className="px-3 py-2 text-xs text-fg-muted">{row.unit}</td>
-                                            <td className="px-3 py-2">
-                                                {row.rawFlag ? (
-                                                    <StatusChip tone={toneForFlag(row.rawFlag)} size="sm" dot>
-                                                        {humanizeStatus(row.rawFlag)}
-                                                    </StatusChip>
-                                                ) : (
-                                                    <span className="text-fg-faint">—</span>
-                                                )}
-                                            </td>
-                                            <td className="px-3 py-2 text-xs tabular-nums text-fg-muted">
-                                                {row.referenceRange}
-                                            </td>
-                                        </tr>
-                                    ))}
+                                    {labResults.map((row) => {
+                                        const delta = formatDeltaPercent(row.deltaPercent);
+                                        const tone = DELTA_CHIP_TONE[deltaTone(row.deltaPercent, row.deltaSignificant)];
+                                        return (
+                                            <tr key={row.key} className="hover:bg-surface-hover">
+                                                <td className="truncate py-2 pl-4 pr-3 font-medium text-fg" title={row.parameter}>
+                                                    {row.parameter}
+                                                </td>
+                                                <td
+                                                    className={`px-3 py-2 font-semibold tabular-nums ${
+                                                        row.isCritical
+                                                            ? 'text-status-danger-fg'
+                                                            : row.isAbnormal
+                                                              ? 'text-status-pending-fg'
+                                                              : 'text-fg'
+                                                    }`}
+                                                >
+                                                    {row.result}
+                                                </td>
+                                                <td className="px-3 py-2 text-xs text-fg-muted">{row.unit}</td>
+                                                <td className="px-3 py-2">
+                                                    {row.rawFlag ? (
+                                                        <StatusChip tone={toneForFlag(row.rawFlag)} size="sm" dot>
+                                                            {humanizeStatus(row.rawFlag)}
+                                                        </StatusChip>
+                                                    ) : (
+                                                        <span className="text-fg-faint">—</span>
+                                                    )}
+                                                </td>
+                                                <td className="px-3 py-2 text-xs tabular-nums text-fg-muted">
+                                                    {row.referenceRange}
+                                                </td>
+                                                <td className="px-3 py-2">
+                                                    {row.previousValue != null ? (
+                                                        <div
+                                                            className="flex items-center gap-1.5"
+                                                            title={
+                                                                row.previousSampleBarcode
+                                                                    ? `Previous specimen ${row.previousSampleBarcode}`
+                                                                    : undefined
+                                                            }
+                                                        >
+                                                            <span className="tabular-nums text-fg-secondary">{row.previousValue}</span>
+                                                            {delta ? (
+                                                                <StatusChip tone={tone} size="sm" className="tabular-nums">
+                                                                    Δ {delta}
+                                                                </StatusChip>
+                                                            ) : null}
+                                                            <span className="truncate text-xs text-fg-muted">
+                                                                {formatWhen(row.previousVisitedAt)}
+                                                            </span>
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-xs text-fg-faint">No previous visit</span>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
                                 </tbody>
                             </table>
                         </div>
@@ -698,11 +834,17 @@ export default function ReviewCasePage() {
                                         />
                                         <label
                                             htmlFor={checkboxId}
-                                            className={`min-w-0 flex-1 break-words text-[13px] font-medium leading-5 ${
+                                            className={`min-w-0 flex-1 break-words leading-5 ${
                                                 canReviewActions ? 'cursor-pointer' : 'cursor-not-allowed'
-                                            } ${checked ? 'text-status-verified-fg' : 'text-fg-secondary'}`}
+                                            }`}
                                         >
-                                            {item.label}
+                                            <span
+                                                className={`block text-sm font-medium ${
+                                                    checked ? 'text-status-verified-fg' : 'text-fg'
+                                                }`}
+                                            >
+                                                {item.label}
+                                            </span>
                                         </label>
                                     </li>
                                 );
@@ -711,9 +853,9 @@ export default function ReviewCasePage() {
                         {!isChecklistComplete && canReviewActions && (
                             <p
                                 role="status"
-                                className="border-t border-edge bg-surface-muted px-4 py-2.5 text-xs text-status-pending-fg"
+                                className="border-t border-edge bg-surface-muted px-4 py-2.5 text-xs font-medium text-amber-700"
                             >
-                                Approve stays locked until every check is confirmed.
+                                Complete all checklist items before approving and releasing this case.
                             </p>
                         )}
                     </SectionCard>
@@ -732,6 +874,9 @@ export default function ReviewCasePage() {
                                                 <span className="block text-sm font-medium text-fg">
                                                     {formatWhen(visit.visitedAt)}
                                                 </span>
+                                                <span className="mt-0.5 block truncate font-mono text-xs text-fg-muted">
+                                                    {displayResultNo(visit.resultNo, visit.resultId)}
+                                                </span>
                                                 <span className="mt-0.5 block text-xs tabular-nums text-fg-muted">
                                                     {visit.parameterCount ?? 0} parameters · {visit.abnormalCount ?? 0} abnormal ·{' '}
                                                     {visit.criticalCount ?? 0} critical
@@ -739,8 +884,8 @@ export default function ReviewCasePage() {
                                             </span>
                                             <span className="flex shrink-0 flex-col items-end gap-1">
                                                 {visit.priorityLevel && <PriorityBadge priority={visit.priorityLevel} />}
-                                                <StatusChip tone={toneForWorkflowStatus(visit.status)} size="sm">
-                                                    {visit.status ? formatWorkflowStatusLabel(visit.status) : '—'}
+                                                <StatusChip tone={resultStatusTone(visit.status)} size="sm">
+                                                    {visit.status ? resultStatusLabel(visit.status) : '—'}
                                                 </StatusChip>
                                             </span>
                                         </button>
@@ -761,15 +906,21 @@ export default function ReviewCasePage() {
                         <div className="flex gap-3">
                             <span
                                 aria-hidden="true"
-                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary-soft text-[11px] font-semibold text-primary-strong"
+                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary-soft text-[12px] font-semibold text-primary-strong"
                             >
                                 {initialsFor(mltNotesAuthor, 'ML')}
                             </span>
                             <div className="min-w-0 flex-1">
                                 <div className="mb-1 flex items-center justify-between gap-3">
-                                    <span className="truncate text-xs font-semibold text-fg">{mltNotesAuthor}</span>
-                                    <span className="shrink-0 text-[11px] text-fg-muted">
-                                        {formatRelative(resultDetail.updatedAt)}
+                                    <span className="truncate text-xs font-semibold text-fg">
+                                        {mltNotesAuthor}
+                                        <span className="ml-1 font-normal text-fg-muted">Performed by</span>
+                                    </span>
+                                    <span
+                                        className="shrink-0 text-[12px] text-fg-muted"
+                                        title={formatExact(resultDetail.measuredAt ?? resultDetail.updatedAt)}
+                                    >
+                                        {formatRelative(resultDetail.measuredAt ?? resultDetail.updatedAt)}
                                     </span>
                                 </div>
                                 <p className="whitespace-pre-wrap break-words rounded-md border border-edge bg-surface-muted p-3 text-xs leading-relaxed text-fg-secondary">
@@ -784,7 +935,7 @@ export default function ReviewCasePage() {
                             <div className="flex gap-3">
                                 <span
                                     aria-hidden="true"
-                                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-status-pending-bg text-[11px] font-semibold text-status-pending-fg"
+                                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-status-pending-bg text-[12px] font-semibold text-status-pending-fg"
                                 >
                                     {initialsFor(resultDetail.pathologistName, 'CL')}
                                 </span>
@@ -794,7 +945,7 @@ export default function ReviewCasePage() {
                                             <Stethoscope className="h-4 w-4 shrink-0 text-fg-faint" aria-hidden="true" />
                                             <span className="truncate">{resultDetail.pathologistName ?? 'Pathologist'}</span>
                                         </span>
-                                        <span className="shrink-0 text-[11px] text-fg-muted">
+                                        <span className="shrink-0 text-[12px] text-fg-muted">
                                             {formatRelative(resultDetail.updatedAt)}
                                         </span>
                                     </div>
@@ -814,7 +965,7 @@ export default function ReviewCasePage() {
                 onClose={closeReturnModal}
                 dismissible={!isSubmitting}
                 title="Return to MLT"
-                description="Add the reason this case should be sent back."
+                description="Send this case back to the bench for re-run, re-entry or recollection. The reason is recorded on the case and shown to the MLT."
                 footer={
                     <>
                         <Button onClick={closeReturnModal} disabled={isSubmitting}>
@@ -841,9 +992,9 @@ export default function ReviewCasePage() {
                             setSubmitError(null);
                         }
                     }}
-                    placeholder="Enter the reason for return."
+                    placeholder="e.g. Haemolysed specimen — recollect and re-run."
                     error={returnError}
-                    hint="The MLT will see this note with the returned case."
+                    hint="The MLT will see this note with the returned case. Their own notes are kept."
                 />
             </Modal>
 
@@ -852,12 +1003,8 @@ export default function ReviewCasePage() {
                 open={showApproveModal}
                 onClose={closeApproveModal}
                 dismissible={!isSubmitting}
-                title="Approve for clinical review"
-                description={
-                    requiresQcOverride
-                        ? 'QC is on hold. Add a documented release reason of at least 20 characters.'
-                        : 'Add an optional handoff note for the pathologist.'
-                }
+                title="Approve and release to the pathologist"
+                description="Add an optional handoff note for the pathologist."
                 footer={
                     <>
                         <Button onClick={closeApproveModal} disabled={isSubmitting}>
@@ -896,33 +1043,17 @@ export default function ReviewCasePage() {
                     <TextareaField
                         id="approve-note"
                         label="Lab supervisor note"
-                        required={requiresQcOverride}
                         rows={5}
                         value={approveNote}
-                        minLength={requiresQcOverride ? 20 : undefined}
                         onChange={(event) => {
                             setApproveNote(event.target.value);
                             if (submitError) {
                                 setSubmitError(null);
                             }
                         }}
-                        placeholder={
-                            requiresQcOverride
-                                ? 'Explain why this result is being released over the QC hold.'
-                                : 'Add a note for the pathologist.'
-                        }
-                        error={
-                            submitError
-                                ? requiresQcOverride
-                                    ? `${submitError} (${approveNote.trim().length}/20)`
-                                    : submitError
-                                : undefined
-                        }
-                        hint={
-                            requiresQcOverride
-                                ? `${approveNote.trim().length}/20 characters minimum`
-                                : 'Optional. Shown to the pathologist with the case.'
-                        }
+                        placeholder="Add a note for the pathologist (optional)..."
+                        error={submitError ?? undefined}
+                        hint="Optional. Recorded against this case release."
                     />
                 </div>
             </Modal>

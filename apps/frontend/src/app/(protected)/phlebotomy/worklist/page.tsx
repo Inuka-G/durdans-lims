@@ -381,26 +381,26 @@ export default function PhlebotomyWorklistPage() {
                         {/* table-fixed budget: fixed cols = 96 (Priority) + 112 (Tubes) + 96 (Wait) + 192 (Actions) = 496px,
                             plus Patient at 26%. The auto "Tests requested" column gets W - 0.26W - 496, so W must be
                             >= 887 for it to clear the 160px text-column floor. min-w-[900px] leaves it 170px. */}
-                        <table className="w-full min-w-[900px] table-fixed text-left text-[13px]">
+                        <table className="w-full min-w-[900px] table-fixed text-left text-sm">
                             <caption className="sr-only">Samples pending collection</caption>
                             <thead>
-                                <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
-                                    <th scope="col" className="w-[26%] py-2 pl-4 pr-3 font-medium">
+                                <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
+                                    <th scope="col" className="w-[26%] py-2 pl-4 pr-3 font-semibold">
                                         Patient
                                     </th>
-                                    <th scope="col" className="w-24 px-3 py-2 font-medium">
+                                    <th scope="col" className="w-24 px-3 py-2 font-semibold">
                                         Priority
                                     </th>
-                                    <th scope="col" className="px-3 py-2 font-medium">
+                                    <th scope="col" className="px-3 py-2 font-semibold">
                                         Tests requested
                                     </th>
-                                    <th scope="col" className="w-28 px-3 py-2 font-medium">
+                                    <th scope="col" className="w-28 px-3 py-2 font-semibold">
                                         Tubes
                                     </th>
-                                    <th scope="col" className="w-24 px-3 py-2 font-medium">
+                                    <th scope="col" className="w-24 px-3 py-2 font-semibold">
                                         Wait time
                                     </th>
-                                    <th scope="col" className="w-48 py-2 pl-2 pr-3 text-right font-medium">
+                                    <th scope="col" className="w-48 py-2 pl-2 pr-3 text-right font-semibold">
                                         Actions
                                     </th>
                                 </tr>

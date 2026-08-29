@@ -112,7 +112,7 @@ export const MOCK_QC_RUNS: QCRun[] = [
 
 export const MOCK_INSTRUMENTS: Instrument[] = [
     { id: 'i1', name: 'Sysmex XN-1000', type: 'Haematology Analyser', model: 'XN-1000', serial: 'SYS-2021-4421', status: 'online', lastSync: '2 mins ago', testsToday: 142, location: 'Haematology Lab — Bench 1', qcStatus: 'PASS' },
-    { id: 'i2', name: 'Cobas c501', type: 'Chemistry Analyser', model: 'c501', serial: 'COB-2020-3312', status: 'online', lastSync: '5 mins ago', testsToday: 98, location: 'Biochemistry Lab — Bench 2', qcStatus: 'FAIL' },
+    { id: 'i2', name: 'Cobas c501', type: 'Chemistry Analyser', model: 'c501', serial: 'COB-2020-3312', status: 'online', lastSync: '5 mins ago', testsToday: 98, location: 'Biochemistry Lab — Bench 2', qcStatus: 'PASS' },
     { id: 'i3', name: 'BioMérieux VITEK 2', type: 'Microbiology ID/AST', model: 'VITEK 2', serial: 'VIT-2022-0091', status: 'offline', lastSync: '45 mins ago', testsToday: 12, location: 'Microbiology Lab — Bench 4', qcStatus: 'PASS' },
     { id: 'i4', name: 'Cobas e411', type: 'Immunoassay Analyser', model: 'e411', serial: 'COB-2019-5521', status: 'busy', lastSync: '1 min ago', testsToday: 64, location: 'Immunology Lab — Bench 3', qcStatus: 'WARN' },
 ];

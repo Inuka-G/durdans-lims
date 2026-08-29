@@ -98,14 +98,25 @@ export default function BranchManagementPage() {
                     </button>
                 </div>
                 <div className="overflow-x-auto">
-                    <table className="w-full text-left border-collapse min-w-[800px]">
+                    <table className="w-full min-w-[710px] table-fixed text-left text-sm">
+                        <caption className="sr-only">Hospital branches</caption>
                         <thead>
-                            <tr className="border-b border-slate-100 bg-slate-50/50">
-                                <th className="py-4 px-6 text-[11px] font-extrabold text-slate-500 uppercase tracking-widest">Branch ID</th>
-                                <th className="py-4 px-6 text-[11px] font-extrabold text-slate-500 uppercase tracking-widest">Branch Name</th>
-                                <th className="py-4 px-6 text-[11px] font-extrabold text-slate-500 uppercase tracking-widest">Location</th>
-                                <th className="py-4 px-6 text-[11px] font-extrabold text-slate-500 uppercase tracking-widest text-center">Status</th>
-                                <th className="py-4 px-6 text-[11px] font-extrabold text-slate-500 uppercase tracking-widest text-right">Action</th>
+                            <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
+                                <th scope="col" className="w-36 py-2 pl-4 pr-3 font-semibold">
+                                    Branch ID
+                                </th>
+                                <th scope="col" className="px-3 py-2 font-semibold">
+                                    Branch
+                                </th>
+                                <th scope="col" className="w-40 px-3 py-2 font-semibold">
+                                    Location
+                                </th>
+                                <th scope="col" className="w-28 px-3 py-2 font-semibold">
+                                    Status
+                                </th>
+                                <th scope="col" className="w-32 py-2 pl-3 pr-4 text-right font-semibold">
+                                    <span className="sr-only">Actions</span>
+                                </th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">

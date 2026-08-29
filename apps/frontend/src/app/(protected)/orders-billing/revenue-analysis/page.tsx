@@ -1055,14 +1055,14 @@ export default function RevenueAnalysisPage() {
                         />
                     ) : (
                         <div className="overflow-x-auto">
-                            <table className="w-full min-w-[480px] table-fixed text-left text-[13px]">
+                            <table className="w-full min-w-[480px] table-fixed text-left text-sm">
                                 <caption className="sr-only">Top performing tests by revenue</caption>
                                 <thead>
-                                    <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
-                                        <th scope="col" className="py-2 pl-4 pr-3 font-medium">Test</th>
-                                        <th scope="col" className="w-20 px-3 py-2 text-right font-medium">Orders</th>
-                                        <th scope="col" className="w-36 px-3 py-2 text-right font-medium">Revenue</th>
-                                        <th scope="col" className="w-24 py-2 pl-3 pr-4 text-right font-medium">Trend</th>
+                                    <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
+                                        <th scope="col" className="py-2 pl-4 pr-3 font-semibold">Test</th>
+                                        <th scope="col" className="w-20 px-3 py-2 text-right font-semibold">Orders</th>
+                                        <th scope="col" className="w-36 px-3 py-2 text-right font-semibold">Revenue</th>
+                                        <th scope="col" className="w-24 py-2 pl-3 pr-4 text-right font-semibold">Trend</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-edge whitespace-nowrap">
@@ -1151,16 +1151,16 @@ export default function RevenueAnalysisPage() {
                                 />
                             ) : (
                                 <div className="overflow-x-auto">
-                                    <table className="w-full min-w-[760px] table-fixed text-left text-[13px] lg:min-w-[870px]">
+                                    <table className="w-full min-w-[760px] table-fixed text-left text-sm lg:min-w-[870px]">
                                         <caption className="sr-only">Revenue report access events</caption>
                                         <thead>
-                                            <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
-                                                <th scope="col" className="w-32 py-2 pl-4 pr-3 font-medium">Time</th>
-                                                <th scope="col" className="w-48 px-3 py-2 font-medium">Action</th>
-                                                <th scope="col" className="w-40 px-3 py-2 font-medium">User</th>
-                                                <th scope="col" className="w-24 px-3 py-2 font-medium">Branch</th>
-                                                <th scope="col" className="px-3 py-2 font-medium">Details</th>
-                                                <th scope="col" className="hidden w-32 px-3 py-2 font-medium lg:table-cell">IP address</th>
+                                            <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
+                                                <th scope="col" className="w-32 py-2 pl-4 pr-3 font-semibold">Time</th>
+                                                <th scope="col" className="w-48 px-3 py-2 font-semibold">Action</th>
+                                                <th scope="col" className="w-40 px-3 py-2 font-semibold">User</th>
+                                                <th scope="col" className="w-24 px-3 py-2 font-semibold">Branch</th>
+                                                <th scope="col" className="px-3 py-2 font-semibold">Details</th>
+                                                <th scope="col" className="hidden w-32 px-3 py-2 font-semibold lg:table-cell">IP address</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-edge whitespace-nowrap">

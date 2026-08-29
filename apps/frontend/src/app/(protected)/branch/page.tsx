@@ -157,96 +157,135 @@ export default function BranchDashboard() {
                                 </div>
                                 <span className="text-[10px] font-extrabold text-[#64748b]">PCR</span>
                             </div>
-                        </div>
-                    </div>
+                        </figure>
+                    </SectionCard>
 
+                    {/* Test volume by category */}
+                    <SectionCard title="Test volume by category" actions={<StatusChip size="sm">Monthly</StatusChip>} bodyClassName="p-4">
+                        <ul aria-label="Test volume by category, this month" className="flex h-[220px] items-end justify-between gap-3">
+                            {TEST_VOLUME.map((item) => (
+                                <li key={item.label} className="flex h-full flex-1 flex-col items-center justify-end gap-2">
+                                    <div className="relative flex h-full w-full max-w-[48px] items-end overflow-hidden rounded-t bg-surface-muted">
+                                        <div
+                                            aria-hidden="true"
+                                            className="w-full rounded-t bg-primary transition-[height] duration-300"
+                                            style={{ height: `${item.percent}%` }}
+                                        />
+                                    </div>
+                                    <span className="text-[12px] font-medium text-fg-muted">
+                                        {item.label}
+                                        <span className="sr-only">: {item.percent}% of capacity</span>
+                                    </span>
+                                </li>
+                            ))}
+                        </ul>
+                    </SectionCard>
                 </div>
 
-                {/* Right Column (Alerts + Actions) */}
-                <div className="flex flex-col gap-6 h-full">
-
-                    {/* Alerts & Notifications */}
-                    <div className="bg-white rounded-2xl border border-[#ecf0f6] shadow-sm flex-1 flex flex-col">
-                        <div className="p-5 flex justify-between items-center border-b border-[#ecf0f6]">
-                            <h2 className="text-[13px] font-extrabold text-[#0f172a] uppercase tracking-wider">ALERTS & NOTIFICATIONS</h2>
-                            <span className="bg-[#ef4444] text-white text-[11px] font-extrabold px-1.5 py-0.5 rounded-full w-5 h-5 flex items-center justify-center">3</span>
-                        </div>
-
-                        <div className="p-4 space-y-3">
-                            {/* Alert 1 */}
-                            <div className="bg-[#fff7ed] border border-[#ffedd5] rounded-xl p-4 flex gap-3">
-                                <span className="material-icons text-[#ea580c] text-[20px] shrink-0 mt-0.5">verified</span>
-                                <div>
-                                    <h4 className="text-[13px] font-extrabold text-[#9a3412]">Pending Verification</h4>
-                                    <p className="text-[11px] font-medium text-[#c2410c] mt-1 leading-snug">
-                                        5 Blood reports require senior pathologist verification for Colombo-03.
-                                    </p>
-                                    <button className="text-[11px] font-extrabold text-[#ea580c] mt-2 hover:underline">Resolve Now</button>
-                                </div>
-                            </div>
-
-                            {/* Alert 2 */}
-                            <div className="bg-[#fef2f2] border border-[#fee2e2] rounded-xl p-4 flex gap-3">
-                                <span className="material-icons text-[#ef4444] text-[20px] shrink-0 mt-0.5">error_outline</span>
-                                <div>
-                                    <h4 className="text-[13px] font-extrabold text-[#991b1b]">Failed Delivery</h4>
-                                    <p className="text-[11px] font-medium text-[#b91c1c] mt-1 leading-snug">
-                                        System failed to email results for Order #ORD-8821 due to invalid email.
-                                    </p>
-                                    <button className="text-[11px] font-extrabold text-[#ef4444] mt-2 hover:underline">Edit Email</button>
-                                </div>
-                            </div>
-
-                            {/* Alert 3 */}
-                            <div className="bg-[#f0f9ff] border border-[#e0f2fe] rounded-xl p-4 flex gap-3">
-                                <span className="material-icons text-[#0284c7] text-[20px] shrink-0 mt-0.5">inventory_2</span>
-                                <div>
-                                    <h4 className="text-[13px] font-extrabold text-[#075985]">Stock Alert</h4>
-                                    <p className="text-[11px] font-medium text-[#0369a1] mt-1 leading-snug">
-                                        Reagent level for HbA1c testing is below 15% threshold.
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="mt-auto border-t border-[#ecf0f6] p-3 text-center">
-                            <button className="text-[10px] font-extrabold text-[#64748b] hover:text-[#0f172a] uppercase tracking-widest w-full">VIEW ALL NOTIFICATIONS</button>
-                        </div>
-                    </div>
-
-                    {/* Quick Admin Actions */}
-                    <div className="bg-[#1277E1] rounded-2xl shadow-md p-5 text-white">
-                        <h2 className="text-[14px] font-extrabold mb-4">Quick Admin Actions</h2>
-                        <div className="grid grid-cols-2 gap-3">
-                            <button className="bg-[#1e40af]/30 hover:bg-[#1e40af]/50 border border-[#3b82f6]/50 rounded-xl p-4 flex flex-col items-center justify-center gap-2 transition-colors group">
-                                <span className="material-icons text-[24px] text-white/80 group-hover:text-white transition-colors">person_add</span>
-                                <span className="text-[11px] font-bold text-white/90">Add User</span>
-                            </button>
-                            <button className="bg-[#1e40af]/30 hover:bg-[#1e40af]/50 border border-[#3b82f6]/50 rounded-xl p-4 flex flex-col items-center justify-center gap-2 transition-colors group">
-                                <span className="material-icons text-[24px] text-white/80 group-hover:text-white transition-colors">bar_chart</span>
-                                <span className="text-[11px] font-bold text-white/90">Pull Report</span>
-                            </button>
+                {/* Right column */}
+                <div className="flex flex-col gap-4">
+                    <SectionCard title="Alerts and notifications" count={ALERTS.length} flush>
+                        <ul className="divide-y divide-edge">
+                            {ALERTS.map((alert) => {
+                                const Icon = alert.icon;
+                                return (
+                                    <li key={alert.id} className="flex gap-3 px-4 py-3">
+                                        <Icon className={cn("mt-0.5 h-4 w-4 shrink-0", ALERT_ICON_TONE[alert.tone])} aria-hidden="true" />
+                                        <div className="min-w-0">
+                                            <h3 className="text-sm font-semibold text-fg">{alert.title}</h3>
+                                            <p className="mt-0.5 text-xs leading-snug text-fg-muted">{alert.body}</p>
+                                            {alert.action && (
+                                                <button type="button" className={cn(LINK_CLASS, "mt-1.5")}>
+                                                    {alert.action}
+                                                </button>
+                                            )}
+                                        </div>
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                        <div className="border-t border-edge p-2">
+                            <Link
+                                href="/branch/activity-logs"
+                                className={cn(
+                                    "flex h-8 w-full items-center justify-center gap-1 rounded-md text-xs font-medium text-fg-secondary",
+                                    "hover:bg-surface-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                                )}
+                            >
+                                View all notifications
+                                <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+                            </Link>
                         </div>
                     </div>
 
                 </div>
             </div>
 
-            {/* Bottom Row: Haematology Test Details */}
-            <div className="bg-white rounded-2xl border border-[#ecf0f6] shadow-sm mb-6 overflow-hidden">
-                <div className="p-5 flex justify-between items-center border-b border-[#ecf0f6] bg-red-50/30">
-                    <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-red-50 text-red-500 flex items-center justify-center border border-red-100">
-                            <span className="material-icons">bloodtype</span>
-                        </div>
-                        <div>
-                            <h2 className="text-[14px] font-extrabold text-[#0f172a] uppercase tracking-wider">HAEMATOLOGY TEST DETAILS</h2>
-                            <p className="text-[11px] font-medium text-[#64748b] mt-0.5">Live monitoring of blood and bone marrow tests processing across this branch.</p>
-                        </div>
-                    </div>
-                    <button className="bg-white border border-[#e2e8f0] text-[#64748b] hover:text-[#0f172a] hover:border-[#cbd5e1] transition-colors rounded-lg px-3 py-1.5 text-[11px] font-bold flex items-center gap-2 shadow-sm">
-                        <span className="material-icons text-[14px]">download</span> Export Data
-                    </button>
+            {/* ── Haematology test details ── */}
+            <SectionCard
+                title="Haematology test details"
+                count={HAEMATOLOGY_TESTS.length}
+                flush
+                actions={
+                    <Button size="sm" icon={Download}>
+                        Export data
+                    </Button>
+                }
+            >
+                <p className="flex items-center gap-2 border-b border-edge px-4 py-2 text-xs text-fg-muted">
+                    <Droplet className="h-4 w-4 shrink-0 text-fg-faint" aria-hidden="true" />
+                    Live monitoring of blood and bone marrow tests processing across this branch.
+                </p>
+                <div className="overflow-x-auto">
+                    <table className="w-full min-w-[640px] table-fixed text-left text-sm">
+                        <colgroup>
+                            <col className="w-[36%]" />
+                            <col className="w-[14%]" />
+                            <col className="w-[22%]" />
+                            <col className="w-[14%]" />
+                            <col className="w-[14%]" />
+                        </colgroup>
+                        <thead>
+                            <tr className="border-b border-edge text-xs font-semibold text-fg-muted">
+                                <th scope="col" className="py-2 pl-4 pr-3 font-semibold">Test</th>
+                                <th scope="col" className="px-3 py-2 font-semibold">Code</th>
+                                <th scope="col" className="px-3 py-2 font-semibold">Mode</th>
+                                <th scope="col" className="px-3 py-2 text-right font-semibold">Orders today</th>
+                                <th scope="col" className="px-3 py-2 font-semibold">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-edge whitespace-nowrap">
+                            {HAEMATOLOGY_TESTS.map((test) => (
+                                <tr key={test.code} className="hover:bg-surface-hover">
+                                    <td className="py-2 pl-4 pr-3">
+                                        <div className="flex items-center gap-3">
+                                            <span
+                                                aria-hidden="true"
+                                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-muted text-[12px] font-semibold text-fg-secondary"
+                                            >
+                                                {test.abbr}
+                                            </span>
+                                            <span className="truncate font-medium text-fg" title={test.name}>
+                                                {test.name}
+                                            </span>
+                                        </div>
+                                    </td>
+                                    <td className="px-3 py-2 tabular-nums text-fg-secondary">{test.code}</td>
+                                    <td className="px-3 py-2">
+                                        <StatusChip tone={test.modeTone} dot size="sm" title={test.mode}>
+                                            {test.mode}
+                                        </StatusChip>
+                                    </td>
+                                    <td className="px-3 py-2 text-right tabular-nums font-semibold text-fg">{test.ordersToday}</td>
+                                    <td className="px-3 py-2">
+                                        <StatusChip tone={test.statusTone} size="sm" title={test.status}>
+                                            {test.status}
+                                        </StatusChip>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
                 </div>
 
                 <div className="divide-y divide-[#ecf0f6]">

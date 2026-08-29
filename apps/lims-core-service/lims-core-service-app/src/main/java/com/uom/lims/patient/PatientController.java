@@ -42,7 +42,14 @@ public class PatientController implements PatientApi {
                 return patientService.getPatientByCode(patientCode);
         }
 
-        @PreAuthorize("hasAnyRole('FRONT_DESK','MLT','PHLEBOTOMIST','BRANCH_ADMIN','SUPER_ADMIN')")
+        // BILLING_OFFICER is on this list because creating an order starts by finding
+        // the patient it belongs to. Without it the billing screen could reach
+        // /orders and /bills but got 403 from here, so the patient picker rendered
+        // empty and an order could not be started at all unless the same user was
+        // also given FRONT_DESK. Both scopes this endpoint serves are wanted:
+        // no keyword browses the caller's own branch, a keyword searches every
+        // branch so a patient registered elsewhere can still be billed here.
+        @PreAuthorize("hasAnyRole('FRONT_DESK','BILLING_OFFICER','MLT','PHLEBOTOMIST','BRANCH_ADMIN','SUPER_ADMIN')")
         @Override
         public PageResponse<PatientResponse> searchPatients(
                         @RequestParam(defaultValue = "") String keyword,

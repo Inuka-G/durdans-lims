@@ -16,7 +16,7 @@ interface InstrumentStatusProps {
 export default function InstrumentStatus({ instruments }: InstrumentStatusProps) {
     return (
         <>
-            <p className="px-1 text-xs font-medium text-fg-muted">Instruments</p>
+            <p className="px-1 text-xs font-semibold text-fg-muted">Instruments</p>
             {instruments.map((inst) => {
                 const cfg = STATUS_CONFIG[inst.status];
                 return (
@@ -27,7 +27,7 @@ export default function InstrumentStatus({ instruments }: InstrumentStatusProps)
                             </StatusChip>
                         </div>
                         <p className="truncate text-xs font-medium text-fg" title={inst.name}>{inst.name}</p>
-                        <p className="text-[11px] tabular-nums text-fg-muted">{inst.testsToday} tests today</p>
+                        <p className="text-[12px] tabular-nums text-fg-muted">{inst.testsToday} tests today</p>
                     </div>
                 );
             })}
