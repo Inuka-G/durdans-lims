@@ -10,6 +10,7 @@ interface BranchDetailsPanelProps {
     onClose: () => void;
     onEditClick?: () => void;
     onChangeAdminClick?: () => void;
+    branch?: any;
 }
 
 // Mocked branch record (placeholder until the branch API is wired up)
