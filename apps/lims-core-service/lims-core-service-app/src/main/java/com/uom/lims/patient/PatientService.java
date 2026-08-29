@@ -126,8 +126,28 @@ public class PatientService {
         public PatientResponse getPatientByCode(String patientCode) {
 
                 PatientEntity patient = patientRepository.findByPatientCode(patientCode)
-                                .orElseThrow(() -> new ResourceNotFoundException(
-                                                "Patient not found with code: " + patientCode));
+                                .orElse(null);
+
+                if (patient == null) {
+                        if (SecurityUtils.hasRole("PATIENT")) {
+                                org.springframework.security.core.Authentication authentication = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+                                if (authentication != null && authentication.getPrincipal() instanceof org.springframework.security.oauth2.jwt.Jwt jwt) {
+                                        String currentUserCode = jwt.getClaimAsString("preferred_username");
+                                        if (patientCode.equals(currentUserCode)) {
+                                                // Just-In-Time Mock Profile for unlinked Keycloak testing accounts
+                                                PatientResponse mockResponse = new PatientResponse();
+                                                mockResponse.setPatientCode(patientCode);
+                                                mockResponse.setFullName(jwt.getClaimAsString("name") != null ? jwt.getClaimAsString("name") : "Test User");
+                                                mockResponse.setEmail(jwt.getClaimAsString("email"));
+                                                mockResponse.setPhone("0770000000");
+                                                mockResponse.setGender(com.uom.lims.api.common.enums.Gender.MALE);
+                                                mockResponse.setDob(java.time.LocalDate.of(1990, 1, 1));
+                                                return mockResponse;
+                                        }
+                                }
+                        }
+                        throw new ResourceNotFoundException("Patient not found with code: " + patientCode);
+                }
 
                 // A patient is a hospital-wide record, not a branch-owned one: someone
                 // registered at Colombo must be servable at Kandy without re-registering.

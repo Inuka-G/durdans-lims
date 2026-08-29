@@ -84,7 +84,7 @@ public class DispatchController implements DispatchApi {
             org.springframework.security.core.Authentication authentication = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
             if (authentication != null && authentication.getPrincipal() instanceof org.springframework.security.oauth2.jwt.Jwt jwt) {
                 String patientCode = jwt.getClaimAsString("preferred_username");
-                if (patientCode != null && !patientCode.equals(response.getPatientId())) {
+                if (patientCode != null && !patientCode.equals(response.getPatientCode())) {
                     throw new org.springframework.security.access.AccessDeniedException("Access Denied");
                 }
             }
