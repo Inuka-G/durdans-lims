@@ -28,4 +28,6 @@ public class DispatchDashboardItemResponse {
     private String authorizedTime;
     private List<DeliveryMethod> deliveryMethods;
     private DispatchItemStatus status;
+    private String authorizedBy;
+    private String priorityLevel;
 }

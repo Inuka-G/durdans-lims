@@ -7,7 +7,9 @@ export const formatDisplayId = (value?: string | null, prefix = 'ID') => {
 
     const trimmed = value.trim();
 
-    if (prefix.toUpperCase() === 'RES' || trimmed.toUpperCase().startsWith('RES')) {
+    const cleanPrefix = prefix.toUpperCase();
+
+    if (cleanPrefix === 'RES' || trimmed.toUpperCase().startsWith('RES')) {
         const currentYear = new Date().getFullYear();
         if (/^RES\d{4}-\d{5}$/i.test(trimmed)) {
             return trimmed.toUpperCase();
@@ -17,6 +19,18 @@ export const formatDisplayId = (value?: string | null, prefix = 'ID') => {
         const numeric = parseInt(hex, 16);
         const sequence = !isNaN(numeric) ? (numeric % 90000) + 10000 : 10001;
         return `RES${currentYear}-${sequence}`;
+    }
+
+    if (cleanPrefix === 'REP' || trimmed.toUpperCase().startsWith('REP')) {
+        const currentYear = new Date().getFullYear();
+        if (/^REP\d{4}-\d{5}$/i.test(trimmed)) {
+            return trimmed.toUpperCase();
+        }
+        const hexMatch = trimmed.replace(/^REP-?/i, '').replaceAll('-', '');
+        const hex = hexMatch.slice(-8);
+        const numeric = parseInt(hex, 16);
+        const sequence = !isNaN(numeric) ? (numeric % 90000) + 10000 : 10001;
+        return `REP${currentYear}-${sequence}`;
     }
 
     if (!UUID_PATTERN.test(trimmed)) {
