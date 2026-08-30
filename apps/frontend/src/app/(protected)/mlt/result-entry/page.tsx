@@ -512,11 +512,11 @@ function ResultEntryContent() {
                         <div className="overflow-x-auto">
                             {/* table-fixed: 144+96+160+80 = 480px of fixed columns, so the table needs
                                 480 + 2*160 = 800px before Patient and Test clear a 160px floor. */}
-                            <table className="w-full min-w-[800px] table-fixed text-left text-sm">
+                            <table className="w-full min-w-[880px] table-fixed text-left text-sm">
                                 <caption className="sr-only">MLT worklist samples</caption>
                                 <thead>
                                     <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
-                                        <th scope="col" className="w-36 py-2 pl-4 pr-3 font-semibold">
+                                        <th scope="col" className="w-48 py-2 pl-4 pr-3 font-semibold">
                                             Barcode
                                         </th>
                                         <th scope="col" className="px-3 py-2 font-semibold">
