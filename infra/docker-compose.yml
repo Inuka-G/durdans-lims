@@ -159,6 +159,14 @@ services:
       KEYCLOAK_REALM: lims-realm
       KEYCLOAK_INTERNAL_URL: http://keycloak:8080
       KEYCLOAK_PUBLIC_URL: http://localhost:8081
+      # Admin module (Global User Control, Branch admin assignment) talks to
+      # Keycloak's own Admin API via a service-account client. Off by default
+      # in application.yml for environments with no such client configured;
+      # this local stack has one (see infra/README.md / infra/.env.example),
+      # so the admin module works out of the box here.
+      APP_KEYCLOAK_ADMIN_ENABLED: "true"
+      KEYCLOAK_ADMIN_CLIENT_ID: ${KEYCLOAK_ADMIN_CLIENT_ID:-lims-admin-cli}
+      KEYCLOAK_ADMIN_CLIENT_SECRET: ${KEYCLOAK_ADMIN_CLIENT_SECRET:-}
       # S3 -> LocalStack (test/test are LocalStack defaults, not real secrets)
       AWS_ACCESS_KEY: test
       AWS_SECRET_KEY: test

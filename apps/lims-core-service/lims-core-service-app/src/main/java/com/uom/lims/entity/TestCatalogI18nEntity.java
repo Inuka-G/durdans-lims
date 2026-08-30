@@ -47,6 +47,16 @@ public class TestCatalogI18nEntity extends BaseEntity {
     @Column(name = "prep_instruction", columnDefinition = "text")
     private String prepInstruction;
 
+    /**
+     * Keycloak subject of whoever last saved this draft — compared against the
+     * reviewer's own subject so the person who wrote the translation can't also
+     * be the one who approves it. Subject, not display name: the two clinical
+     * roles that can review (LAB_SUPERVISOR, PATHOLOGIST) also both appear in
+     * the roles that can save a draft, so this is the actual enforcement point.
+     */
+    @Column(name = "drafted_by")
+    private String draftedBy;
+
     @Column(name = "reviewed_by")
     private String reviewedBy;
 

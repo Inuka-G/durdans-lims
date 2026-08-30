@@ -41,12 +41,25 @@ class ModelTest(unittest.TestCase):
         s = Settings(gemini_live_model="models/gemini-2.5-flash-native-audio-latest")
         self.assertEqual(s.resolved_model(), "models/gemini-2.5-flash-native-audio-latest")
 
-    def test_default_is_a_native_audio_model(self):
-        # Affective dialog and proactive audio are native-audio-only; a default
-        # that drifted off that line would silently lose both. Env cleared so a
-        # developer's own override cannot pass or fail this for us.
+    def test_default_is_the_pinned_live_preview_model(self):
+        # Pinned to gemini-3.1-flash-live-preview by user decision (2026-08-30).
+        # Env cleared so a developer's own override cannot pass or fail this for us.
         with mock.patch.dict(os.environ, {}, clear=True):
-            self.assertIn("native-audio", Settings().resolved_model())
+            self.assertEqual(Settings().resolved_model(), "models/gemini-3.1-flash-live-preview")
+
+
+class CapabilityDefaultsTest(unittest.TestCase):
+    """gemini-3.1-flash-live-preview refuses affective dialog (1011 on setup) and
+    does not support NON_BLOCKING tools — verified against the live API. The
+    defaults have to be off for this model line, or every boot spends three
+    probe round trips finding out what this test already knows."""
+
+    def test_affective_and_proactive_and_async_tools_default_off(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            s = Settings()
+            self.assertFalse(s.affective_dialog)
+            self.assertFalse(s.proactive_audio)
+            self.assertFalse(s.async_tools)
 
 
 if __name__ == "__main__":

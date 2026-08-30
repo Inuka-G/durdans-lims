@@ -178,20 +178,27 @@ located why. Almost none of it was the model.
 - **She has a name.** `AGENT_NAME_SI` / `AGENT_NAME_EN`. A voice with a name is a
   person; "the telephone assistant" is a system. The older agent opened with its name
   on every call and that is most of the difference in the first three seconds.
-- **Affective dialog and proactive audio are on.** Both exist only on the
-  native-audio line and both ship off in Pipecat. Affective dialog is what lets the
-  reply to a worried caller differ from the reply to a cheerful one; proactive audio
-  lets the model decline to answer a hallway it was never addressed with. Worth
-  knowing for any future model bump: Gemini 3.x Flash Live supports *neither*, so
-  "newer model" is not automatically the warmer one here.
-- **Tools no longer produce dead air.** Registered with
-  `cancel_on_interruption=False`, which is what makes Pipecat declare them
+- **Affective dialog and proactive audio, on the native-audio line only.** Both
+  ship off in Pipecat. Affective dialog is what lets the reply to a worried caller
+  differ from the reply to a cheerful one; proactive audio lets the model decline
+  to answer a hallway it was never addressed with. They were on by default while
+  `GEMINI_LIVE_MODEL` was pinned to `gemini-2.5-flash-native-audio-preview-12-2025`.
+  By user decision (2026-08-30) the model is now pinned to
+  `gemini-3.1-flash-live-preview`, which supports *neither* — affective dialog
+  closes the Live setup with a 1011, verified against the live API — so both
+  default off alongside it. "Newer model" is not automatically the warmer one here.
+  The boot probe (`app/live_check.py`) still checks and would disable either one
+  live if a future model bump turns them back on but the server disagrees.
+- **Tools no longer produce dead air, on the native-audio line only.** Registered
+  with `cancel_on_interruption=False`, which is what makes Pipecat declare them
   `NON_BLOCKING` to Gemini: the model keeps talking while a lookup is in flight
-  instead of leaving the line silent for a second or two. The prompt teaches the
-  filler; this makes the filler possible. The trade is real and worth naming: the
-  model now speaks before the result lands, so only the never-invent rule keeps that
-  speech honest. `VOICE_ASYNC_TOOLS=false` reverts to blocking calls if a live call
-  ever shows a price spoken ahead of its tool.
+  instead of leaving the line silent for a second or two. Gemini 3.x Flash Live
+  does not support `NON_BLOCKING` at all, so `VOICE_ASYNC_TOOLS` defaults off
+  alongside the current model pin — calls take a short blocking pause during a
+  lookup instead. Flip it back on only alongside a `GEMINI_LIVE_MODEL` back on
+  the native-audio line, where the trade is real and worth naming: the model
+  speaks before the result lands, so only the never-invent rule keeps that speech
+  honest.
 - **The clock is in the prompt.** A caller at nine at night was being wished a good
   morning. `time_context()` computes the Colombo time band and states the greeting to
   use — and states, explicitly, that the agent's own opening greeting is not evidence

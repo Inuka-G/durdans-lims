@@ -1,85 +1,13 @@
 "use client";
 
-import Link from "next/link";
 import { useAuth } from "@/hooks/useAuth";
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { NavItem } from "@/lib/api";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useMetadata } from "@/providers/MetadataProvider";
-import { usePathname } from "next/navigation";
 import { Building2, Check, ChevronDown, LogOut, Monitor, Moon, Stethoscope, Sun } from "lucide-react";
 import { useTheme, type ThemePreference } from "@/providers/ThemeProvider";
 import { cn } from "@/lib/utils";
-
-const NAV_ORDER: Record<string, number> = {
-    "/dashboard": 10,
-    "/orders-billing": 20,
-    "/phlebotomy": 30,
-    "/lab-reception": 40,
-    "/lab-testing": 50,
-    "/lab-supervision": 60,
-    "/pathology": 70,
-    "/report-dispatch": 80,
-};
-
-/**
- * Short, single-word module labels so the nav never wraps. The backend's
- * displayText is kept as the tooltip so the full name is still discoverable.
- */
-const SHORT_LABELS: Record<string, string> = {
-    "/dashboard": "Patients",
-    "/patients": "Patients",
-    "/orders-billing": "Orders",
-    "/phlebotomy": "Sampling",
-    "/lab-reception": "Reception",
-    "/lab-testing": "MLT",
-    "/lab-supervision": "Lab Supervisor",
-    "/pathology": "Pathologist",
-    "/report-dispatch": "Dispatch",
-    "/branch": "Branch",
-    "/superadmin": "Admin",
-};
-
-/** Backend linkUrl → the frontend route the tab opens. */
-const URL_MAP: Record<string, string> = {
-    "/phlebotomy": "/phlebotomy/worklist",
-    "/lab-reception": "/reception/accessioning",
-    "/lab-testing": "/mlt/worklist",
-    "/lab-supervision": "/verification/pending",
-    "/pathology": "/clinical/worklist",
-    "/report-dispatch": "/dispatch/dashboard",
-    "/orders-billing": "/orders-billing/create-order",
-};
-
-/**
- * Backend linkUrl → every route prefix that belongs to that module (for the active tab).
- * Critical values is no longer a route of its own — it lives inside the supervisor
- * verification screens — so nothing maps to /critical-values any more.
- */
-const MODULE_PREFIXES: Record<string, string[]> = {
-    "/dashboard": ["/dashboard", "/patients", "/audit"],
-    "/orders-billing": ["/orders-billing"],
-    "/phlebotomy": ["/phlebotomy"],
-    "/lab-reception": ["/reception"],
-    "/lab-testing": ["/mlt"],
-    "/lab-supervision": ["/verification"],
-    "/pathology": ["/clinical"],
-    "/report-dispatch": ["/dispatch"],
-    "/branch": ["/branch"],
-    "/superadmin": ["/superadmin"],
-};
-
-const sortNavItems = (items: NavItem[]) =>
-    [...new Map(items.map((item) => [item.linkUrl, item])).values()]
-        // The /critical-values route is gone, but the backend still serves its
-        // header_mapping row — without this the supervisor nav renders a 404 link.
-        .filter((item) => item.linkUrl !== "/critical-values")
-        .sort((a, b) => {
-            const aOrder = NAV_ORDER[a.linkUrl] ?? Number.MAX_SAFE_INTEGER;
-            const bOrder = NAV_ORDER[b.linkUrl] ?? Number.MAX_SAFE_INTEGER;
-            return aOrder - bOrder;
-        });
-
-const resolveUrl = (url: string) => URL_MAP[url] || url;
+import ModuleTabs from "@/components/layout/ModuleTabs";
+import AccountStatusBadge from "@/components/layout/AccountStatusBadge";
 
 const THEME_OPTIONS: { value: ThemePreference; label: string; icon: typeof Sun }[] = [
     { value: "light", label: "Light", icon: Sun },
@@ -87,51 +15,13 @@ const THEME_OPTIONS: { value: ThemePreference; label: string; icon: typeof Sun }
     { value: "system", label: "System", icon: Monitor },
 ];
 
-const getFullLabel = (item: NavItem) => {
-    if (item.linkUrl === "/lab-supervision") return "Lab Supervisor";
-    if (item.linkUrl === "/pathology") return "Pathologist";
-    return item.displayText;
-};
-
-const getNavLabel = (item: NavItem) => SHORT_LABELS[item.linkUrl] ?? getFullLabel(item);
-
 export default function TopNav() {
     const { logout, user } = useAuth();
-    const pathname = usePathname();
-    const { metadata, error } = useMetadata();
+    const { metadata } = useMetadata();
     const { theme, setTheme } = useTheme();
 
     // Use fallback values if token parsing fails
     const userName = user?.name || user?.preferred_username || "User";
-
-    const subtitleLine = useMemo(() => {
-        if (pathname.startsWith("/verification")) return "Lab Supervisor";
-        if (pathname.startsWith("/clinical")) return "Consultant Pathologist";
-        if (pathname.startsWith("/dispatch")) return "Dispatch Officer";
-        if (pathname.startsWith("/mlt")) return "Medical Laboratory Technologist";
-        if (pathname.startsWith("/sampling")) return "Phlebotomist";
-        if (pathname.startsWith("/reception")) return "Receptionist";
-        if (pathname.startsWith("/branch")) return "Branch Admin";
-        if (user?.roles?.includes("LAB_SUPERVISOR") || user?.roles?.includes("SUPERVISOR")) return "Lab Supervisor";
-        if (user?.roles?.includes("PATHOLOGIST")) return "Consultant Pathologist";
-        if (user?.roles?.includes("DISPATCH")) return "Dispatch Officer";
-        return "Lab Supervisor";
-    }, [pathname, user]);
-
-    const isActive = (url: string) => {
-        const prefixes = MODULE_PREFIXES[url] ?? [resolveUrl(url)];
-        return prefixes.some((p) => pathname === p || pathname.startsWith(p + "/"));
-    };
-
-    const navItems = useMemo<NavItem[]>(() => {
-        if (metadata?.navItems) return sortNavItems(metadata.navItems);
-        if (error) {
-            if (pathname === "/branch") return [{ displayText: "Branch Management", linkUrl: "/branch" }];
-            if (pathname === "/superadmin") return [{ displayText: "Super Admin Management", linkUrl: "/superadmin" }];
-            return [{ displayText: "Patient Management", linkUrl: "/dashboard" }];
-        }
-        return [];
-    }, [metadata, error, pathname]);
 
     /* ── Account menu (Logout lives here, not in the nav bar) ── */
     const [menuOpen, setMenuOpen] = useState(false);
@@ -210,33 +100,7 @@ export default function TopNav() {
                         </span>
                     )}
 
-                    {/* Module tabs: never wrap; scroll horizontally when there isn't room. */}
-                    <nav
-                        aria-label="Modules"
-                        className="no-scrollbar flex h-16 min-w-0 flex-1 items-center overflow-x-auto"
-                    >
-                        {navItems.map((item) => {
-                            const href = resolveUrl(item.linkUrl);
-                            const active = isActive(item.linkUrl);
-                            return (
-                                <Link
-                                    key={item.linkUrl}
-                                    href={href}
-                                    title={getFullLabel(item)}
-                                    aria-current={active ? "page" : undefined}
-                                    className={cn(
-                                        "relative flex h-16 shrink-0 items-center whitespace-nowrap px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary",
-                                        active ? "text-primary-strong" : "text-fg-secondary hover:text-fg"
-                                    )}
-                                >
-                                    {getNavLabel(item)}
-                                    {active && (
-                                        <span aria-hidden="true" className="absolute inset-x-3 bottom-0 h-0.5 rounded-t bg-primary" />
-                                    )}
-                                </Link>
-                            );
-                        })}
-                    </nav>
+                    <ModuleTabs />
                 </div>
 
                 <div ref={menuRef} className="relative shrink-0" onKeyDown={onMenuKeyDown}>
@@ -254,7 +118,9 @@ export default function TopNav() {
                             <span className="block truncate text-sm font-semibold leading-tight text-fg" title={userName}>
                                 {userName}
                             </span>
-                            <span className="block truncate text-[12px] leading-tight text-fg-muted">{subtitleLine}</span>
+                            <span className="block truncate text-[12px] leading-tight">
+                                <AccountStatusBadge />
+                            </span>
                         </span>
                         <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary-soft text-sm font-semibold text-primary-strong">
                             {userName.charAt(0).toUpperCase()}
@@ -266,7 +132,9 @@ export default function TopNav() {
                         <div className="absolute right-0 mt-1.5 w-60 overflow-hidden rounded-md border border-edge bg-surface py-1 shadow-lg shadow-black/10">
                             <div className="border-b border-edge px-3 py-2">
                                 <p className="truncate text-sm font-medium text-fg">{userName}</p>
-                                <p className="truncate text-[12px] text-fg-muted">{subtitleLine}</p>
+                                <p className="truncate text-[12px]">
+                                    <AccountStatusBadge />
+                                </p>
                             </div>
                             <div role="menu" aria-label="Account">
                                 <div className="px-3 pb-1 pt-2 text-[12px] font-medium uppercase tracking-wide text-fg-muted" id="theme-group-label">

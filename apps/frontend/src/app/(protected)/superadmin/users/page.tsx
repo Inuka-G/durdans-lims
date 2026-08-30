@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import UserCreateModal from "@/components/admin/UserCreateModal";
 import UserEditModal from "@/components/admin/UserEditModal";
-import { getAdminUsers, setAdminUserEnabled, AdminUser } from "@/lib/api";
+import { ASSIGNABLE_ROLES, getAdminUsers, setAdminUserEnabled, AdminUser } from "@/lib/api";
 import Button from "@/components/ui/Button";
 import PageHeader from "@/components/ui/PageHeader";
 import SectionCard from "@/components/ui/SectionCard";
@@ -33,7 +33,6 @@ interface UserRecord {
     branch: string;
     roles: string[];
     status: UserStatus;
-    lastLogin: string;
 }
 
 const SKELETON_ROWS = 6;
@@ -43,15 +42,21 @@ const TAB_OPTIONS: { value: Tab; label: string }[] = [
     { value: "matrix", label: "Global role matrix" },
 ];
 
+const ROLE_LABELS: Record<string, string> = Object.fromEntries(ASSIGNABLE_ROLES.map((r) => [r.value, r.label]));
+
+/** Friendly label for a realm role code, falling back to the raw code for anything not in ASSIGNABLE_ROLES (e.g. SUPER_ADMIN, which this UI doesn't assign but may still need to display). */
+function roleLabel(role: string): string {
+    return ROLE_LABELS[role] ?? role;
+}
+
 function toRecord(u: AdminUser): UserRecord {
     return {
         id: u.id,
         name: `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || u.username,
         email: u.email ?? "—",
         branch: u.branchCode ?? "—",
-        roles: [],
+        roles: u.roles ?? [],
         status: u.enabled ? "ACTIVE" : "INACTIVE",
-        lastLogin: "—",
     };
 }
 
@@ -240,9 +245,12 @@ export default function GlobalUserControlPage() {
                     ) : (
                         <div className="overflow-x-auto">
                             {/* min-w must cover the fixed columns plus a >=160px floor for the auto
-                                Name column at every band. lg reveals Roles (w-48) + Last login (w-32),
-                                pushing the fixed sum to 752px, so the table needs >=912px there. */}
-                            <table className="w-full min-w-[760px] table-fixed text-left text-sm lg:min-w-[920px]">
+                                Name column at every band. lg reveals Roles (w-48), pushing the fixed
+                                sum to 624px, so the table needs >=792px there. Last login isn't a
+                                column: the Keycloak admin API this page reads from doesn't expose a
+                                per-user last-login timestamp, so showing one would just be another
+                                permanently-empty field. */}
+                            <table className="w-full min-w-[760px] table-fixed text-left text-sm lg:min-w-[792px]">
                                 <caption className="sr-only">User directory</caption>
                                 <thead>
                                     <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
@@ -260,9 +268,6 @@ export default function GlobalUserControlPage() {
                                         </th>
                                         <th scope="col" className="w-24 px-3 py-2 font-semibold">
                                             Status
-                                        </th>
-                                        <th scope="col" className="hidden w-32 px-3 py-2 font-semibold lg:table-cell">
-                                            Last login
                                         </th>
                                         <th scope="col" className="w-28 py-2 pl-3 pr-4 text-right font-semibold">
                                             Actions
@@ -294,8 +299,8 @@ export default function GlobalUserControlPage() {
                                                     ) : (
                                                         <div className="flex flex-wrap gap-1">
                                                             {user.roles.map((role) => (
-                                                                <StatusChip key={role} size="sm">
-                                                                    {role}
+                                                                <StatusChip key={role} size="sm" title={role}>
+                                                                    {roleLabel(role)}
                                                                 </StatusChip>
                                                             ))}
                                                         </div>
@@ -306,7 +311,6 @@ export default function GlobalUserControlPage() {
                                                         {humanizeStatus(user.status)}
                                                     </StatusChip>
                                                 </td>
-                                                <td className="hidden truncate px-3 py-2 text-fg-muted lg:table-cell">{user.lastLogin}</td>
                                                 <td className="py-2 pl-3 pr-4">
                                                     <div className="flex items-center justify-end gap-1">
                                                         <Button
@@ -374,7 +378,12 @@ export default function GlobalUserControlPage() {
                 }}
             />
 
-            <UserEditModal isOpen={isEditModalOpen} onClose={() => setIsEditModalOpen(false)} userData={selectedUser} />
+            <UserEditModal
+                isOpen={isEditModalOpen}
+                onClose={() => setIsEditModalOpen(false)}
+                onSaved={load}
+                userData={selectedUser}
+            />
         </div>
     );
 }

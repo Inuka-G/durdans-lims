@@ -24,8 +24,8 @@ import { cn } from "@/lib/utils";
 import Button from "@/components/ui/Button";
 import PageHeader from "@/components/ui/PageHeader";
 import SectionCard from "@/components/ui/SectionCard";
-import SegmentedControl from "@/components/ui/SegmentedControl";
 import EmptyState from "@/components/ui/EmptyState";
+import DemoDataBanner from "@/components/shared/DemoDataBanner";
 import { CONTROL_CLASS, SelectField } from "@/components/ui/Field";
 
 // Types for Mock Data
@@ -88,8 +88,19 @@ export default function RolePermissionsPage() {
         );
     }, [permissions, searchQuery]);
 
+    // Nothing here is persisted (see the banner below) — but the in-progress
+    // toggles are still real edits until a demo "save", so switching roles
+    // out from under them without warning would still be a real data-loss bug.
+    const isDirty = useMemo(
+        () => JSON.stringify(permissions) !== JSON.stringify(roleProfiles[selectedRole] || []),
+        [permissions, selectedRole]
+    );
+
     const handleRoleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const newRole = e.target.value;
+        if (isDirty && !window.confirm(`Discard unsaved permission changes for ${selectedRole}?`)) {
+            return;
+        }
         setSelectedRole(newRole);
         // Load the profile for the selected role
         setPermissions(roleProfiles[newRole] || []);
@@ -163,6 +174,8 @@ export default function RolePermissionsPage() {
                 }
             />
 
+            <DemoDataBanner note="Demo data — this permission matrix is not yet wired to a backend; nothing you change or “save” here is persisted." />
+
             <p role="status" aria-live="polite" className="sr-only">
                 {isSaving
                     ? `Saving permissions for ${selectedRole}`
@@ -177,17 +190,6 @@ export default function RolePermissionsPage() {
                             <option key={role} value={role}>{role}</option>
                         ))}
                     </SelectField>
-
-                    <div>
-                        <span className="mb-1 block text-xs font-medium text-fg-secondary">View mode</span>
-                        <SegmentedControl
-                            value="matrix"
-                            onChange={() => undefined}
-                            options={[{ value: "matrix", label: "Matrix" }]}
-                            ariaLabel="View mode"
-                            className="h-9"
-                        />
-                    </div>
 
                     <div className="w-full sm:ml-auto sm:w-64">
                         <label htmlFor={filterId} className="mb-1 block text-xs font-medium text-fg-secondary">

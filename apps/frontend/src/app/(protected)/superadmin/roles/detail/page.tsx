@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { toast } from "sonner";
 import {
     ChevronDown,
     FileText,
@@ -19,6 +20,7 @@ import Button from "@/components/ui/Button";
 import PageHeader from "@/components/ui/PageHeader";
 import EmptyState from "@/components/ui/EmptyState";
 import StatusChip from "@/components/ui/StatusChip";
+import DemoDataBanner from "@/components/shared/DemoDataBanner";
 
 interface PermissionItem {
     id: string;
@@ -86,13 +88,40 @@ export default function DetailedRolePermissionsPage() {
     // The MLT module starts expanded (was `isMLTModuleExpanded`); other groups start collapsed.
     const [expanded, setExpanded] = useState<Record<string, boolean>>({ mlt: true });
     const [grants, setGrants] = useState<Record<string, boolean>>(DEFAULT_GRANTS);
+    // The last-saved baseline "Unsaved changes" is measured against — distinct
+    // from DEFAULT_GRANTS, which "Reset to default" always returns to.
+    const [savedGrants, setSavedGrants] = useState<Record<string, boolean>>(DEFAULT_GRANTS);
     const [search, setSearch] = useState("");
+    const [isSaving, setIsSaving] = useState(false);
 
     const toggleGroup = (id: string) => setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
     const toggleGrant = (id: string) => setGrants((prev) => ({ ...prev, [id]: !prev[id] }));
     const resetToDefault = () => setGrants(DEFAULT_GRANTS);
 
-    const isDirty = useMemo(() => PERMISSION_GROUPS.some((g) => g.permissions.some((p) => grants[p.id] !== p.granted)), [grants]);
+    // No backend to persist to yet (see the banner below) — this at least gives
+    // the sticky Save button a real, honest effect instead of doing nothing,
+    // and clears "Unsaved changes" the same way a real save would.
+    const handleSave = async () => {
+        setIsSaving(true);
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        setSavedGrants(grants);
+        toast.success("Permissions saved for this session");
+        setIsSaving(false);
+    };
+
+    // "Unsaved changes" / whether Save has anything to do: measured against the
+    // last-saved baseline.
+    const isDirty = useMemo(
+        () => PERMISSION_GROUPS.some((g) => g.permissions.some((p) => grants[p.id] !== savedGrants[p.id])),
+        [grants, savedGrants]
+    );
+    // Whether "Reset to default" would actually change anything: measured
+    // against the role's true default, which can differ from the saved
+    // baseline once at least one save has happened.
+    const canReset = useMemo(
+        () => PERMISSION_GROUPS.some((g) => g.permissions.some((p) => grants[p.id] !== p.granted)),
+        [grants]
+    );
 
     // Filter permissions by name/description; a matching group name keeps all of its permissions.
     const q = search.trim().toLowerCase();
@@ -153,6 +182,8 @@ export default function DetailedRolePermissionsPage() {
                     </label>
                 }
             />
+
+            <DemoDataBanner note="Demo data — this role's permissions aren't wired to a backend yet; Save keeps your changes for this session only." />
 
             <p role="status" aria-live="polite" className="sr-only">
                 {q
@@ -275,11 +306,7 @@ export default function DetailedRolePermissionsPage() {
             {/* Sticky action bar */}
             <div className="sticky bottom-0 z-10 mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-edge bg-canvas py-3">
                 <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-fg-muted">
-                    <span>Version 2.4.1</span>
-                    <span aria-hidden="true">·</span>
-                    <span>
-                        Last modified by <span className="font-medium text-fg-secondary">Admin_User</span> on 12 Oct, 11:20
-                    </span>
+                    <span>Not yet connected to a backend — saves last for this browser session only</span>
                     {isDirty && (
                         <>
                             <span aria-hidden="true">·</span>
@@ -288,11 +315,11 @@ export default function DetailedRolePermissionsPage() {
                     )}
                 </div>
                 <div className="ml-auto flex shrink-0 items-center gap-2">
-                    <Button icon={RotateCcw} onClick={resetToDefault} disabled={!isDirty}>
+                    <Button icon={RotateCcw} onClick={resetToDefault} disabled={!canReset}>
                         Reset to default
                     </Button>
-                    <Button variant="primary" icon={Save}>
-                        Save changes
+                    <Button variant="primary" icon={Save} onClick={handleSave} loading={isSaving}>
+                        {isSaving ? "Saving…" : "Save changes"}
                     </Button>
                 </div>
             </div>
