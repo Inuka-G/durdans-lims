@@ -2,7 +2,7 @@
 
 import { useId, useState } from "react";
 import { AlertCircle } from "lucide-react";
-import { createAdminUser } from "@/lib/api";
+import { ADMIN_BRANCH_OPTIONS, ASSIGNABLE_ROLES, createAdminUser } from "@/lib/api";
 import Modal from "@/components/ui/Modal";
 import Button from "@/components/ui/Button";
 import SegmentedControl from "@/components/ui/SegmentedControl";
@@ -20,15 +20,18 @@ const STATUS_OPTIONS: { value: UserStatus; label: string }[] = [
     { value: "INACTIVE", label: "Inactive" },
 ];
 
+const EMPTY_FORM = {
+    name: "",
+    email: "",
+    branch: ADMIN_BRANCH_OPTIONS[0].value,
+    role: ASSIGNABLE_ROLES[0].value,
+    status: "ACTIVE" as UserStatus,
+    temporaryPassword: "",
+};
+
 export default function UserCreateModal({ isOpen, onClose }: UserCreateModalProps) {
     const formId = useId();
-    const [formData, setFormData] = useState({
-        name: "",
-        email: "",
-        branch: "Colombo",
-        role: "Branch Admin",
-        status: "ACTIVE",
-    });
+    const [formData, setFormData] = useState(EMPTY_FORM);
     const [error, setError] = useState<string | null>(null);
     const [submitting, setSubmitting] = useState(false);
 
@@ -46,10 +49,12 @@ export default function UserCreateModal({ isOpen, onClose }: UserCreateModalProp
                 email: formData.email,
                 firstName,
                 lastName,
-                // Map the display role to a Keycloak realm role name.
-                role: formData.role.toUpperCase().replace(/\s+/g, "_"),
+                role: formData.role,
                 branchCode: formData.branch,
+                temporaryPassword: formData.temporaryPassword,
+                enabled: formData.status === "ACTIVE",
             });
+            setFormData(EMPTY_FORM);
             onClose();
         } catch {
             setError("Failed to create user. Ensure the Keycloak admin module is enabled and the role/branch are valid.");
@@ -108,28 +113,42 @@ export default function UserCreateModal({ isOpen, onClose }: UserCreateModalProp
                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                 />
 
+                <InputField
+                    label="Temporary password"
+                    required
+                    type="text"
+                    placeholder="Given to the user to sign in and change on first login"
+                    autoComplete="off"
+                    className="sm:col-span-2"
+                    value={formData.temporaryPassword}
+                    onChange={(e) => setFormData({ ...formData, temporaryPassword: e.target.value })}
+                />
+
                 <SelectField
                     label="Branch"
                     value={formData.branch}
                     onChange={(e) => setFormData({ ...formData, branch: e.target.value })}
                 >
-                    <option value="Colombo">Colombo Base</option>
-                    <option value="Kandy">Kandy Branch</option>
-                    <option value="Galle">Galle Outpost</option>
+                    {ADMIN_BRANCH_OPTIONS.map((b) => (
+                        <option key={b.value} value={b.value}>
+                            {b.label}
+                        </option>
+                    ))}
                 </SelectField>
 
                 <SelectField label="Role" value={formData.role} onChange={(e) => setFormData({ ...formData, role: e.target.value })}>
-                    <option value="Consultant">Consultant</option>
-                    <option value="Branch Admin">Branch Admin</option>
-                    <option value="Nursing Head">Nursing Head</option>
-                    <option value="Doctor">Doctor</option>
+                    {ASSIGNABLE_ROLES.map((r) => (
+                        <option key={r.value} value={r.value}>
+                            {r.label}
+                        </option>
+                    ))}
                 </SelectField>
 
                 <div className="sm:col-span-2">
                     <p className="mb-1 text-xs font-medium text-fg-secondary">Initial status</p>
                     <SegmentedControl<UserStatus>
                         ariaLabel="Initial status"
-                        value={formData.status as UserStatus}
+                        value={formData.status}
                         onChange={(next) => setFormData({ ...formData, status: next })}
                         options={STATUS_OPTIONS}
                     />

@@ -37,9 +37,23 @@ const SHORT_LABELS: Record<string, string> = {
     "/report-dispatch": "Dispatch",
     "/branch": "Branch",
     "/superadmin": "Admin",
+    // The seeded nav items use the backend's own linkUrl ("/admin",
+    // "/branch-admin"), not the App Router segment — see the URL_MAP comment
+    // below for why these two need their own entries.
+    "/admin": "Admin",
+    "/branch-admin": "Branch",
 };
 
-/** Backend linkUrl → the frontend route the tab opens. */
+/**
+ * Backend linkUrl → the frontend route the tab opens.
+ *
+ * The seeded nav items for the admin roles are "/admin" and "/branch-admin",
+ * but the App Router segments are (protected)/superadmin and (protected)/branch.
+ * Leaving these two unmapped means resolveUrl() returns the backend's raw
+ * "/admin" unchanged, which 404s — RoleGuard's own PREFIX_MAP already had to
+ * work around the exact same mismatch for the access check; this is the other
+ * half of that fix, for the actual link a user clicks.
+ */
 const URL_MAP: Record<string, string> = {
     "/phlebotomy": "/phlebotomy/worklist",
     "/lab-reception": "/reception/accessioning",
@@ -48,6 +62,8 @@ const URL_MAP: Record<string, string> = {
     "/pathology": "/clinical/worklist",
     "/report-dispatch": "/dispatch/dashboard",
     "/orders-billing": "/orders-billing/create-order",
+    "/admin": "/superadmin",
+    "/branch-admin": "/branch",
 };
 
 /**
@@ -66,6 +82,8 @@ const MODULE_PREFIXES: Record<string, string[]> = {
     "/report-dispatch": ["/dispatch"],
     "/branch": ["/branch"],
     "/superadmin": ["/superadmin"],
+    "/admin": ["/superadmin"],
+    "/branch-admin": ["/branch"],
 };
 
 const sortNavItems = (items: NavItem[]) =>

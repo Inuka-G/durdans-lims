@@ -42,4 +42,5 @@
     <include file="liquibase/changelog/20260818120000_supplies_by_tube_type.xml"/>
     <include file="liquibase/changelog/20260820110000_create_test_packages_and_i18n.xml"/>
     <include file="liquibase/changelog/20260821100000_result_numbers_and_admin_review_nav.xml"/>
+    <include file="liquibase/changelog/20260830100000_translation_author_vs_reviewer.xml"/>
 </databaseChangeLog>

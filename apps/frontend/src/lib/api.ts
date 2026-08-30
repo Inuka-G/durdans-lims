@@ -1378,6 +1378,7 @@ export interface AdminUser {
     lastName: string;
     enabled: boolean;
     branchCode: string;
+    roles: string[];
 }
 
 export interface CreateAdminUserRequest {
@@ -1388,7 +1389,45 @@ export interface CreateAdminUserRequest {
     role?: string;
     branchCode?: string;
     temporaryPassword?: string;
+    enabled?: boolean;
 }
+
+export interface UpdateAdminUserRequest {
+    firstName?: string;
+    lastName?: string;
+    email?: string;
+    role?: string;
+    branchCode?: string;
+}
+
+/**
+ * Realm roles this admin UI will assign — mirrors the backend's allow-list
+ * (AdminUserService.MANAGED_ROLES) and the RBAC table in README.md. SUPER_ADMIN
+ * is deliberately left out of self-service create/edit; grant it directly in
+ * Keycloak, not from a dropdown.
+ */
+export const ASSIGNABLE_ROLES: { value: string; label: string }[] = [
+    { value: 'MLT', label: 'Medical Laboratory Technician' },
+    { value: 'LAB_SUPERVISOR', label: 'Lab Supervisor' },
+    { value: 'PATHOLOGIST', label: 'Pathologist' },
+    { value: 'PHLEBOTOMIST', label: 'Phlebotomist' },
+    { value: 'FRONT_DESK', label: 'Billing / Receptionist' },
+    { value: 'DISPATCH', label: 'Dispatch' },
+    { value: 'BRANCH_ADMIN', label: 'Branch Admin' },
+];
+
+/**
+ * Branch codes this admin UI offers. There's no live branches endpoint yet
+ * (Branch management is still demo data) — these follow the Keycloak seed's
+ * branch_id convention (infra/keycloak-imports/lims-dev-seed.json: BR001 for
+ * branchadmin1), not the separate BR-COL-001-style ids that page's own mock
+ * uses. Replace with a real branches list once one exists.
+ */
+export const ADMIN_BRANCH_OPTIONS: { value: string; label: string }[] = [
+    { value: 'BR001', label: 'Colombo' },
+    { value: 'BR002', label: 'Kandy' },
+    { value: 'BR003', label: 'Galle' },
+];
 
 export async function getAdminUsers(): Promise<AdminUser[]> {
     const response = await axiosInstance.get('/api/v1/admin/users');
@@ -1397,6 +1436,11 @@ export async function getAdminUsers(): Promise<AdminUser[]> {
 
 export async function createAdminUser(req: CreateAdminUserRequest): Promise<AdminUser> {
     const response = await axiosInstance.post('/api/v1/admin/users', req);
+    return (response.data?.data ?? response.data) as AdminUser;
+}
+
+export async function updateAdminUser(id: string, req: UpdateAdminUserRequest): Promise<AdminUser> {
+    const response = await axiosInstance.put(`/api/v1/admin/users/${id}`, req);
     return (response.data?.data ?? response.data) as AdminUser;
 }
 
