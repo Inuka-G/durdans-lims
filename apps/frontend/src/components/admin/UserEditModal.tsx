@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useState } from "react";
 import { AlertCircle } from "lucide-react";
-import { ADMIN_BRANCH_OPTIONS, ASSIGNABLE_ROLES, updateAdminUser } from "@/lib/api";
+import { ASSIGNABLE_ROLES, Branch, getBranches, updateAdminUser } from "@/lib/api";
 import Modal from "@/components/ui/Modal";
 import Button from "@/components/ui/Button";
 import { InputField, SelectField } from "@/components/ui/Field";
@@ -29,11 +29,22 @@ export default function UserEditModal({ isOpen, onClose, onSaved, userData }: Us
     const [formData, setFormData] = useState({
         name: "",
         email: "",
-        branch: ADMIN_BRANCH_OPTIONS[0].value,
+        branch: "",
         role: ASSIGNABLE_ROLES[0].value,
     });
     const [error, setError] = useState<string | null>(null);
     const [submitting, setSubmitting] = useState(false);
+    const [branches, setBranches] = useState<Branch[]>([]);
+    const [branchesLoading, setBranchesLoading] = useState(true);
+
+    useEffect(() => {
+        if (!isOpen) return;
+        setBranchesLoading(true);
+        getBranches()
+            .then(setBranches)
+            .catch(() => setBranches([]))
+            .finally(() => setBranchesLoading(false));
+    }, [isOpen]);
 
     useEffect(() => {
         if (userData) {
@@ -123,14 +134,24 @@ export default function UserEditModal({ isOpen, onClose, onSaved, userData }: Us
 
                 <SelectField
                     label="Branch"
+                    disabled={branchesLoading || branches.length === 0}
                     value={formData.branch}
                     onChange={(e) => setFormData({ ...formData, branch: e.target.value })}
                 >
-                    {ADMIN_BRANCH_OPTIONS.map((b) => (
-                        <option key={b.value} value={b.value}>
-                            {b.label}
-                        </option>
-                    ))}
+                    {branchesLoading ? (
+                        <option value={formData.branch}>Loading branches…</option>
+                    ) : (
+                        <>
+                            {!branches.some((b) => b.code === formData.branch) && formData.branch && (
+                                <option value={formData.branch}>{formData.branch}</option>
+                            )}
+                            {branches.map((b) => (
+                                <option key={b.code} value={b.code}>
+                                    {b.name} ({b.code})
+                                </option>
+                            ))}
+                        </>
+                    )}
                 </SelectField>
 
                 <SelectField label="Role" value={formData.role} onChange={(e) => setFormData({ ...formData, role: e.target.value })}>

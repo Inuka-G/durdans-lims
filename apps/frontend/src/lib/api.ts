@@ -1416,19 +1416,6 @@ export const ASSIGNABLE_ROLES: { value: string; label: string }[] = [
     { value: 'BRANCH_ADMIN', label: 'Branch Admin' },
 ];
 
-/**
- * Branch codes this admin UI offers. There's no live branches endpoint yet
- * (Branch management is still demo data) — these follow the Keycloak seed's
- * branch_id convention (infra/keycloak-imports/lims-dev-seed.json: BR001 for
- * branchadmin1), not the separate BR-COL-001-style ids that page's own mock
- * uses. Replace with a real branches list once one exists.
- */
-export const ADMIN_BRANCH_OPTIONS: { value: string; label: string }[] = [
-    { value: 'BR001', label: 'Colombo' },
-    { value: 'BR002', label: 'Kandy' },
-    { value: 'BR003', label: 'Galle' },
-];
-
 export async function getAdminUsers(): Promise<AdminUser[]> {
     const response = await axiosInstance.get('/api/v1/admin/users');
     return (response.data?.data ?? []) as AdminUser[];
@@ -1446,6 +1433,72 @@ export async function updateAdminUser(id: string, req: UpdateAdminUserRequest): 
 
 export async function setAdminUserEnabled(id: string, value: boolean): Promise<void> {
     await axiosInstance.patch(`/api/v1/admin/users/${id}/enabled`, null, { params: { value } });
+}
+
+// ===== Admin: branch directory =====
+// Unlike the Keycloak-backed user endpoints above, this is a real, always-on
+// table (apps/lims-core-service: com.uom.lims.branch) — no feature flag.
+export interface Branch {
+    code: string;
+    name: string;
+    location: string | null;
+    address: string | null;
+    contactEmail: string | null;
+    contactPhone: string | null;
+    status: "ACTIVE" | "INACTIVE";
+    establishedDate: string | null;
+    legalEntityName: string | null;
+    adminUserId: string | null;
+    adminName: string | null;
+    adminEmail: string | null;
+}
+
+export interface CreateBranchRequest {
+    code: string;
+    name: string;
+    location?: string;
+    address?: string;
+    contactEmail?: string;
+    contactPhone?: string;
+    status?: "ACTIVE" | "INACTIVE";
+    legalEntityName?: string;
+    establishedDate?: string;
+}
+
+export interface UpdateBranchRequest {
+    name?: string;
+    location?: string;
+    address?: string;
+    contactEmail?: string;
+    contactPhone?: string;
+    status?: "ACTIVE" | "INACTIVE";
+    legalEntityName?: string;
+    establishedDate?: string;
+}
+
+export async function getBranches(): Promise<Branch[]> {
+    const response = await axiosInstance.get('/api/v1/branches');
+    return (response.data?.data ?? []) as Branch[];
+}
+
+export async function getBranch(code: string): Promise<Branch> {
+    const response = await axiosInstance.get(`/api/v1/branches/${code}`);
+    return (response.data?.data ?? response.data) as Branch;
+}
+
+export async function createBranch(req: CreateBranchRequest): Promise<Branch> {
+    const response = await axiosInstance.post('/api/v1/branches', req);
+    return (response.data?.data ?? response.data) as Branch;
+}
+
+export async function updateBranch(code: string, req: UpdateBranchRequest): Promise<Branch> {
+    const response = await axiosInstance.put(`/api/v1/branches/${code}`, req);
+    return (response.data?.data ?? response.data) as Branch;
+}
+
+export async function assignBranchAdmin(code: string, userId: string, name: string, email: string): Promise<Branch> {
+    const response = await axiosInstance.put(`/api/v1/branches/${code}/admin`, { userId, name, email });
+    return (response.data?.data ?? response.data) as Branch;
 }
 
 // ---------------------------------------------------------------------------

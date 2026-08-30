@@ -12,6 +12,13 @@ const URL_MAP: Record<string, string> = {
     "/pathology": "/clinical/worklist",
     "/report-dispatch": "/dispatch/dashboard",
     "/orders-billing": "/orders-billing/create-order",
+    // Same /admin, /branch-admin mismatch PREFIX_MAP below already documents —
+    // this map feeds the *redirect target* when the current page isn't one of
+    // the caller's allowed prefixes (line ~76), so it needs the identical fix
+    // or a user landing on their default page 404s exactly like the access
+    // check used to.
+    "/admin": "/superadmin",
+    "/branch-admin": "/branch",
 };
 
 

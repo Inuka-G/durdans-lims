@@ -1,6 +1,7 @@
 package com.uom.lims.admin;
 
 import com.uom.lims.exception.BusinessRuleException;
+import com.uom.lims.metadata.BranchRepository;
 import com.uom.lims.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
 import org.keycloak.admin.client.CreatedResponseUtil;
@@ -47,6 +48,7 @@ public class AdminUserService {
             "FRONT_DESK", "DISPATCH", "BRANCH_ADMIN", "SUPER_ADMIN");
 
     private final Keycloak adminKeycloak;
+    private final BranchRepository branchRepository;
 
     @Value("${app.keycloak-admin.realm:lims-realm}")
     private String realm;
@@ -77,6 +79,12 @@ public class AdminUserService {
         String branch = (scope == null) ? request.branchCode() : scope;
         if (branch == null || branch.isBlank()) {
             throw new BusinessRuleException("A branch is required for the new user");
+        }
+        // A branch admin's own scope came from their JWT, already a real
+        // branch; a super-admin's supplied code is client input and needs
+        // checking against the real directory before anything is created.
+        if (scope == null) {
+            assertBranchExists(branch);
         }
         // Validate the role BEFORE creating anything in Keycloak: a role that
         // fails this check must never leave behind a role-less orphaned account.
@@ -148,6 +156,9 @@ public class AdminUserService {
             // branch, regardless of what branch code the client sends.
             String scope = SecurityUtils.resolveBranchScope();
             String targetBranch = (scope == null) ? request.branchCode() : scope;
+            if (scope == null) {
+                assertBranchExists(targetBranch);
+            }
             user.setAttributes(Map.of(BRANCH_ATTR, List.of(targetBranch)));
         }
         userResource.update(user);
@@ -190,6 +201,13 @@ public class AdminUserService {
             throw new BusinessRuleException("Only a super admin can grant the super admin role");
         }
         return realm().roles().get(roleName).toRepresentation();
+    }
+
+    /** Rejects a branch code that doesn't exist in the real branch directory. */
+    private void assertBranchExists(String code) {
+        if (branchRepository.findByCode(code.trim().toUpperCase()).isEmpty()) {
+            throw new BusinessRuleException("Unknown branch: " + code);
+        }
     }
 
     /** This user's directly-assigned realm roles, restricted to ones we manage. */

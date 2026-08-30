@@ -92,4 +92,25 @@ describe('RoleGuard (fail-closed authorization)', () => {
     await waitFor(() => expect(nav.replace).toHaveBeenCalled());
     expect(screen.queryByText('secret')).toBeNull();
   });
+
+  // Same /admin, /branch-admin mismatch as above, but hitting the *other* map
+  // in this file — URL_MAP, which builds the redirect target once access is
+  // denied. Fixing PREFIX_MAP alone (the tests above) stopped the 404 once a
+  // user reached the right page, but a user whose first/only nav item is
+  // /admin or /branch-admin never got there in the first place: landing
+  // anywhere else in the app, RoleGuard tried to redirect them to the raw,
+  // untranslated backend value and 404'd on login.
+  it('redirects to /superadmin, not /admin, when the only nav item is /admin', async () => {
+    nav.pathname = '/dashboard';
+    useMetadataMock.mockReturnValue({ metadata: { navItems: [{ linkUrl: '/admin' }] }, loading: false, error: null });
+    render(<RoleGuard><div>secret</div></RoleGuard>);
+    await waitFor(() => expect(nav.replace).toHaveBeenCalledWith('/superadmin'));
+  });
+
+  it('redirects to /branch, not /branch-admin, when the only nav item is /branch-admin', async () => {
+    nav.pathname = '/dashboard';
+    useMetadataMock.mockReturnValue({ metadata: { navItems: [{ linkUrl: '/branch-admin' }] }, loading: false, error: null });
+    render(<RoleGuard><div>secret</div></RoleGuard>);
+    await waitFor(() => expect(nav.replace).toHaveBeenCalledWith('/branch'));
+  });
 });

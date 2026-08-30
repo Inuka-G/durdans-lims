@@ -1,24 +1,24 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Activity, Check, ChevronDown, Hospital, LogOut, MapPin, Monitor, Moon, Sun } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useTheme, type ThemePreference } from "@/providers/ThemeProvider";
 import { cn } from "@/lib/utils";
+import ModuleTabs from "@/components/layout/ModuleTabs";
+import AccountStatusBadge from "@/components/layout/AccountStatusBadge";
 
 /**
  * Super admin (global) top bar. Same shell as TopNav: brand, context chip
  * (branch switcher, or the environment on the monitoring page), module tabs,
- * account menu (theme + log out).
+ * account menu (theme + log out). The module tabs are the same shared
+ * ModuleTabs every other shell renders — a user can hold more than one role
+ * (e.g. BRANCH_ADMIN and SUPER_ADMIN together), and this is what lets them
+ * jump to their other role's screens instead of being stuck showing only
+ * this shell's own two destinations.
  */
 const BRANCHES = ["All Branches", "Colombo Branch", "Kandy Regional Center", "Galle Southern Hub"];
-
-const LINKS: { label: string; fullLabel: string; href: string; isActive: (pathname: string) => boolean }[] = [
-    { label: "Dashboard", fullLabel: "Global dashboard", href: "/superadmin", isActive: (p) => p === "/superadmin" },
-    { label: "Monitoring", fullLabel: "System monitoring", href: "/superadmin/monitoring", isActive: (p) => p === "/superadmin/monitoring" },
-];
 
 const THEME_OPTIONS: { value: ThemePreference; label: string; icon: typeof Sun }[] = [
     { value: "light", label: "Light", icon: Sun },
@@ -93,7 +93,6 @@ export default function SuperAdminNavbar() {
     const isMonitoring = pathname === "/superadmin/monitoring";
 
     const userName = user?.name || user?.preferred_username || "User";
-    const subtitleLine = "Super admin · Global controller";
 
     const { open: branchOpen, setOpen: setBranchOpen, close: closeBranchMenu, menuRef: branchMenuRef, triggerRef: branchTriggerRef, firstItemRef: branchFirstItemRef, onMenuKeyDown: onBranchMenuKeyDown, onTriggerKeyDown: onBranchTriggerKeyDown } = useMenuButton();
     const { open: accountOpen, setOpen: setAccountOpen, close: closeAccountMenu, menuRef: accountMenuRef, triggerRef: accountTriggerRef, firstItemRef: accountFirstItemRef, onMenuKeyDown: onAccountMenuKeyDown, onTriggerKeyDown: onAccountTriggerKeyDown } = useMenuButton();
@@ -176,32 +175,7 @@ export default function SuperAdminNavbar() {
                         </div>
                     )}
 
-                    {/* Super admin tabs: never wrap; scroll horizontally when there isn't room. */}
-                    <nav
-                        aria-label="Super admin"
-                        className="no-scrollbar flex h-16 min-w-0 flex-1 items-center overflow-x-auto"
-                    >
-                        {LINKS.map((item) => {
-                            const active = item.isActive(pathname);
-                            return (
-                                <Link
-                                    key={item.href}
-                                    href={item.href}
-                                    title={item.fullLabel}
-                                    aria-current={active ? "page" : undefined}
-                                    className={cn(
-                                        "relative flex h-16 shrink-0 items-center whitespace-nowrap px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary",
-                                        active ? "text-primary-strong" : "text-fg-secondary hover:text-fg"
-                                    )}
-                                >
-                                    {item.label}
-                                    {active && (
-                                        <span aria-hidden="true" className="absolute inset-x-3 bottom-0 h-0.5 rounded-t bg-primary" />
-                                    )}
-                                </Link>
-                            );
-                        })}
-                    </nav>
+                    <ModuleTabs ariaLabel="Super admin" />
                 </div>
 
                 {/* Account menu (Logout lives here, not in the nav bar) */}
@@ -218,7 +192,9 @@ export default function SuperAdminNavbar() {
                     >
                         <span className="hidden text-right lg:block">
                             <span className="block text-sm font-semibold leading-tight text-fg">{userName}</span>
-                            <span className="block text-[12px] leading-tight text-fg-muted">{subtitleLine}</span>
+                            <span className="block text-[12px] leading-tight">
+                                <AccountStatusBadge />
+                            </span>
                         </span>
                         <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary-soft text-sm font-semibold text-primary-strong">
                             {userName.charAt(0).toUpperCase()}
@@ -233,7 +209,9 @@ export default function SuperAdminNavbar() {
                         <div className="absolute right-0 mt-1.5 w-60 overflow-hidden rounded-md border border-edge bg-surface py-1 shadow-lg shadow-black/10">
                             <div className="border-b border-edge px-3 py-2">
                                 <p className="truncate text-sm font-medium text-fg">{userName}</p>
-                                <p className="truncate text-[12px] text-fg-muted">{subtitleLine}</p>
+                                <p className="truncate text-[12px]">
+                                    <AccountStatusBadge />
+                                </p>
                             </div>
                             <div role="menu" aria-label="Account">
                                 <div className="px-3 pb-1 pt-2 text-[12px] font-medium uppercase tracking-wide text-fg-muted" id="theme-group-label">
