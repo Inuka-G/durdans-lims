@@ -200,7 +200,7 @@ export default function InstrumentsPage() {
                                     <span className="truncate">{instrument.type}</span>
                                 </p>
 
-                                <dl className="mb-4 grid grid-cols-1 gap-x-4 gap-y-2 text-[13px] sm:grid-cols-2">
+                                <dl className="mb-4 grid grid-cols-1 gap-x-4 gap-y-2 text-sm sm:grid-cols-2">
                                     <div className="flex min-w-0 gap-1.5">
                                         <dt className="shrink-0 text-fg-muted">Model</dt>
                                         <dd className="truncate font-medium text-fg" title={instrument.model}>

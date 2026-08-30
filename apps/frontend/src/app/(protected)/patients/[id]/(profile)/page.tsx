@@ -25,8 +25,8 @@ function Detail({
 }) {
     return (
         <div className={cn("min-w-0", className)}>
-            <dt className="text-xs font-medium text-fg-muted">{label}</dt>
-            <dd className={cn("mt-0.5 break-words text-[13px] text-fg tabular-nums", valueClassName)}>{children}</dd>
+            <dt className="text-xs font-semibold text-fg-muted">{label}</dt>
+            <dd className={cn("mt-0.5 break-words text-sm text-fg tabular-nums", valueClassName)}>{children}</dd>
         </div>
     );
 }

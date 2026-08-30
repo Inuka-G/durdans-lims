@@ -8,9 +8,9 @@ import { cn } from "@/lib/utils";
 /**
  * KpiTile — one fixed anatomy for every dashboard number:
  *
- *   [icon] Label                       ← 12px secondary
+ *   [icon] Label                       ← 13px secondary
  *   Value                              ← 26px tabular
- *   Context line (delta | link | note) ← 12px
+ *   Context line (delta | link | note) ← 13px
  *
  * Every tile uses the same three rows so the eye can scan a row of four
  * without re-learning where things live. Colour is reserved for status
@@ -122,7 +122,7 @@ export default function KpiTile(props: KpiTileProps) {
     const body = (
         <>
             {t.bar && <span aria-hidden="true" className={cn("absolute inset-y-0 left-0 w-[3px]", t.bar)} />}
-            <span className="flex items-center gap-2 text-xs font-medium text-fg-muted">
+            <span className="flex items-center gap-2 text-xs font-semibold text-fg-muted">
                 <Icon className={cn("h-4 w-4 shrink-0", t.icon)} aria-hidden="true" />
                 <span className="truncate">{label}</span>
             </span>

@@ -437,9 +437,9 @@ export default function DashboardPage() {
                             )
                         ) : (
                             <div className="overflow-x-auto">
-                                <table className="w-full min-w-[640px] table-fixed text-left text-[13px]">
+                                <table className="w-full min-w-[640px] table-fixed text-left text-sm">
                                     <thead>
-                                        <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
+                                        <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
                                             {/*
                                               table-fixed: the percentages must leave room for the 40px Open column,
                                               i.e. sum <= 100% - 40/min-w = 93.75%. Otherwise every column is silently
@@ -447,12 +447,12 @@ export default function DashboardPage() {
                                               base (Phone hidden): 25+14+11+14+14 = 78%.
                                               lg (Phone shown):    25+14+11+15+14+14 = 93%.
                                             */}
-                                            <th scope="col" className="w-[25%] py-2 pl-4 pr-3 font-medium">Patient</th>
-                                            <th scope="col" className="w-[14%] px-3 py-2 font-medium">MRN</th>
-                                            <th scope="col" className="w-[11%] px-3 py-2 font-medium">Age / Sex</th>
-                                            <th scope="col" className="hidden w-[15%] px-3 py-2 font-medium lg:table-cell">Phone</th>
-                                            <th scope="col" className="w-[14%] px-3 py-2 font-medium">Registered</th>
-                                            <th scope="col" className="w-[14%] px-3 py-2 font-medium">Status</th>
+                                            <th scope="col" className="w-[25%] py-2 pl-4 pr-3 font-semibold">Patient</th>
+                                            <th scope="col" className="w-[14%] px-3 py-2 font-semibold">MRN</th>
+                                            <th scope="col" className="w-[11%] px-3 py-2 font-semibold">Age / Sex</th>
+                                            <th scope="col" className="hidden w-[15%] px-3 py-2 font-semibold lg:table-cell">Phone</th>
+                                            <th scope="col" className="w-[14%] px-3 py-2 font-semibold">Registered</th>
+                                            <th scope="col" className="w-[14%] px-3 py-2 font-semibold">Status</th>
                                             <th scope="col" className="w-10 py-2 pl-2 pr-3">
                                                 <span className="sr-only">Open</span>
                                             </th>
@@ -476,7 +476,7 @@ export default function DashboardPage() {
                                                         >
                                                             <span
                                                                 aria-hidden="true"
-                                                                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-skeleton text-[11px] font-semibold text-fg-secondary"
+                                                                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-skeleton text-[12px] font-semibold text-fg-secondary"
                                                             >
                                                                 {patientInitials(patient.fullName)}
                                                             </span>
@@ -615,7 +615,7 @@ export default function DashboardPage() {
                                 )}
                             </div>
                             {!loading && chartCapped && (
-                                <p className="px-2 pt-1 text-[11px] text-fg-muted">
+                                <p className="px-2 pt-1 text-[12px] text-fg-muted">
                                     Based on the {PAGE_SIZE} most recent registrations.
                                 </p>
                             )}
@@ -664,7 +664,7 @@ export default function DashboardPage() {
                                             className={cn("mt-1.5 h-2 w-2 shrink-0 rounded-full", ACTIVITY_DOT[item.kind])}
                                         />
                                         <div className="min-w-0 flex-1">
-                                            <p className="truncate text-[13px] text-fg">
+                                            <p className="truncate text-sm font-medium text-fg">
                                                 {item.patientCode ? (
                                                     <Link
                                                         href={`/patients/${item.patientCode}`}
@@ -674,6 +674,14 @@ export default function DashboardPage() {
                                                     </Link>
                                                 ) : (
                                                     item.message
+                                                )}
+                                                {item.ref && (
+                                                    <code
+                                                        title={item.refFull}
+                                                        className="ml-1.5 rounded bg-surface-muted px-1.5 py-px align-middle font-mono text-[12px] font-medium text-fg-secondary ring-1 ring-inset ring-edge"
+                                                    >
+                                                        {item.ref}
+                                                    </code>
                                                 )}
                                             </p>
                                             <p className="mt-0.5 text-xs text-fg-muted">

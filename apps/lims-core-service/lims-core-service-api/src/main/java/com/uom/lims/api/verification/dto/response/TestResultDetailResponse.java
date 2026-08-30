@@ -14,6 +14,8 @@ import java.util.List;
 @AllArgsConstructor
 public class TestResultDetailResponse {
     private String resultId;
+    /** Human-readable case number (RES<year>-<sequence>) shared by every parameter of the specimen. */
+    private String resultNo;
     private String status;
     private String patientCode;
     private String patientName;
@@ -33,4 +35,21 @@ public class TestResultDetailResponse {
     private String clinicalNote;
     private String mltNotes;
     private String supervisorNote;
+
+    // ---- Specimen / encounter context for the review header ----
+    private String sampleBarcode;
+    private String tubeType;
+    private Instant collectedAt;
+    private String collectedBy;
+    /** When accessioning accepted the specimen into the lab (from the accessioning audit trail). */
+    private Instant receivedAt;
+    /** When the analyser / MLT recorded the latest value on this case. */
+    private Instant measuredAt;
+    private String referringDoctor;
+    private String referringDepartment;
+
+    // ---- Last return, in either direction (supervisor -> MLT, pathologist -> supervisor) ----
+    private String returnReason;
+    private String returnedBy;
+    private Instant returnedAt;
 }

@@ -303,106 +303,66 @@ export default function BranchReportsPage() {
                         <div className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center text-blue-500">
                             <span className="material-icons text-[16px]">person</span>
                         </div>
-                    </div>
-                    <div>
-                        <div className="flex items-end gap-2 mb-1">
-                            <span className="text-[28px] font-extrabold text-[#0f172a] leading-none">{kpis.patients}</span>
-                            <span className={`text-[12px] font-bold mb-1 ${kpis.pChange >= 0 ? 'text-[#16a34a]' : 'text-[#dc2626]'}`}>
-                                {kpis.pChange >= 0 ? '+' : ''}{kpis.pChange}%
-                            </span>
-                        </div>
-                        <span className="text-[11px] font-medium text-[#94a3b8]">vs. previous period</span>
-                    </div>
-                </div>
+                    </SectionCard>
 
-                {/* Test Orders */}
-                <div className="bg-white rounded-2xl p-6 border border-[#ecf0f6] shadow-sm flex flex-col justify-between">
-                    <div className="flex justify-between items-start mb-6">
-                        <span className="text-[13px] font-extrabold text-[#64748b]">Test Orders</span>
-                        <div className="w-8 h-8 rounded-full bg-purple-50 flex items-center justify-center text-purple-500">
-                            <span className="material-icons text-[16px]">biotech</span>
-                        </div>
-                    </div>
-                    <div>
-                        <div className="flex items-end gap-2 mb-1">
-                            <span className="text-[28px] font-extrabold text-[#0f172a] leading-none">{kpis.orders}</span>
-                            <span className={`text-[12px] font-bold mb-1 ${kpis.oChange >= 0 ? 'text-[#16a34a]' : 'text-[#dc2626]'}`}>
-                                {kpis.oChange >= 0 ? '+' : ''}{kpis.oChange}%
-                            </span>
+                    <SectionCard title="Revenue by category" flush>
+                        <div className="relative h-[220px] w-full px-4 pt-4">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <PieChart>
+                                    <Pie
+                                        data={pieData}
+                                        cx="50%"
+                                        cy="50%"
+                                        innerRadius={62}
+                                        outerRadius={86}
+                                        paddingAngle={4}
+                                        dataKey="value"
+                                        stroke="var(--surface)"
+                                    >
+                                        {pieData.map((entry, index) => (
+                                            <Cell key={`cell-${index}`} fill={entry.color} />
+                                        ))}
+                                    </Pie>
+                                    <Tooltip
+                                        contentStyle={TOOLTIP_STYLE}
+                                        itemStyle={{ color: 'var(--fg)' }}
+                                        formatter={(value, name) => [`${value}%`, name]}
+                                    />
+                                </PieChart>
+                            </ResponsiveContainer>
+                            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center pt-4" aria-hidden="true">
+                                <span className="text-[22px] font-semibold leading-none tabular-nums text-fg">{pieTotal}%</span>
+                                <span className="mt-1 text-[12px] text-fg-muted">Lab tests</span>
+                            </div>
                         </div>
                         <span className="text-[11px] font-medium text-[#94a3b8]">Total tests performed</span>
                     </div>
                 </div>
 
-                {/* Revenue */}
-                <div className="bg-white rounded-2xl p-6 border border-[#ecf0f6] shadow-sm flex flex-col justify-between">
-                    <div className="flex justify-between items-start mb-6">
-                        <span className="text-[13px] font-extrabold text-[#64748b]">Revenue</span>
-                        <div className="w-8 h-8 rounded-full bg-emerald-50 flex items-center justify-center text-emerald-500">
-                            <span className="material-icons text-[16px]">payments</span>
-                        </div>
-                    </div>
-                    <div>
-                        <div className="flex items-end gap-2 mb-1">
-                            <span className="text-[28px] font-extrabold text-[#0f172a] leading-none tracking-tight">LKR {kpis.revenue}M</span>
-                            <span className={`text-[12px] font-bold mb-1 ${kpis.rChange >= 0 ? 'text-[#16a34a]' : 'text-[#dc2626]'}`}>
-                                {kpis.rChange >= 0 ? '+' : ''}{kpis.rChange}%
-                            </span>
-                        </div>
-                        <span className="text-[11px] font-medium text-[#94a3b8]">Net collection</span>
-                    </div>
-                </div>
-
-                {/* Pending Reports */}
-                <div className="bg-white rounded-2xl p-6 border border-[#ecf0f6] shadow-sm flex flex-col justify-between">
-                    <div className="flex justify-between items-start mb-6">
-                        <span className="text-[13px] font-extrabold text-[#64748b]">Pending Reports</span>
-                        <div className="w-8 h-8 rounded-full bg-orange-50 flex items-center justify-center text-orange-500">
-                            <span className="material-icons text-[16px]">timer</span>
-                        </div>
-                    </div>
-                    <div>
-                        <div className="flex items-end gap-2 mb-1">
-                            <span className="text-[28px] font-extrabold text-[#0f172a] leading-none">{kpis.pending}</span>
-                            <span className={`text-[12px] font-bold mb-1 ${kpis.peChange >= 0 ? 'text-[#16a34a]' : 'text-[#dc2626]'}`}>
-                                {kpis.peChange >= 0 ? '+' : ''}{kpis.peChange}%
-                            </span>
-                        </div>
-                        <span className="text-[11px] font-medium text-[#94a3b8]">Awaiting verification</span>
-                    </div>
-                </div>
-
-            </div>
-
-            {/* Charts Row */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-                {/* Revenue Trend (Bar Chart) - takes 66% */}
-                <div className="lg:col-span-2 bg-white rounded-2xl p-6 border border-[#ecf0f6] shadow-sm h-[400px] flex flex-col">
-                    <div className="flex justify-between items-center mb-6">
-                        <h2 className="text-[15px] font-extrabold text-[#0f172a]">Revenue Trend</h2>
-                        <span className="text-[11px] font-bold bg-[#f1f5f9] text-[#64748b] px-3 py-1.5 rounded-lg border border-[#e2e8f0]">Last 30 Days</span>
-                    </div>
-                    <div className="flex-1 w-full mt-2">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={barData} barSize={42}>
-                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                                <XAxis
-                                    dataKey="name"
-                                    axisLine={false}
-                                    tickLine={false}
-                                    tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 700 }}
-                                    dy={10}
-                                />
-                                <YAxis hide={true} />
-                                <Tooltip
-                                    cursor={{ fill: 'transparent' }}
-                                    contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                                    itemStyle={{ color: '#0f172a', fontWeight: 'bold' }}
-                                />
-                                <Bar dataKey="revenue" radius={[4, 4, 0, 0]}>
-                                    {barData.map((entry, index) => (
-                                        <Cell key={`cell-${index}`} fill={entry.revenue < 3000 ? '#bae6fd' : entry.revenue < 5000 ? '#7dd3fc' : '#38bdf8'} />
+                        <div className="mt-3 overflow-x-auto">
+                            <table className="w-full table-fixed text-left text-sm">
+                                <caption className="sr-only">Revenue share by category</caption>
+                                <thead>
+                                    <tr className="border-b border-edge text-xs font-semibold text-fg-muted">
+                                        <th scope="col" className="px-3 py-2 pl-4 font-semibold">Category</th>
+                                        <th scope="col" className="w-24 px-3 py-2 pr-4 text-right font-semibold">Share</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-edge whitespace-nowrap">
+                                    {pieData.map((item) => (
+                                        <tr key={item.name} className="hover:bg-surface-hover">
+                                            <td className="px-3 py-2 pl-4">
+                                                <span className="inline-flex items-center gap-2">
+                                                    <span
+                                                        className="h-2.5 w-2.5 shrink-0 rounded-full"
+                                                        style={{ backgroundColor: item.color }}
+                                                        aria-hidden="true"
+                                                    />
+                                                    <span className="text-fg-secondary">{item.name}</span>
+                                                </span>
+                                            </td>
+                                            <td className="px-3 py-2 pr-4 text-right font-medium tabular-nums text-fg">{item.value}%</td>
+                                        </tr>
                                     ))}
                                 </Bar>
                             </BarChart>

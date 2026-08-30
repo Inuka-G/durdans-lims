@@ -301,7 +301,7 @@ export default function BillsPaymentsPage() {
                         )}
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
-                        <span className="inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-fg-muted">
+                        <span className="inline-flex shrink-0 items-center gap-1.5 text-xs font-semibold text-fg-muted">
                             <CalendarRange className="h-4 w-4" aria-hidden="true" />
                             Date range
                         </span>
@@ -399,29 +399,29 @@ export default function BillsPaymentsPage() {
                           (Patient 0px) and overran it at lg, so the patient name vanished.
                           The card's overflow-x-auto scrolls the surplus; the page never does.
                         */}
-                        <table className="w-full min-w-[740px] table-fixed text-left text-[13px] md:min-w-[880px] lg:min-w-[1010px]">
+                        <table className="w-full min-w-[740px] table-fixed text-left text-sm md:min-w-[880px] lg:min-w-[1010px]">
                             <caption className="sr-only">Paid bills</caption>
                             <thead>
-                                <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
-                                    <th scope="col" className="w-36 py-2 pl-4 pr-3 font-medium">
+                                <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
+                                    <th scope="col" className="w-36 py-2 pl-4 pr-3 font-semibold">
                                         Bill ID
                                     </th>
-                                    <th scope="col" className="hidden w-36 px-3 py-2 font-medium md:table-cell">
+                                    <th scope="col" className="hidden w-36 px-3 py-2 font-semibold md:table-cell">
                                         Order ID
                                     </th>
-                                    <th scope="col" className="hidden w-32 px-3 py-2 font-medium lg:table-cell">
+                                    <th scope="col" className="hidden w-32 px-3 py-2 font-semibold lg:table-cell">
                                         Patient ID
                                     </th>
-                                    <th scope="col" className="px-3 py-2 font-medium">
+                                    <th scope="col" className="px-3 py-2 font-semibold">
                                         Patient
                                     </th>
-                                    <th scope="col" className="w-36 px-3 py-2 font-medium">
+                                    <th scope="col" className="w-36 px-3 py-2 font-semibold">
                                         Paid on
                                     </th>
-                                    <th scope="col" className="w-24 px-3 py-2 font-medium">
+                                    <th scope="col" className="w-24 px-3 py-2 font-semibold">
                                         Status
                                     </th>
-                                    <th scope="col" className="w-36 px-3 py-2 text-right font-medium">
+                                    <th scope="col" className="w-36 px-3 py-2 text-right font-semibold">
                                         Total
                                     </th>
                                     <th scope="col" className="w-12 py-2 pl-2 pr-3">

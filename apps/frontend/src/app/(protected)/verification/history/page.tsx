@@ -9,7 +9,7 @@ import {
 } from "@/lib/api";
 import { formatStatusLabel } from "@/constants/sample-lifecycle";
 import { downloadCsv } from "@/lib/export-csv";
-import { formatDisplayId } from "@/lib/format-id";
+import { displayResultNo } from "@/lib/result-display";
 import {
     HISTORY_DATE_RANGES,
     resolveFromTimestamp,
@@ -271,7 +271,7 @@ export default function VerificationHistoryPage() {
                         item.specimenPriority ? formatStatusLabel(item.specimenPriority) : "",
                         item.patientName || "Unknown patient",
                         item.patientCode || "",
-                        formatDisplayId(item.resultId, "RES"),
+                        displayResultNo(item.resultNo, item.resultId),
                         item.testName || "Unknown Test Group",
                         item.actionSummary || ACTION_LABELS[actionType] || "Workflow Updated",
                         item.performedBy || "",
@@ -307,15 +307,7 @@ export default function VerificationHistoryPage() {
                 meta={
                     <>
                         <History className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                        <span>Supervisor approvals, returns to MLT and cases returned from clinical review</span>
-                        {!loading && !error && (
-                            <>
-                                <span aria-hidden="true">·</span>
-                                <span className="tabular-nums">
-                                    {totalElements.toLocaleString()} {totalElements === 1 ? "entry" : "entries"}
-                                </span>
-                            </>
-                        )}
+                        <span>Audit trail & verification tracking</span>
                     </>
                 }
                 actions={
@@ -349,7 +341,7 @@ export default function VerificationHistoryPage() {
             {exportNotice && (
                 <div
                     role="status"
-                    className={`mb-4 flex items-start gap-2 rounded-md border px-4 py-2.5 text-[13px] ${EXPORT_NOTICE_STYLES[exportNotice.tone]}`}
+                    className={`mb-4 flex items-start gap-2 rounded-md border px-4 py-2.5 text-sm ${EXPORT_NOTICE_STYLES[exportNotice.tone]}`}
                 >
                     {exportNotice.tone === "error" ? (
                         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
@@ -378,7 +370,7 @@ export default function VerificationHistoryPage() {
                             type="search"
                             value={search}
                             onChange={(event) => setSearch(event.target.value)}
-                            placeholder="Search patient, patient code, result ID, test group or user"
+                            placeholder="Search patient, patient code, result ID, test group, performer, notes or action"
                             autoComplete="off"
                             className="min-w-[200px] flex-1"
                         />
@@ -396,7 +388,7 @@ export default function VerificationHistoryPage() {
                         </SelectField>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-xs font-medium text-fg-muted">Period</span>
+                        <span className="text-xs font-semibold text-fg-muted">Period</span>
                         <SegmentedControl<HistoryDateRange>
                             ariaLabel="Period"
                             size="sm"
@@ -459,36 +451,30 @@ export default function VerificationHistoryPage() {
                     )
                 ) : (
                     <div className="overflow-x-auto">
-                        <table className="w-full min-w-[960px] table-fixed text-left text-[13px] md:min-w-[1060px] lg:min-w-[1200px] xl:min-w-[1430px]">
+                        <table className="w-full table-fixed text-left text-sm">
                             <caption className="sr-only">Verification history entries</caption>
                             <thead>
-                                <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
-                                    <th scope="col" className="w-44 py-2 pl-4 pr-3 font-medium">
-                                        Time
-                                    </th>
-                                    <th scope="col" className="hidden w-24 px-3 py-2 font-medium md:table-cell">
-                                        Priority
-                                    </th>
-                                    <th scope="col" className="w-44 px-3 py-2 font-medium">
-                                        Patient
-                                    </th>
-                                    <th scope="col" className="w-32 px-3 py-2 font-medium">
+                                <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
+                                    <th scope="col" className="w-[15%] py-2 pl-4 pr-3 font-semibold">
                                         Result ID
                                     </th>
-                                    <th scope="col" className="w-44 px-3 py-2 font-medium">
+                                    <th scope="col" className="w-[18%] px-3 py-2 font-semibold">
+                                        Patient
+                                    </th>
+                                    <th scope="col" className="w-[15%] px-3 py-2 font-semibold">
                                         Test group
                                     </th>
-                                    <th scope="col" className="w-44 px-3 py-2 font-medium">
+                                    <th scope="col" className="w-[16%] px-3 py-2 font-semibold">
                                         Action
                                     </th>
-                                    <th scope="col" className="hidden w-36 px-3 py-2 font-medium lg:table-cell">
+                                    <th scope="col" className="w-[14%] px-3 py-2 font-semibold">
                                         Performed by
                                     </th>
-                                    <th scope="col" className="hidden w-56 px-3 py-2 font-medium xl:table-cell">
+                                    <th scope="col" className="w-[14%] px-3 py-2 font-semibold">
                                         Notes
                                     </th>
-                                    <th scope="col" className="w-32 py-2 pl-3 pr-4 text-right font-medium">
-                                        <span className="sr-only">Open case</span>
+                                    <th scope="col" className="w-[8%] py-2 pl-2 pr-4 text-right font-semibold">
+                                        <span className="sr-only">Actions</span>
                                     </th>
                                 </tr>
                             </thead>
@@ -496,29 +482,30 @@ export default function VerificationHistoryPage() {
                                 {historyItems.map((item: VerificationHistoryItem) => {
                                     const actionType = resolveActionType(item);
                                     const timestamp = item.actionAt ?? item.updatedAt;
+                                    const displayId = displayResultNo(item.resultNo, item.resultId);
 
                                     return (
                                         <tr
                                             key={`${item.resultId}-${item.actionAt ?? item.updatedAt ?? actionType ?? "event"}`}
                                             className="transition-colors hover:bg-surface-hover"
                                         >
-                                            {/* Time */}
-                                            <td className="py-2 pl-4 pr-3 tabular-nums text-fg-secondary">
-                                                {timestamp ? (
-                                                    <time dateTime={timestamp} title={formatFullTimestamp(timestamp)}>
-                                                        {formatHistoryTime(timestamp)}
-                                                    </time>
-                                                ) : (
-                                                    <span className="text-fg-faint">—</span>
-                                                )}
-                                            </td>
-                                            {/* Priority */}
-                                            <td className="hidden px-3 py-2 md:table-cell">
-                                                {item.specimenPriority ? (
-                                                    <PriorityBadge priority={item.specimenPriority} />
-                                                ) : (
-                                                    <span className="text-fg-faint">—</span>
-                                                )}
+                                            {/* Result ID with the action time beneath */}
+                                            <td className="py-2 pl-4 pr-3">
+                                                <span
+                                                    className="block max-w-full truncate font-mono text-xs font-medium text-fg"
+                                                    title={displayId}
+                                                >
+                                                    {displayId}
+                                                </span>
+                                                <span className="mt-0.5 block text-xs tabular-nums text-fg-muted">
+                                                    {timestamp ? (
+                                                        <time dateTime={timestamp} title={formatFullTimestamp(timestamp)}>
+                                                            {formatHistoryTime(timestamp)}
+                                                        </time>
+                                                    ) : (
+                                                        <span className="text-fg-faint">—</span>
+                                                    )}
+                                                </span>
                                             </td>
                                             {/* Patient */}
                                             <td className="px-3 py-2">
@@ -531,22 +518,9 @@ export default function VerificationHistoryPage() {
                                                     </p>
                                                 )}
                                             </td>
-                                            {/* Result ID — the raw id stays on the element so a pasted UUID is still findable. */}
-                                            <td className="px-3 py-2 font-mono text-xs text-fg-secondary">
-                                                <span className="inline-block max-w-full truncate align-middle" title={item.resultId}>
-                                                    {formatDisplayId(item.resultId, "RES")}
-                                                </span>
-                                            </td>
                                             {/* Test group */}
-                                            <td className="px-3 py-2">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => openCase(item.resultId)}
-                                                    title={item.testName || undefined}
-                                                    className="inline-block max-w-full truncate rounded text-left font-medium text-primary-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-surface"
-                                                >
-                                                    {item.testName || "Unknown test group"}
-                                                </button>
+                                            <td className="truncate px-3 py-2 text-fg-secondary" title={item.testName || undefined}>
+                                                {item.testName || "Unknown test group"}
                                             </td>
                                             {/* Action */}
                                             <td className="px-3 py-2">
@@ -556,13 +530,13 @@ export default function VerificationHistoryPage() {
                                             </td>
                                             {/* Performed by */}
                                             <td
-                                                className="hidden truncate px-3 py-2 text-fg-secondary lg:table-cell"
+                                                className="truncate px-3 py-2 text-fg-secondary"
                                                 title={item.performedBy || undefined}
                                             >
                                                 {item.performedBy || <span className="text-fg-faint">—</span>}
                                             </td>
-                                            {/* Notes — truncated to one line; the full text opens in a dialog. */}
-                                            <td className="hidden px-3 py-2 text-fg-muted xl:table-cell">
+                                            {/* Notes */}
+                                            <td className="px-3 py-2 text-fg-muted">
                                                 {item.notes ? (
                                                     <button
                                                         type="button"
@@ -577,9 +551,14 @@ export default function VerificationHistoryPage() {
                                                 )}
                                             </td>
                                             {/* Case */}
-                                            <td className="py-2 pl-3 pr-4 text-right">
-                                                <Button size="sm" onClick={() => openCase(item.resultId)}>
-                                                    Review case
+                                            <td className="py-2 pl-2 pr-4 text-right">
+                                                <Button
+                                                    size="sm"
+                                                    variant="primary"
+                                                    onClick={() => openCase(item.resultId)}
+                                                    aria-label={`Review case ${displayId}`}
+                                                >
+                                                    Review
                                                 </Button>
                                             </td>
                                         </tr>

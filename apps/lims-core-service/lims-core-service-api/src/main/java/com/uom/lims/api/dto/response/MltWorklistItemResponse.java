@@ -12,5 +12,8 @@ public record MltWorklistItemResponse(
         String testName,
         String priority,
         String status,
-        Instant collectedAt) {
+        Instant collectedAt,
+        /** True when the supervisor returned this case to the MLT and it awaits re-entry. */
+        boolean returnedToMlt,
+        String returnReason) {
 }

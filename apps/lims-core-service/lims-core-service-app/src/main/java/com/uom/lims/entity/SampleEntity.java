@@ -34,6 +34,14 @@ public class SampleEntity extends BaseEntity {
     @Column(name = "barcode", unique = true, nullable = false)
     private String barcode;
 
+    /**
+     * Human-readable case number ({@code RES2026-00042}) issued the first time the
+     * specimen carries a submitted result — see {@code ResultNumberService}. Null
+     * until then; unique afterwards.
+     */
+    @Column(name = "result_no", unique = true, length = 32)
+    private String resultNo;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "tube_type", nullable = false)
     private TubeType tubeType;

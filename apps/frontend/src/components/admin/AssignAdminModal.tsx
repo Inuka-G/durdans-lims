@@ -106,7 +106,7 @@ export default function AssignAdminModal({
 
                 {/* Available users */}
                 <div>
-                    <h3 className="mb-2 text-xs font-medium text-fg-muted">
+                    <h3 className="mb-2 text-xs font-semibold text-fg-muted">
                         Available users <span className="tabular-nums">({filteredAdmins.length})</span>
                     </h3>
 
@@ -121,13 +121,13 @@ export default function AssignAdminModal({
                                     >
                                         <div className="flex min-w-0 items-center gap-3">
                                             <span
-                                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-muted text-[11px] font-semibold text-fg-secondary ring-1 ring-inset ring-edge"
+                                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-muted text-[12px] font-semibold text-fg-secondary ring-1 ring-inset ring-edge"
                                                 aria-hidden="true"
                                             >
                                                 {initials(admin.name)}
                                             </span>
                                             <div className="min-w-0">
-                                                <p className="truncate text-[13px] font-medium text-fg">{admin.name}</p>
+                                                <p className="truncate text-sm font-medium text-fg">{admin.name}</p>
                                                 <p className="truncate text-xs text-fg-muted">
                                                     {admin.role} · {admin.email}
                                                 </p>

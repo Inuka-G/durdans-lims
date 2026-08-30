@@ -205,18 +205,18 @@ function PatientsPageInner() {
                         )
                     ) : (
                         <div className="overflow-x-auto">
-                            <table className="w-full min-w-[760px] table-fixed text-left text-[13px]">
+                            <table className="w-full min-w-[760px] table-fixed text-left text-sm">
                                 <thead>
-                                    <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
+                                    <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
                                         {/* Widths sum to ~100% at the xl layout (22+12+12+8+12+10+11+10 = 97% + w-10 for Open). */}
-                                        <th scope="col" className="w-[22%] py-2 pl-4 pr-3 font-medium">Patient</th>
-                                        <th scope="col" className="w-[12%] px-3 py-2 font-medium">MRN</th>
-                                        <th scope="col" className="hidden w-[12%] px-3 py-2 font-medium lg:table-cell">NIC / passport</th>
-                                        <th scope="col" className="w-[8%] px-3 py-2 font-medium">Age / Sex</th>
-                                        <th scope="col" className="w-[12%] px-3 py-2 font-medium">Phone</th>
-                                        <th scope="col" className="w-[10%] px-3 py-2 font-medium">Branch</th>
-                                        <th scope="col" className="hidden w-[11%] px-3 py-2 font-medium xl:table-cell">Registered</th>
-                                        <th scope="col" className="w-[10%] px-3 py-2 font-medium">Status</th>
+                                        <th scope="col" className="w-[22%] py-2 pl-4 pr-3 font-semibold">Patient</th>
+                                        <th scope="col" className="w-[12%] px-3 py-2 font-semibold">MRN</th>
+                                        <th scope="col" className="hidden w-[12%] px-3 py-2 font-semibold lg:table-cell">NIC / passport</th>
+                                        <th scope="col" className="w-[8%] px-3 py-2 font-semibold">Age / Sex</th>
+                                        <th scope="col" className="w-[12%] px-3 py-2 font-semibold">Phone</th>
+                                        <th scope="col" className="w-[10%] px-3 py-2 font-semibold">Branch</th>
+                                        <th scope="col" className="hidden w-[11%] px-3 py-2 font-semibold xl:table-cell">Registered</th>
+                                        <th scope="col" className="w-[10%] px-3 py-2 font-semibold">Status</th>
                                         <th scope="col" className="w-10 py-2 pl-2 pr-3">
                                             <span className="sr-only">Open</span>
                                         </th>
@@ -242,7 +242,7 @@ function PatientsPageInner() {
                                                     >
                                                         <span
                                                             aria-hidden="true"
-                                                            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-skeleton text-[11px] font-semibold text-fg-secondary"
+                                                            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-skeleton text-[12px] font-semibold text-fg-secondary"
                                                         >
                                                             {patientInitials(name)}
                                                         </span>
@@ -269,7 +269,7 @@ function PatientsPageInner() {
                                                     {patient.branchCode ? (
                                                         otherBranch ? (
                                                             <span
-                                                                className="inline-flex max-w-full items-center gap-1 rounded bg-surface-muted px-1.5 py-0.5 text-[11px] font-medium text-fg-secondary ring-1 ring-inset ring-edge"
+                                                                className="inline-flex max-w-full items-center gap-1 rounded bg-surface-muted px-1.5 py-0.5 text-[12px] font-medium text-fg-secondary ring-1 ring-inset ring-edge"
                                                                 title="Registered at another branch — you can still order tests for this patient"
                                                             >
                                                                 <Building2 className="h-3 w-3 shrink-0 text-fg-muted" aria-hidden="true" />

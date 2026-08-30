@@ -10,8 +10,16 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.Locale;
 
-/** Patient-facing order tracking notifications. */
+/**
+ * Patient-facing order tracking notifications.
+ *
+ * <p>Laid out over several lines rather than run together with pipes: these are read on a
+ * phone, and a label per line is what makes an order number scannable at a glance. The
+ * gateway carries the line breaks because the message is posted as a form body - see
+ * {@link OzoneDeskSmsService#sendSms}.
+ */
 @Service
 @RequiredArgsConstructor
 public class PatientLifecycleNotificationService {
@@ -21,22 +29,34 @@ public class PatientLifecycleNotificationService {
 
     public void orderCreated(OrderEntity order, BillEntity bill) {
         publishToVerifiedPhone(order.getPatientId(),
-                "Durdans LIMS | Order received: " + order.getOrderNo()
-                        + " | Bill: " + bill.getBillNo()
-                        + " | Total: LKR " + money(bill.getTotalAmount())
-                        + " | Status: Awaiting payment. Keep the order number for tracking.");
+                "Durdans LIMS\n"
+                        + "Order received\n"
+                        + "\n"
+                        + "Order: " + order.getOrderNo() + "\n"
+                        + "Bill: " + bill.getBillNo() + "\n"
+                        + "Total: LKR " + money(bill.getTotalAmount()) + "\n"
+                        + "\n"
+                        + "Status: Awaiting payment\n"
+                        + "\n"
+                        + "Keep your order number for tracking.");
     }
 
     public void paymentConfirmed(BillEntity bill, String paymentMethod) {
         OrderEntity order = bill.getOrder();
         if (order == null) return;
         publishToVerifiedPhone(order.getPatientId(),
-                "Durdans LIMS | Payment confirmed"
-                        + " | Order: " + order.getOrderNo()
-                        + " | Bill: " + bill.getBillNo()
-                        + " | Amount: LKR " + money(bill.getPaidAmount())
-                        + " | Method: " + readable(paymentMethod)
-                        + " | Status: Paid. Sample collection can proceed. Thank you.");
+                "Durdans LIMS\n"
+                        + "Payment confirmed\n"
+                        + "\n"
+                        + "Order: " + order.getOrderNo() + "\n"
+                        + "Bill: " + bill.getBillNo() + "\n"
+                        + "Amount: LKR " + money(bill.getPaidAmount()) + "\n"
+                        + "Method: " + readable(paymentMethod) + "\n"
+                        + "\n"
+                        + "Status: Paid\n"
+                        + "Sample collection can proceed.\n"
+                        + "\n"
+                        + "Thank you.");
     }
 
     private void publishToVerifiedPhone(String patientCode, String message) {
@@ -49,8 +69,10 @@ public class PatientLifecycleNotificationService {
                         new PatientLifecycleSmsRequestedEvent(phone.trim(), message)));
     }
 
+    /** Grouped to thousands: "12,450.00" is read correctly on a phone, "12450.00" is not. */
     private static String money(BigDecimal value) {
-        return value == null ? "0.00" : value.setScale(2, RoundingMode.HALF_UP).toPlainString();
+        BigDecimal amount = value == null ? BigDecimal.ZERO : value;
+        return String.format(Locale.US, "%,.2f", amount.setScale(2, RoundingMode.HALF_UP));
     }
 
     private static String readable(String value) {

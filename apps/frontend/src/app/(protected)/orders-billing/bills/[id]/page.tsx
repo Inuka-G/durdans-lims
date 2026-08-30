@@ -344,13 +344,13 @@ export default function BillDetailsPage({ params }: { params: Promise<{ id: stri
                             Itemised charges
                         </h3>
                         <div className="overflow-x-auto rounded-md border border-edge">
-                            <table className="w-full min-w-[360px] table-fixed text-left text-[13px]">
+                            <table className="w-full min-w-[360px] table-fixed text-left text-sm">
                                 <thead>
-                                    <tr className="border-b border-edge bg-surface-muted text-xs font-medium text-fg-muted">
-                                        <th scope="col" className="py-2 pl-4 pr-3 font-medium">
+                                    <tr className="border-b border-edge bg-surface-muted text-xs font-semibold text-fg-muted">
+                                        <th scope="col" className="py-2 pl-4 pr-3 font-semibold">
                                             Service / test
                                         </th>
-                                        <th scope="col" className="w-40 px-3 py-2 text-right font-medium">
+                                        <th scope="col" className="w-40 px-3 py-2 text-right font-semibold">
                                             Amount (LKR)
                                         </th>
                                     </tr>
@@ -402,7 +402,7 @@ export default function BillDetailsPage({ params }: { params: Promise<{ id: stri
 
                     {latestPaymentNote && (
                         <section className="mt-6 rounded-md border border-edge bg-surface-muted p-4" aria-labelledby="notes-title">
-                            <h3 id="notes-title" className="mb-1.5 flex items-center gap-2 text-xs font-medium text-fg-muted">
+                            <h3 id="notes-title" className="mb-1.5 flex items-center gap-2 text-xs font-semibold text-fg-muted">
                                 <StickyNote className="h-4 w-4 text-fg-faint" aria-hidden="true" />
                                 Notes
                             </h3>

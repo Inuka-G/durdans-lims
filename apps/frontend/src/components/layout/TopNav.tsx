@@ -32,8 +32,8 @@ const SHORT_LABELS: Record<string, string> = {
     "/phlebotomy": "Sampling",
     "/lab-reception": "Reception",
     "/lab-testing": "MLT",
-    "/lab-supervision": "Supervisor",
-    "/pathology": "Pathology",
+    "/lab-supervision": "Lab Supervisor",
+    "/pathology": "Pathologist",
     "/report-dispatch": "Dispatch",
     "/branch": "Branch",
     "/superadmin": "Admin",
@@ -104,21 +104,19 @@ export default function TopNav() {
     // Use fallback values if token parsing fails
     const userName = user?.name || user?.preferred_username || "User";
 
-    const getRoleTitle = () => {
+    const subtitleLine = useMemo(() => {
         if (pathname.startsWith("/verification")) return "Lab Supervisor";
-        if (pathname.startsWith("/clinical")) return "Pathologist";
-        if (pathname.startsWith("/branch")) return "Admin";
-        if (pathname.startsWith("/superadmin")) return "Super Admin";
-        return userName;
-    };
-
-    const getRoleSubtitle = () => {
-        if (pathname.startsWith("/verification")) return "Verification";
-        if (pathname.startsWith("/clinical")) return "Clinical Approval";
+        if (pathname.startsWith("/clinical")) return "Consultant Pathologist";
+        if (pathname.startsWith("/dispatch")) return "Dispatch Officer";
+        if (pathname.startsWith("/mlt")) return "Medical Laboratory Technologist";
+        if (pathname.startsWith("/sampling")) return "Phlebotomist";
+        if (pathname.startsWith("/reception")) return "Receptionist";
         if (pathname.startsWith("/branch")) return "Branch Admin";
-        if (pathname.startsWith("/superadmin")) return "Super Admin";
-        return "Active User";
-    };
+        if (user?.roles?.includes("LAB_SUPERVISOR") || user?.roles?.includes("SUPERVISOR")) return "Lab Supervisor";
+        if (user?.roles?.includes("PATHOLOGIST")) return "Consultant Pathologist";
+        if (user?.roles?.includes("DISPATCH")) return "Dispatch Officer";
+        return "Lab Supervisor";
+    }, [pathname, user]);
 
     const isActive = (url: string) => {
         const prefixes = MODULE_PREFIXES[url] ?? [resolveUrl(url)];
@@ -189,10 +187,6 @@ export default function TopNav() {
         }
     };
 
-    const roleTitle = getRoleTitle();
-    const roleSubtitle = getRoleSubtitle();
-    const subtitleLine = roleTitle === userName ? roleSubtitle : `${roleTitle} · ${roleSubtitle}`;
-
     return (
         <header className="fixed top-0 left-0 right-0 z-50 h-16 border-b border-edge bg-surface">
             <div className="flex h-full items-center justify-between gap-4 px-4 sm:px-6">
@@ -260,7 +254,7 @@ export default function TopNav() {
                             <span className="block truncate text-sm font-semibold leading-tight text-fg" title={userName}>
                                 {userName}
                             </span>
-                            <span className="block truncate text-[11px] leading-tight text-fg-muted">{subtitleLine}</span>
+                            <span className="block truncate text-[12px] leading-tight text-fg-muted">{subtitleLine}</span>
                         </span>
                         <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary-soft text-sm font-semibold text-primary-strong">
                             {userName.charAt(0).toUpperCase()}
@@ -272,10 +266,10 @@ export default function TopNav() {
                         <div className="absolute right-0 mt-1.5 w-60 overflow-hidden rounded-md border border-edge bg-surface py-1 shadow-lg shadow-black/10">
                             <div className="border-b border-edge px-3 py-2">
                                 <p className="truncate text-sm font-medium text-fg">{userName}</p>
-                                <p className="truncate text-[11px] text-fg-muted">{subtitleLine}</p>
+                                <p className="truncate text-[12px] text-fg-muted">{subtitleLine}</p>
                             </div>
                             <div role="menu" aria-label="Account">
-                                <div className="px-3 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wide text-fg-muted" id="theme-group-label">
+                                <div className="px-3 pb-1 pt-2 text-[12px] font-medium uppercase tracking-wide text-fg-muted" id="theme-group-label">
                                     Theme
                                 </div>
                                 <div role="group" aria-labelledby="theme-group-label" className="px-1 pb-1">

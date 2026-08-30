@@ -180,21 +180,165 @@ export default function BranchUserManagementPage() {
                     />
                 </div>
 
-                <div className="flex items-center gap-3">
-                    {/* Role Filter */}
-                    <div className="relative w-[160px]">
-                        <select
-                            value={selectedRoleFilter}
-                            onChange={(e) => setSelectedRoleFilter(e.target.value)}
-                            className="w-full appearance-none bg-white border border-[#ecf0f6] text-[#475569] font-bold py-2.5 pl-4 pr-10 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#1277E1]/20 focus:border-[#1277E1] transition-all cursor-pointer text-[13px]"
-                        >
-                            <option value="All Roles">All Roles</option>
-                            <option value="Pathologist">Pathologist</option>
-                            <option value="Lab Technician">Lab Technician</option>
-                            <option value="Receptionist">Receptionist</option>
-                            <option value="Clerk">Clerk</option>
-                        </select>
-                        <span className="material-icons absolute right-3 top-1/2 -translate-y-1/2 text-[#94a3b8] pointer-events-none text-lg">expand_more</span>
+                {/* States live outside the table so they centre on small screens */}
+                {loading ? (
+                    <ul aria-hidden="true" className="divide-y divide-edge">
+                        {Array.from({ length: SKELETON_ROWS }).map((_, i) => (
+                            <li key={i} className="flex items-center gap-3 px-4 py-2.5">
+                                <span className="h-8 w-8 shrink-0 rounded-full bg-skeleton" />
+                                <span className="flex flex-col gap-1.5">
+                                    <span className="h-3.5 w-32 rounded bg-skeleton" />
+                                    <span className="h-3 w-24 rounded bg-skeleton" />
+                                </span>
+                                <span className="hidden h-4 w-24 rounded bg-skeleton md:block" />
+                                <span className="hidden h-3 w-16 rounded bg-skeleton md:block" />
+                                <span className="ml-auto h-3 w-10 rounded bg-skeleton" />
+                                <span className="hidden h-3 w-28 rounded bg-skeleton lg:block" />
+                                <span className="hidden h-3 w-24 rounded bg-skeleton xl:block" />
+                            </li>
+                        ))}
+                    </ul>
+                ) : error ? (
+                    <EmptyState
+                        icon={AlertTriangle}
+                        title="Branch users unavailable"
+                        description={`${error} Retry to load them again.`}
+                        action={
+                            <Button size="sm" icon={RefreshCw} onClick={loadUsers}>
+                                Retry
+                            </Button>
+                        }
+                    />
+                ) : filteredUsers.length === 0 ? (
+                    hasFilters ? (
+                        <EmptyState
+                            icon={Search}
+                            title="No users match"
+                            description="Try a different search term, role or activity filter."
+                            action={
+                                <Button size="sm" icon={X} onClick={clearFilters}>
+                                    Clear filters
+                                </Button>
+                            }
+                        />
+                    ) : (
+                        <EmptyState
+                            icon={Users}
+                            title="No branch users yet"
+                            description="Staff appear here once their actions are recorded in the branch audit log."
+                        />
+                    )
+                ) : (
+                    <div className="overflow-x-auto">
+                        {/* table-fixed budget — fixed cols + a >=160px floor for the auto "Observed roles" col:
+                            base 224+112+176+48 = 560 (+200 auto);
+                            md   +96  = 656 -> min-w 820 (+164 auto);
+                            lg   +128 = 784 -> min-w 950 (+166 auto). */}
+                        <table className="w-full min-w-[760px] table-fixed text-left text-sm md:min-w-[820px] lg:min-w-[950px]">
+                            <caption className="sr-only">Branch users observed from audit activity</caption>
+                            <thead>
+                                <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
+                                    <th scope="col" className="w-56 py-2 pl-4 pr-3 font-semibold">
+                                        Actor
+                                    </th>
+                                    <th scope="col" className="px-3 py-2 font-semibold">
+                                        Observed roles
+                                    </th>
+                                    <th scope="col" className="hidden w-24 px-3 py-2 font-semibold md:table-cell">
+                                        Branch
+                                    </th>
+                                    <th scope="col" className="w-28 px-3 py-2 text-right font-semibold">
+                                        Actions logged
+                                    </th>
+                                    <th scope="col" className="w-44 px-3 py-2 font-semibold">
+                                        Last activity
+                                    </th>
+                                    <th scope="col" className="hidden w-32 px-3 py-2 font-semibold lg:table-cell">
+                                        Last IP
+                                    </th>
+                                    <th scope="col" className="w-12 py-2 pl-2 pr-3">
+                                        <span className="sr-only">Audit</span>
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-edge whitespace-nowrap">
+                                {filteredUsers.map((user) => {
+                                    const fullTime = formatFullTimestamp(user.rawLastActivity);
+                                    return (
+                                        <tr key={user.id} className="transition-colors hover:bg-surface-hover">
+                                            {/* Actor */}
+                                            <td className="py-2 pl-4 pr-3">
+                                                <div className="flex min-w-0 items-center gap-3">
+                                                    <span
+                                                        aria-hidden="true"
+                                                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-muted text-[12px] font-semibold text-fg-secondary ring-1 ring-inset ring-edge"
+                                                    >
+                                                        {user.initials}
+                                                    </span>
+                                                    <div className="min-w-0">
+                                                        <span className="block truncate font-medium text-fg" title={user.displayName}>
+                                                            {user.displayName}
+                                                        </span>
+                                                        <span className="block truncate text-xs text-fg-muted" title={user.username}>
+                                                            {user.username}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            {/* Observed roles */}
+                                            <td className="whitespace-normal px-3 py-2">
+                                                <div className="flex flex-wrap gap-1">
+                                                    {user.roles.map((role) => (
+                                                        <StatusChip key={role} tone="neutral" size="sm" title={role}>
+                                                            {role}
+                                                        </StatusChip>
+                                                    ))}
+                                                </div>
+                                            </td>
+                                            {/* Branch */}
+                                            <td className="hidden truncate px-3 py-2 text-fg-secondary md:table-cell" title={user.branchCode}>
+                                                {user.branchCode}
+                                            </td>
+                                            {/* Actions logged */}
+                                            <td className="px-3 py-2 text-right font-medium tabular-nums text-fg">
+                                                {user.actionCount.toLocaleString()}
+                                            </td>
+                                            {/* Last activity */}
+                                            <td className="px-3 py-2">
+                                                <div className="flex flex-col items-start gap-1">
+                                                    <time dateTime={user.rawLastActivity || undefined} title={fullTime} className="tabular-nums text-fg-secondary">
+                                                        {user.rawLastActivity ? formatAuditTime(user.rawLastActivity) : "—"}
+                                                    </time>
+                                                    <StatusChip
+                                                        tone={user.activityStatus === "RECENT" ? "success" : "neutral"}
+                                                        size="sm"
+                                                        dot
+                                                        title={user.activityStatus === "RECENT" ? "Active in the last 30 days" : "No activity in the last 30 days"}
+                                                    >
+                                                        {user.activityStatus === "RECENT" ? "Recent" : "Older"}
+                                                    </StatusChip>
+                                                </div>
+                                            </td>
+                                            {/* Last IP */}
+                                            <td className="hidden truncate px-3 py-2 font-mono text-xs text-fg-muted lg:table-cell" title={user.lastIpAddress}>
+                                                {user.lastIpAddress}
+                                            </td>
+                                            {/* Audit */}
+                                            <td className="py-2 pl-2 pr-3 text-right">
+                                                <Button
+                                                    href="/branch/activity-logs"
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    icon={History}
+                                                    aria-label={`View audit trail for ${user.displayName}`}
+                                                    className="w-7 px-0 text-fg-faint hover:text-fg-secondary"
+                                                />
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
                     </div>
 
                     {/* Status Filter */}
