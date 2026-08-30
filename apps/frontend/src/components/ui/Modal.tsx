@@ -56,12 +56,21 @@ export default function Modal({
     const panelRef = useRef<HTMLDivElement | null>(null);
     const openerRef = useRef<HTMLElement | null>(null);
 
+    const onCloseRef = useRef(onClose);
+    useEffect(() => {
+        onCloseRef.current = onClose;
+    }, [onClose]);
+
     useEffect(() => {
         if (!open) return;
         openerRef.current = (document.activeElement as HTMLElement | null) ?? null;
-        const panel = panelRef.current;
-        const first = panel?.querySelector<HTMLElement>(FOCUSABLE);
-        (first ?? panel)?.focus();
+        
+        // Use a small timeout to ensure the DOM is fully rendered before querying focusable elements
+        const timerId = setTimeout(() => {
+            const panel = panelRef.current;
+            const first = panel?.querySelector<HTMLElement>(FOCUSABLE);
+            (first ?? panel)?.focus();
+        }, 0);
 
         const prevOverflow = document.body.style.overflow;
         document.body.style.overflow = "hidden";
@@ -69,9 +78,10 @@ export default function Modal({
         const onKey = (e: KeyboardEvent) => {
             if (e.key === "Escape" && dismissible) {
                 e.preventDefault();
-                onClose();
+                onCloseRef.current();
                 return;
             }
+            const panel = panelRef.current;
             if (e.key === "Tab" && panel) {
                 const nodes = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((n) => n.offsetParent !== null);
                 if (nodes.length === 0) {
@@ -91,11 +101,12 @@ export default function Modal({
         };
         document.addEventListener("keydown", onKey);
         return () => {
+            clearTimeout(timerId);
             document.removeEventListener("keydown", onKey);
             document.body.style.overflow = prevOverflow;
             openerRef.current?.focus?.();
         };
-    }, [open, dismissible, onClose]);
+    }, [open, dismissible]);
 
     if (!open) return null;
 

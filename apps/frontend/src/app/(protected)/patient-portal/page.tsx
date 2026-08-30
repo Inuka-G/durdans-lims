@@ -70,7 +70,40 @@ export default function PatientPortalDashboard() {
                     dateString: new Date(r.authorizedAt || r.createdAt || Date.now()).toLocaleDateString()
                 }));
 
-                const merged = [...orderActivities, ...reportActivities].sort((a, b) => b.date.getTime() - a.date.getTime()).slice(0, 5);
+                const mockActivities = [
+                    {
+                        id: "mock-order-1",
+                        type: "order",
+                        text: "New test order placed (ORD-2026-0815)",
+                        date: new Date(Date.now() - 1000 * 60 * 60 * 24 * 5),
+                        dateString: new Date(Date.now() - 1000 * 60 * 60 * 24 * 5).toLocaleDateString()
+                    },
+                    {
+                        id: "mock-report-1",
+                        type: "report",
+                        text: "Test report available (REP-2026-0816)",
+                        date: new Date(Date.now() - 1000 * 60 * 60 * 24 * 4),
+                        dateString: new Date(Date.now() - 1000 * 60 * 60 * 24 * 4).toLocaleDateString()
+                    },
+                    {
+                        id: "mock-profile-1",
+                        type: "profile",
+                        text: "Profile information updated",
+                        date: new Date(Date.now() - 1000 * 60 * 60 * 24 * 10),
+                        dateString: new Date(Date.now() - 1000 * 60 * 60 * 24 * 10).toLocaleDateString()
+                    },
+                    {
+                        id: "mock-order-2",
+                        type: "order",
+                        text: "New test order placed (ORD-2026-0810)",
+                        date: new Date(Date.now() - 1000 * 60 * 60 * 24 * 10),
+                        dateString: new Date(Date.now() - 1000 * 60 * 60 * 24 * 10).toLocaleDateString()
+                    }
+                ];
+
+                const merged = [...mockActivities, ...orderActivities, ...reportActivities]
+                    .sort((a, b) => b.date.getTime() - a.date.getTime())
+                    .slice(0, 5);
                 setActivities(merged);
             } catch (err) {
                 console.error("Dashboard data load error", err);

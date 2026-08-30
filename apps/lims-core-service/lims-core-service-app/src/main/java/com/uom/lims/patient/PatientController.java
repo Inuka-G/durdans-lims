@@ -123,11 +123,19 @@ public class PatientController implements PatientApi {
                 return ResponseEntity.ok(Map.of("url", url));
         }
 
-        @PreAuthorize("hasAnyRole('FRONT_DESK','BRANCH_ADMIN','SUPER_ADMIN')")
+        @PreAuthorize("hasAnyRole('FRONT_DESK','BRANCH_ADMIN','SUPER_ADMIN','PATIENT')")
         @Override
         public PatientResponse updatePatient(
                         @PathVariable String patientCode,
                         @Valid @RequestBody PatientUpdateRequest request) {
+
+                org.springframework.security.core.Authentication authentication = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+                if (authentication != null && authentication.getPrincipal() instanceof org.springframework.security.oauth2.jwt.Jwt jwt) {
+                        String currentCode = jwt.getClaimAsString("preferred_username");
+                        if (SecurityUtils.hasRole("PATIENT") && currentCode != null && !currentCode.equals(patientCode)) {
+                                throw new org.springframework.security.access.AccessDeniedException("Access denied — insufficient permissions");
+                        }
+                }
 
                 String ipAddress = "0.0.0.0";
                 return patientService.updatePatientProfile(patientCode, request, ipAddress);

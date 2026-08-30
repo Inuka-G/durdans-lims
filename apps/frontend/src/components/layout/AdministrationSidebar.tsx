@@ -17,10 +17,6 @@ const GROUPS: SidebarGroup[] = [
             { name: "Audit trails", icon: History, href: "/superadmin/admin/audit", isActive: startsWith("/superadmin/admin/audit") },
         ],
     },
-    {
-        label: "Security policies",
-        items: [{ name: "Security", icon: Shield, href: "/superadmin/security", isActive: startsWith("/superadmin/security") }],
-    },
 ];
 
 export default function AdministrationSidebar() {

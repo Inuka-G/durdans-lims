@@ -9,6 +9,7 @@ import { User, Phone, MapPin, Mail, Calendar, Hash, AlertCircle } from "lucide-r
 import Button from "@/components/ui/Button";
 import Modal from "@/components/ui/Modal";
 import { InputField, TextareaField } from "@/components/ui/Field";
+import { toast } from "sonner";
 
 export default function PatientProfilePage() {
     const { user } = useAuth();
@@ -98,9 +99,16 @@ export default function PatientProfilePage() {
                 };
             });
             setIsEditModalOpen(false);
+            toast.success("Profile updated successfully");
         } catch (err) {
             console.error("Failed to update profile", err);
-            alert("Failed to update profile. Please try again.");
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const backendMsg = (err as any).response?.data?.message || (err as any).response?.data?.error;
+            if (backendMsg) {
+                toast.error(backendMsg);
+            } else {
+                toast.error("Failed to update profile. Please try again.");
+            }
         } finally {
             setIsSaving(false);
         }

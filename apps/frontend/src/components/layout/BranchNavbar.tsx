@@ -86,7 +86,7 @@ export default function BranchNavbar() {
     const [branchName, setBranchName] = useState("Loading...");
 
     const userName = user?.name || user?.preferred_username || "User";
-    const subtitleLine = "Branch admin · Senior branch manager";
+    const subtitleLine = "Branch admin";
 
     const { open: accountOpen, setOpen: setAccountOpen, close: closeAccountMenu, menuRef: accountMenuRef, triggerRef: accountTriggerRef, firstItemRef: accountFirstItemRef, onMenuKeyDown: onAccountMenuKeyDown, onTriggerKeyDown: onAccountTriggerKeyDown } = useMenuButton();
 
