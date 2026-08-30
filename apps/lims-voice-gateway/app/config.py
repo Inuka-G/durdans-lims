@@ -38,12 +38,13 @@ class Settings:
     whatsapp_secret: str = field(default_factory=lambda: _env("WHATSAPP_APP_SECRET"))
     gemini_api_key: str = field(default_factory=lambda: _env("GEMINI_API_KEY"))
     # Pinned, not left to Pipecat's internal default, so that the model we probe
-    # at boot is provably the model we then call with. This is the same
-    # native-audio model Pipecat 1.7 defaults to. `gemini-2.5-flash-native-audio-latest`
-    # is the rolling alternative — also verified to accept the full setup — if
-    # this preview is ever retired.
+    # at boot is provably the model we then call with. Pinned to gemini-3.1-flash-live-preview
+    # by user decision (2026-08-30), moving off the gemini-2.5-flash-native-audio-preview-12-2025
+    # line this was on before. That line supported affective dialog + proactive audio +
+    # NON_BLOCKING tools; this one does not — see the affective_dialog/proactive_audio/
+    # async_tools defaults below, pinned off alongside this line for the same reason.
     gemini_live_model: str = field(
-        default_factory=lambda: _env("GEMINI_LIVE_MODEL", "models/gemini-2.5-flash-native-audio-preview-12-2025")
+        default_factory=lambda: _env("GEMINI_LIVE_MODEL", "models/gemini-3.1-flash-live-preview")
     )
     # Which API surface to open the Live session on. Empty = the SDK's default
     # (v1beta). See resolved_api_version(): affective dialog and proactive audio
@@ -61,9 +62,16 @@ class Settings:
     # Native-audio-only capabilities, both off by default in Pipecat. Affective
     # dialog is the one that makes the voice answer a worried caller differently
     # from a cheerful one; proactive audio lets the model decline to answer noise
-    # it was never addressed with, instead of talking over a hallway.
-    affective_dialog: bool = field(default_factory=lambda: _flag("GEMINI_AFFECTIVE_DIALOG", True))
-    proactive_audio: bool = field(default_factory=lambda: _flag("GEMINI_PROACTIVE_AUDIO", True))
+    # it was never addressed with, instead of talking over a hallway. Both
+    # default OFF here because gemini-3.1-flash-live-preview (the pinned model
+    # above) refuses affective dialog outright — verified against the live API,
+    # closes the setup with a 1011 — and does not offer proactive audio either.
+    # The boot probe (live_check.py) would disable them anyway if left on, but
+    # leaving them on here would just buy three guaranteed-to-fail probe round
+    # trips at every boot for nothing. Set the env vars true only alongside a
+    # GEMINI_LIVE_MODEL back on the native-audio line.
+    affective_dialog: bool = field(default_factory=lambda: _flag("GEMINI_AFFECTIVE_DIALOG", False))
+    proactive_audio: bool = field(default_factory=lambda: _flag("GEMINI_PROACTIVE_AUDIO", False))
 
     # Gemini's own server-side VAD. Left unset these are Google's defaults, which
     # are tuned for a headset in a quiet room; a phone call in Sri Lanka is neither.
@@ -83,11 +91,13 @@ class Settings:
     # Tools run NON_BLOCKING so the model keeps talking while a lookup is in
     # flight instead of leaving the line silent. The trade is real: the model
     # speaks before the result lands, so it is filling rather than answering,
-    # and only the prompt's never-invent rule keeps that filler honest. Turn
-    # this off if a live call ever shows a price spoken ahead of the tool — and
-    # note Gemini 3.x Flash Live does not support NON_BLOCKING at all, so pin
-    # this to false alongside any GEMINI_LIVE_MODEL on that line.
-    async_tools: bool = field(default_factory=lambda: _flag("VOICE_ASYNC_TOOLS", True))
+    # and only the prompt's never-invent rule keeps that filler honest. Default
+    # OFF here per the note this comment used to only warn about: Gemini 3.x
+    # Flash Live (the pinned model above) does not support NON_BLOCKING at all.
+    # Calls fall back to blocking tool calls — a short silence during a lookup
+    # instead of dead air being ruled out. Flip back to true only alongside a
+    # GEMINI_LIVE_MODEL back on the native-audio line.
+    async_tools: bool = field(default_factory=lambda: _flag("VOICE_ASYNC_TOOLS", False))
 
     # The whatsapp-service tool layer, reached over loopback: this container runs
     # with host networking and the compose override publishes 11010 on 127.0.0.1.

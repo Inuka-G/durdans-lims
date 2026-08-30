@@ -34,6 +34,10 @@ public class TestPackageI18nEntity extends BaseEntity {
     @Column(name = "description", columnDefinition = "text")
     private String description;
 
+    /** Keycloak subject of whoever last saved this draft — see TestCatalogI18nEntity#draftedBy. */
+    @Column(name = "drafted_by")
+    private String draftedBy;
+
     @Column(name = "reviewed_by")
     private String reviewedBy;
 

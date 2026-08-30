@@ -1387,6 +1387,7 @@ export interface AdminUser {
     lastName: string;
     enabled: boolean;
     branchCode: string;
+    roles: string[];
 }
 
 export interface CreateAdminUserRequest {
@@ -1397,7 +1398,32 @@ export interface CreateAdminUserRequest {
     role?: string;
     branchCode?: string;
     temporaryPassword?: string;
+    enabled?: boolean;
 }
+
+export interface UpdateAdminUserRequest {
+    firstName?: string;
+    lastName?: string;
+    email?: string;
+    role?: string;
+    branchCode?: string;
+}
+
+/**
+ * Realm roles this admin UI will assign — mirrors the backend's allow-list
+ * (AdminUserService.MANAGED_ROLES) and the RBAC table in README.md. SUPER_ADMIN
+ * is deliberately left out of self-service create/edit; grant it directly in
+ * Keycloak, not from a dropdown.
+ */
+export const ASSIGNABLE_ROLES: { value: string; label: string }[] = [
+    { value: 'MLT', label: 'Medical Laboratory Technician' },
+    { value: 'LAB_SUPERVISOR', label: 'Lab Supervisor' },
+    { value: 'PATHOLOGIST', label: 'Pathologist' },
+    { value: 'PHLEBOTOMIST', label: 'Phlebotomist' },
+    { value: 'FRONT_DESK', label: 'Billing / Receptionist' },
+    { value: 'DISPATCH', label: 'Dispatch' },
+    { value: 'BRANCH_ADMIN', label: 'Branch Admin' },
+];
 
 export async function getAdminUsers(): Promise<AdminUser[]> {
     const response = await axiosInstance.get('/api/v1/admin/users');
@@ -1409,8 +1435,79 @@ export async function createAdminUser(req: CreateAdminUserRequest): Promise<Admi
     return (response.data?.data ?? response.data) as AdminUser;
 }
 
+export async function updateAdminUser(id: string, req: UpdateAdminUserRequest): Promise<AdminUser> {
+    const response = await axiosInstance.put(`/api/v1/admin/users/${id}`, req);
+    return (response.data?.data ?? response.data) as AdminUser;
+}
+
 export async function setAdminUserEnabled(id: string, value: boolean): Promise<void> {
     await axiosInstance.patch(`/api/v1/admin/users/${id}/enabled`, null, { params: { value } });
+}
+
+// ===== Admin: branch directory =====
+// Unlike the Keycloak-backed user endpoints above, this is a real, always-on
+// table (apps/lims-core-service: com.uom.lims.branch) — no feature flag.
+export interface Branch {
+    code: string;
+    name: string;
+    location: string | null;
+    address: string | null;
+    contactEmail: string | null;
+    contactPhone: string | null;
+    status: "ACTIVE" | "INACTIVE";
+    establishedDate: string | null;
+    legalEntityName: string | null;
+    adminUserId: string | null;
+    adminName: string | null;
+    adminEmail: string | null;
+}
+
+export interface CreateBranchRequest {
+    code: string;
+    name: string;
+    location?: string;
+    address?: string;
+    contactEmail?: string;
+    contactPhone?: string;
+    status?: "ACTIVE" | "INACTIVE";
+    legalEntityName?: string;
+    establishedDate?: string;
+}
+
+export interface UpdateBranchRequest {
+    name?: string;
+    location?: string;
+    address?: string;
+    contactEmail?: string;
+    contactPhone?: string;
+    status?: "ACTIVE" | "INACTIVE";
+    legalEntityName?: string;
+    establishedDate?: string;
+}
+
+export async function getBranches(): Promise<Branch[]> {
+    const response = await axiosInstance.get('/api/v1/branches');
+    return (response.data?.data ?? []) as Branch[];
+}
+
+export async function getBranch(code: string): Promise<Branch> {
+    const response = await axiosInstance.get(`/api/v1/branches/${code}`);
+    return (response.data?.data ?? response.data) as Branch;
+}
+
+export async function createBranch(req: CreateBranchRequest): Promise<Branch> {
+    const response = await axiosInstance.post('/api/v1/branches', req);
+    return (response.data?.data ?? response.data) as Branch;
+}
+
+export async function updateBranch(code: string, req: UpdateBranchRequest): Promise<Branch> {
+    const response = await axiosInstance.put(`/api/v1/branches/${code}`, req);
+    return (response.data?.data ?? response.data) as Branch;
+}
+
+export async function assignBranchAdmin(code: string, userId: string, name: string, email: string): Promise<Branch> {
+    const response = await axiosInstance.put(`/api/v1/branches/${code}/admin`, { userId, name, email });
+    return (response.data?.data ?? response.data) as Branch;
 }
 
 // ---------------------------------------------------------------------------

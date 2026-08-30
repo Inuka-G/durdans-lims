@@ -6,11 +6,13 @@ import com.uom.lims.entity.TestCatalogEntity;
 import com.uom.lims.entity.TestCatalogI18nEntity;
 import com.uom.lims.entity.TestPackageEntity;
 import com.uom.lims.entity.TestPackageI18nEntity;
+import com.uom.lims.exception.BusinessRuleException;
 import com.uom.lims.exception.ResourceNotFoundException;
 import com.uom.lims.repository.TestCatalogI18nRepository;
 import com.uom.lims.repository.TestCatalogRepository;
 import com.uom.lims.repository.TestPackageI18nRepository;
 import com.uom.lims.repository.TestPackageRepository;
+import com.uom.lims.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -72,6 +74,7 @@ public class CatalogTranslationService {
         translation.setTestName(request.name());
         translation.setColloquialName(request.colloquialName());
         translation.setPrepInstruction(request.prepInstruction());
+        translation.setDraftedBy(SecurityUtils.getCurrentUserId());
         translation.setReviewedBy(null);
         translation.setReviewedAt(null);
         translation.setDeleted(false);
@@ -80,7 +83,14 @@ public class CatalogTranslationService {
         log.info("Saved unreviewed {} translation for test {}", locale, testCode);
     }
 
-    /** Publishes a translation. Until this runs, callers see the English name. */
+    /**
+     * Publishes a translation. Until this runs, callers see the English name.
+     *
+     * <p>Rejects the caller who saved the draft being reviewed — the author and
+     * the clinical reviewer must be different people. Compared by Keycloak
+     * subject, not display name, so this can't be defeated by a name that
+     * happens to render the same way twice.
+     */
     @Transactional
     public void reviewTestTranslation(String testCode, String requestedLocale, String reviewer) {
         TestCatalogEntity test = testCatalogRepository.findByTestCodeAndDeletedFalse(testCode)
@@ -91,6 +101,12 @@ public class CatalogTranslationService {
                 .findByTestIdAndLocaleAndDeletedFalse(test.getId(), locale)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "No " + locale + " translation to review for test " + testCode));
+
+        String reviewerId = SecurityUtils.getCurrentUserId();
+        if (translation.getDraftedBy() != null && translation.getDraftedBy().equals(reviewerId)) {
+            throw new BusinessRuleException(
+                    "You saved this translation — ask another clinical reviewer to approve it.");
+        }
 
         translation.setReviewedBy(reviewer);
         translation.setReviewedAt(Instant.now());
@@ -116,6 +132,7 @@ public class CatalogTranslationService {
 
         translation.setPackageName(request.name());
         translation.setDescription(request.description());
+        translation.setDraftedBy(SecurityUtils.getCurrentUserId());
         translation.setReviewedBy(null);
         translation.setReviewedAt(null);
         translation.setDeleted(false);
@@ -124,6 +141,7 @@ public class CatalogTranslationService {
         log.info("Saved unreviewed {} translation for package {}", locale, packageCode);
     }
 
+    /** Same author-vs-reviewer rule as {@link #reviewTestTranslation}. */
     @Transactional
     public void reviewPackageTranslation(String packageCode, String requestedLocale, String reviewer) {
         TestPackageEntity pkg = packageRepository.findByPackageCodeAndDeletedFalse(packageCode)
@@ -134,6 +152,12 @@ public class CatalogTranslationService {
                 .findByTestPackageIdAndLocaleAndDeletedFalse(pkg.getId(), locale)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "No " + locale + " translation to review for package " + packageCode));
+
+        String reviewerId = SecurityUtils.getCurrentUserId();
+        if (translation.getDraftedBy() != null && translation.getDraftedBy().equals(reviewerId)) {
+            throw new BusinessRuleException(
+                    "You saved this translation — ask another clinical reviewer to approve it.");
+        }
 
         translation.setReviewedBy(reviewer);
         translation.setReviewedAt(Instant.now());
