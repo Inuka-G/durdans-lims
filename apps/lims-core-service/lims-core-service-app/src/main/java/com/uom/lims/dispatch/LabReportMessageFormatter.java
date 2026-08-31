@@ -43,7 +43,7 @@ public class LabReportMessageFormatter {
 
     private static String shortReference(String reference) {
         if (reference == null || reference.isBlank()) return "Not available";
-        return reference.length() <= 16 ? reference : reference.substring(0, 12).toUpperCase();
+        return reference.length() <= 13 ? reference : reference.substring(0, 13).toUpperCase();
     }
 
     private static String value(String value) {
