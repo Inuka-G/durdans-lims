@@ -27,8 +27,11 @@ dependencies {
 
 
     implementation 'software.amazon.awssdk:s3'
+    implementation 'software.amazon.awssdk:cloudwatch'
+    implementation 'software.amazon.awssdk:cloudwatchlogs'
     implementation 'software.amazon.awssdk:auth'
     implementation platform("software.amazon.awssdk:bom:2.25.20")
+    implementation 'io.micrometer:micrometer-registry-cloudwatch2'
     implementation 'org.springframework.boot:spring-boot-starter-cache'
     implementation 'com.github.ben-manes.caffeine:caffeine'
     implementation 'org.springframework.boot:spring-boot-starter-mail'

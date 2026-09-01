@@ -19,7 +19,7 @@ export default function BranchCreateModal({ isOpen, onClose, onSave }: BranchCre
         location: "",
         contactEmail: "",
         contactPhone: "",
-        status: "Active",
+        status: "ACTIVE",
     });
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -38,7 +38,7 @@ export default function BranchCreateModal({ isOpen, onClose, onSave }: BranchCre
             location: "",
             contactEmail: "",
             contactPhone: "",
-            status: "Active",
+            status: "ACTIVE",
         });
         onClose();
     };
@@ -112,8 +112,8 @@ export default function BranchCreateModal({ isOpen, onClose, onSave }: BranchCre
                     value={formData.status}
                     onChange={(e) => setFormData({ ...formData, status: e.target.value })}
                 >
-                    <option value="Active">Active</option>
-                    <option value="Inactive">Inactive</option>
+                    <option value="ACTIVE">Active</option>
+                    <option value="INACTIVE">Inactive</option>
                 </SelectField>
             </form>
         </Modal>
