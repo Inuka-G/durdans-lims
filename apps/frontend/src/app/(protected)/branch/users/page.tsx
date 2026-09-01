@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import CreateUserModal from "@/components/branch/CreateUserModal";
 import ViewEditUserModal from "@/components/branch/ViewEditUserModal";
 
-import { getBranchUsers, createBranchUser, updateBranchUser, BranchUser, getBranches } from "@/lib/api";
+import { getBranchUsers, createBranchUser, updateBranchUser, BranchUser, getBranchesPage } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 
 const DEFAULT_BRANCH_ID = "b6030d28-10ef-4165-9554-8887fabfddb8";
@@ -51,7 +51,7 @@ export default function BranchUserManagementPage() {
     };
 
     useEffect(() => {
-        getBranches(0, 100).then((data) => {
+        getBranchesPage(0, 100).then((data) => {
             const branch = data.content.find((b) => b.id === activeBranchId || b.code.toUpperCase() === activeBranchId.toUpperCase());
             if (branch) {
                 setBranchName(branch.name);
