@@ -35,25 +35,31 @@ export default function InstrumentsPage() {
     const [demoMode, setDemoMode] = useState(false);
     const [syncingId, setSyncingId] = useState<string | null>(null);
 
-    const loadInstruments = useCallback(async () => {
+    const loadInstruments = useCallback(async (silent = false) => {
         try {
-            setLoading(true);
+            if (!silent) setLoading(true);
             setError(null);
             setDemoMode(false);
             const data = await getInstruments();
             setInstruments(data);
         } catch (err) {
             console.error('Failed to load instruments', err);
-            setInstruments(MOCK_INSTRUMENT_STATUS_FALLBACK);
-            setDemoMode(true);
+            if (!silent) {
+                setInstruments(MOCK_INSTRUMENT_STATUS_FALLBACK);
+                setDemoMode(true);
+            }
             setError(null);
         } finally {
-            setLoading(false);
+            if (!silent) setLoading(false);
         }
     }, []);
 
     useEffect(() => {
         loadInstruments();
+        const interval = setInterval(() => {
+            loadInstruments(true);
+        }, 8000);
+        return () => clearInterval(interval);
     }, [loadInstruments]);
 
     const handleSync = useCallback(async (id: string) => {
