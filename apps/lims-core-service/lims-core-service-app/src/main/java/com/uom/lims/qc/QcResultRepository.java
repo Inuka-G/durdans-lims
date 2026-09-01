@@ -36,4 +36,7 @@ public interface QcResultRepository extends JpaRepository<QcResultEntity, UUID> 
             @org.springframework.data.repository.query.Param("loinc") String loinc,
             @org.springframework.data.repository.query.Param("at") java.time.Instant at,
             Pageable pageable);
+
+    @org.springframework.data.jpa.repository.Query("select max(q.performedAt) from QcResultEntity q where q.instrument = :instrument")
+    java.time.Instant findLatestQcActivity(@org.springframework.data.repository.query.Param("instrument") String instrument);
 }

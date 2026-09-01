@@ -103,6 +103,43 @@ const formatFullTimestamp = (value?: string | null) => {
     });
 };
 
+function renderQcStatusChip(qcStatus?: string | null) {
+    if (!qcStatus || qcStatus === 'NOT_EVALUATED' || qcStatus === 'NOT_LINKED') {
+        return (
+            <StatusChip tone="neutral" dot size="sm" title="QC not evaluated">
+                Not evaluated
+            </StatusChip>
+        );
+    }
+    const upper = qcStatus.toUpperCase();
+    if (upper === 'PASS' || upper === 'PASSED') {
+        return (
+            <StatusChip tone="success" dot size="sm" title="Quality Control Passed">
+                Pass
+            </StatusChip>
+        );
+    }
+    if (upper === 'WARN' || upper === 'WARNING') {
+        return (
+            <StatusChip tone="pending" dot size="sm" title="Quality Control Warning">
+                Warning
+            </StatusChip>
+        );
+    }
+    if (upper === 'FAIL' || upper === 'FAILED') {
+        return (
+            <StatusChip tone="danger" dot size="sm" title="Quality Control Failed - Hold Required">
+                Fail
+            </StatusChip>
+        );
+    }
+    return (
+        <StatusChip tone="neutral" dot size="sm" title={qcStatus}>
+            {qcStatus}
+        </StatusChip>
+    );
+}
+
 export default function PendingVerificationPage() {
     const router = useRouter();
     const pathname = usePathname();
@@ -579,10 +616,7 @@ export default function PendingVerificationPage() {
                                                 </td>
 
                                                 <td className="px-3 py-2">
-                                                    <span className="inline-flex items-center gap-1.5 rounded-full border border-neutral-200 bg-neutral-100 px-2 py-0.5 text-xs font-semibold text-neutral-600">
-                                                        <span className="h-1.5 w-1.5 rounded-full bg-neutral-400" />
-                                                        Not linked
-                                                    </span>
+                                                    {renderQcStatusChip(result.qcStatus)}
                                                 </td>
 
                                                 <td className="px-3 py-2">

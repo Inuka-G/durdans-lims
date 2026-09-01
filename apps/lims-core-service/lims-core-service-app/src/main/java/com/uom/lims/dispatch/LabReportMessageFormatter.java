@@ -1,54 +1,41 @@
 package com.uom.lims.dispatch;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
- * The patient-facing "your report is ready" SMS.
+ * Patient-facing "authorized lab report ready" SMS formatter.
  *
- * <p>Laid out in blocks separated by a blank line - heading, who and what, the results,
- * then the reference and the advice - because this is read on a phone and a wall of text
- * is where a low haemoglobin gets missed. The gateway carries the line breaks because the
- * message is posted as a form body; over a query string they were cut at the first one.
+ * <p>Formats a clean, professional medical notification containing the patient name,
+ * test panel, report reference, clinical authorization status, and a direct secure
+ * download URL for the full PDF report.
  */
 @Component
 public class LabReportMessageFormatter {
 
-    // Three concatenated GSM segments. Keeping this bounded avoids gateways or
-    // handsets silently dropping the tail of an oversized message.
+    // Bounded to 3 concatenated GSM segments to prevent network truncation
     private static final int MAX_SMS_LENGTH = 459;
 
+    @Value("${app.reports.portal-url:https://reports.durdans.com/r/}")
+    private String portalBaseUrl = "https://reports.durdans.com/r/";
+
     public String formatSms(LabReportData report) {
-        StringBuilder message = new StringBuilder("Durdans LIMS\n")
-                .append("Authorized Lab Report\n")
+        String reportRef = report.reportReference() != null ? report.reportReference() : "REF";
+        String downloadUrl = portalBaseUrl.endsWith("/") ? portalBaseUrl + reportRef : portalBaseUrl + "/" + reportRef;
+
+        StringBuilder message = new StringBuilder("Durdans Hospital Laboratory\n")
+                .append("Authorized Lab Report Ready\n")
                 .append("\n")
                 .append("Patient: ").append(value(report.patientName())).append("\n")
                 .append("Test: ").append(value(report.testPanel())).append("\n")
+                .append("Report Ref: ").append(shortReference(report.reportReference())).append("\n")
+                .append("Status: Clinically authorized\n")
                 .append("\n")
-                .append("Results:");
+                .append("View & download your full official lab report:\n")
+                .append(downloadUrl).append("\n")
+                .append("\n")
+                .append("Please consult your doctor with this report.");
 
-        String footer = "\n\nReport: " + shortReference(report.reportReference())
-                + "\nStatus: Clinically authorized"
-                + "\n\nPlease consult your doctor.";
-
-        if (report.results().isEmpty()) {
-            message.append("\nPlease contact the laboratory for result details.");
-        } else {
-            for (LabReportData.ResultRow row : report.results()) {
-                StringBuilder result = new StringBuilder("\n- ")
-                        .append(value(row.parameter()))
-                        .append(' ').append(value(row.value()));
-                if (row.unit() != null && !row.unit().isBlank()) result.append(' ').append(row.unit().trim());
-                if (row.flag() != null && !row.flag().isBlank() && !"NORMAL".equalsIgnoreCase(row.flag())) {
-                    result.append(" [").append(row.flag().replace('_', ' ')).append(']');
-                }
-                if (message.length() + result.length() + footer.length() > MAX_SMS_LENGTH) {
-                    message.append("\n- More results in emailed PDF");
-                    break;
-                }
-                message.append(result);
-            }
-        }
-        message.append(footer);
         return message.length() <= MAX_SMS_LENGTH
                 ? message.toString()
                 : message.substring(0, MAX_SMS_LENGTH - 3) + "...";
@@ -56,7 +43,7 @@ public class LabReportMessageFormatter {
 
     private static String shortReference(String reference) {
         if (reference == null || reference.isBlank()) return "Not available";
-        return reference.length() <= 12 ? reference : reference.substring(0, 8).toUpperCase();
+        return reference.length() <= 13 ? reference : reference.substring(0, 13).toUpperCase();
     }
 
     private static String value(String value) {
