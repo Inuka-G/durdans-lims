@@ -119,4 +119,10 @@ public interface TestResultRepository extends JpaRepository<TestResultEntity, UU
             @Param("parameterId") UUID parameterId,
             @Param("sampleId") UUID sampleId,
             org.springframework.data.domain.Pageable pageable);
+
+    @Query("select count(tr) from TestResultEntity tr where tr.instrumentCode = :instrumentCode and tr.createdAt >= :since and tr.deleted = false")
+    long countTestsSince(@Param("instrumentCode") String instrumentCode, @Param("since") Instant since);
+
+    @Query("select max(tr.createdAt) from TestResultEntity tr where tr.instrumentCode = :instrumentCode and tr.deleted = false")
+    Instant findLatestActivity(@Param("instrumentCode") String instrumentCode);
 }
