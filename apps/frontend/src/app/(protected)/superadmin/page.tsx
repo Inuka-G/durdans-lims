@@ -218,18 +218,15 @@ export default function SuperAdminDashboardPage() {
                             </div>
                         </div>
 
-                        <div className="mt-4 border-t border-edge pt-3">
-                            <p className="mb-2 text-xs font-semibold text-fg-muted">Live status</p>
-                            <ul className="divide-y divide-edge">
-                                {liveStatus.map((s) => (
-                                    <li key={s.label} className="flex items-center justify-between gap-2 py-1.5 text-sm text-fg">
-                                        <span className="min-w-0 truncate">{s.label}</span>
-                                        <StatusChip tone={s.tone} dot size="sm">
-                                            {s.state}
-                                        </StatusChip>
-                                    </li>
-                                ))}
-                            </ul>
+                        {/* API Response Time */}
+                        <div>
+                            <div className="flex justify-between text-xs font-bold text-slate-500 mb-2 uppercase tracking-wider">
+                                <span>API Response Time</span>
+                                <span className="text-emerald-500">124MS</span>
+                            </div>
+                            <div className="w-full bg-slate-100 rounded-full h-1.5">
+                                <div className="bg-emerald-500 h-1.5 rounded-full" style={{ width: '40%' }}></div>
+                            </div>
                         </div>
                     </div>
 
