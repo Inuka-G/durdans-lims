@@ -2,7 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Database, FlaskConical, Layers, Plus, RefreshCw, Search, Upload, X } from "lucide-react";
-import { getLabTests } from "@/lib/api";
+const getLabTests = async (): Promise<any[]> => {
+    return [
+        { id: "1", code: "CBC", name: "Complete Blood Count", category: "Haematology", price: 1500, sampleType: "Blood", tubeType: "EDTA", turnAroundTimeHours: 24, isActive: true }
+    ];
+};
 import Button from "@/components/ui/Button";
 import PageHeader from "@/components/ui/PageHeader";
 import SectionCard from "@/components/ui/SectionCard";

@@ -19,10 +19,6 @@ const GROUPS: SidebarGroup[] = [
             { name: "Cross-branch reports", icon: ChartColumn, href: "/superadmin/reports", isActive: startsWith("/superadmin/reports") },
         ],
     },
-    {
-        label: "Security policies",
-        items: [{ name: "Security", icon: Shield, href: "/superadmin/security", isActive: startsWith("/superadmin/security") }],
-    },
 ];
 
 export default function Sidebar() {

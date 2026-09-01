@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, Building2, Plus, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Branch, getBranches } from "@/lib/api";
+import { Branch, getBranches, getBranchesPage } from "@/lib/api";
 import Button from "@/components/ui/Button";
 import PageHeader from "@/components/ui/PageHeader";
 import SectionCard from "@/components/ui/SectionCard";
@@ -13,6 +13,7 @@ import BranchDetailsPanel from "@/components/admin/BranchDetailsPanel";
 import BranchCreateModal from "@/components/admin/BranchCreateModal";
 import BranchEditModal from "@/components/admin/BranchEditModal";
 import AssignAdminModal from "@/components/admin/AssignAdminModal";
+import { getBranchesPage, createBranchAdmin, updateBranchAdmin, BranchResponse } from "@/lib/api";
 
 // Same selector Modal.tsx traps against, so the drawer behaves like the dialog it claims to be.
 const FOCUSABLE =
@@ -30,15 +31,24 @@ export default function BranchManagementPage() {
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [isAssignAdminModalOpen, setIsAssignAdminModalOpen] = useState(false);
 
-    const panelRef = useRef<HTMLDivElement | null>(null);
-    const openerRef = useRef<HTMLElement | null>(null);
-    const modalOpenRef = useRef(false);
+    const fetchBranches = async () => {
+        setLoading(true);
+        try {
+            const data = await getBranchesPage(0, 100); // Fetch up to 100 branches for simplicity
+            setBranches(data.content);
+        } catch (error) {
+            console.error("Failed to fetch branches", error);
+            toast.error("Failed to load branches from the server.");
+        } finally {
+            setLoading(false);
+        }
+    };
 
     const load = useCallback(async () => {
         setLoading(true);
         setError(null);
         try {
-            const data = await getBranches();
+            const data = await getBranchesPage();
             setBranches(data);
         } catch {
             setError("Could not load the branch directory.");
@@ -57,63 +67,49 @@ export default function BranchManagementPage() {
     // Keep a ref of "any modal open" so the drawer's Esc handler can defer to
     // the Modal primitive without re-running the focus effect below.
     useEffect(() => {
-        modalOpenRef.current = isCreateModalOpen || isEditModalOpen || isAssignAdminModalOpen;
-    }, [isCreateModalOpen, isEditModalOpen, isAssignAdminModalOpen]);
+        fetchBranches();
+    }, []);
 
-    // Drawer a11y: move focus into the panel on open, trap Tab inside it, lock body
-    // scroll, Esc closes it (unless a modal launched from the panel is open), and
-    // focus returns to the opener. Matches Modal.tsx so aria-modal is truthful.
-    useEffect(() => {
-        if (!panelOpen) return;
-        openerRef.current = (document.activeElement as HTMLElement | null) ?? null;
-        const panel = panelRef.current;
-        panel?.focus();
+    const handleCreateBranch = async (branchData: Partial<Branch>) => {
+        try {
+            if (!branchData.code || !branchData.name) throw new Error("Missing required fields");
+            await createBranchAdmin({ 
+                code: branchData.code, 
+                name: branchData.name,
+                location: branchData.location,
+                contactEmail: branchData.contactEmail,
+                contactPhone: branchData.contactPhone,
+                status: branchData.status
+            });
+            toast.success("Branch created successfully!");
+            await fetchBranches();
+        } catch (error: any) {
+            console.error("Failed to create branch", error);
+            toast.error(error?.response?.data?.message || error.message || "Failed to create new branch.");
+            throw error;
+        }
+    };
 
-        const prevOverflow = document.body.style.overflow;
-        document.body.style.overflow = "hidden";
+    const handleUpdateBranch = async (id: string, branchData: Partial<Branch>) => {
+        try {
+            if (!branchData.name) throw new Error("Missing name");
+            await updateBranchAdmin(id, { 
+                name: branchData.name,
+                location: branchData.location,
+                contactEmail: branchData.contactEmail,
+                contactPhone: branchData.contactPhone,
+                status: branchData.status
+            });
+            toast.success("Branch updated successfully!");
+            await fetchBranches();
+        } catch (error: any) {
+            console.error("Failed to update branch", error);
+            toast.error(error?.response?.data?.message || error.message || "Failed to update branch.");
+            throw error;
+        }
+    };
 
-        const onKey = (event: KeyboardEvent) => {
-            // A modal launched from the panel owns Esc and the Tab trap while it is open.
-            if (modalOpenRef.current) return;
-
-            if (event.key === "Escape") {
-                event.preventDefault();
-                setSelectedBranch(null);
-                return;
-            }
-
-            if (event.key === "Tab" && panel) {
-                const nodes = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
-                    (node) => node.offsetParent !== null
-                );
-                if (nodes.length === 0) {
-                    event.preventDefault();
-                    return;
-                }
-                const firstEl = nodes[0];
-                const lastEl = nodes[nodes.length - 1];
-                const active = document.activeElement as HTMLElement | null;
-
-                // Focus starts on the panel container, so also wrap when focus has
-                // drifted outside the drawer entirely.
-                if (event.shiftKey) {
-                    if (active === firstEl || active === panel || !panel.contains(active)) {
-                        event.preventDefault();
-                        lastEl.focus();
-                    }
-                } else if (active === lastEl || !panel.contains(active)) {
-                    event.preventDefault();
-                    firstEl.focus();
-                }
-            }
-        };
-        document.addEventListener("keydown", onKey);
-        return () => {
-            document.removeEventListener("keydown", onKey);
-            document.body.style.overflow = prevOverflow;
-            openerRef.current?.focus?.();
-        };
-    }, [panelOpen]);
+    const activeBranchData = branches.find(b => String(b.id) === String(selectedBranch));
 
     const showErrorState = !!error && branches.length === 0;
     const showErrorBanner = !!error && branches.length > 0;
@@ -256,12 +252,11 @@ export default function BranchManagementPage() {
                 )}
             </SectionCard>
 
-            {/* Slide-out panel backdrop */}
-            {panelOpen && (
+            {/* Slide-out Panel Overlay */}
+            {selectedBranch && (
                 <div
-                    className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-[1px] transition-opacity"
+                    className="fixed inset-0 bg-slate-900/20 backdrop-blur-sm z-50 transition-opacity"
                     onClick={() => setSelectedBranch(null)}
-                    aria-hidden="true"
                 />
             )}
 
@@ -282,8 +277,14 @@ export default function BranchManagementPage() {
                     <BranchDetailsPanel
                         branch={activeBranchData}
                         onClose={() => setSelectedBranch(null)}
-                        onEditClick={() => setIsEditModalOpen(true)}
-                        onChangeAdminClick={() => setIsAssignAdminModalOpen(true)}
+                        onEditClick={() => {
+                            setSelectedBranchForModal(activeBranchData || null);
+                            setIsEditModalOpen(true);
+                        }}
+                        onChangeAdminClick={() => {
+                            setSelectedBranchForModal(activeBranchData || null);
+                            setIsAssignAdminModalOpen(true);
+                        }}
                     />
                 )}
             </div>
@@ -306,6 +307,7 @@ export default function BranchManagementPage() {
                 onAssigned={load}
                 branch={activeBranchData}
             />
+
         </div>
     );
 }

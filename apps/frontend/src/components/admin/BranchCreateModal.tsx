@@ -2,7 +2,7 @@
 
 import { useId, useState } from "react";
 import { AlertCircle } from "lucide-react";
-import { createBranch } from "@/lib/api";
+import { createBranchAdmin } from "@/lib/api";
 import Modal from "@/components/ui/Modal";
 import Button from "@/components/ui/Button";
 import { InputField, SelectField } from "@/components/ui/Field";
@@ -34,7 +34,7 @@ export default function BranchCreateModal({ isOpen, onClose, onCreated }: Branch
         setSubmitting(true);
         setError(null);
         try {
-            await createBranch({
+            await createBranchAdmin({
                 code: formData.code.trim().toUpperCase(),
                 name: formData.branchName,
                 location: formData.location || undefined,

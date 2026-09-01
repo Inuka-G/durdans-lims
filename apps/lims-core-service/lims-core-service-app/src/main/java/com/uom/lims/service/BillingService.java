@@ -51,6 +51,7 @@ public class BillingService {
         private final PatientClientService patientClientService;
         private final BillingProperties billingProperties;
         private final PatientLifecycleNotificationService patientLifecycleNotificationService;
+        private final com.uom.lims.audit.AuditService auditService;
 
         /**
          * WHY: Fetching a bill by order ID is the primary path from the order detail
@@ -132,6 +133,8 @@ public class BillingService {
                                 request.getDiscountAmount(),
                                 bill.getBillNo(),
                                 SecurityUtils.getCurrentUsername());
+                String details = String.format("{\"discountAmount\":\"%s\", \"reason\":\"%s\"}", request.getDiscountAmount(), request.getReason());
+                auditService.log("APPLY_DISCOUNT", "BILL", saved.getId(), saved.getOrder() != null ? saved.getOrder().getPatientId() : null, details, getCurrentIp());
                 return toResponse(saved);
         }
 
@@ -215,6 +218,8 @@ public class BillingService {
                                 bill.getBillNo(),
                                 SecurityUtils.getCurrentUsername());
                 patientLifecycleNotificationService.paymentConfirmed(saved, request.getPaymentMethod().name());
+                String details = String.format("{\"amount\":\"%s\", \"paymentMethod\":\"%s\"}", request.getAmount(), request.getPaymentMethod());
+                auditService.log("PROCESS_PAYMENT", "BILL", saved.getId(), saved.getOrder() != null ? saved.getOrder().getPatientId() : null, details, getCurrentIp());
                 return toResponse(saved);
         }
 
@@ -238,7 +243,18 @@ public class BillingService {
                                 bill.getBillNo(),
                                 saved.getPrintCount(),
                                 saved.getLastPrintedBy());
+                auditService.log("PRINT_BILL", "BILL", saved.getId(), saved.getOrder() != null ? saved.getOrder().getPatientId() : null, "{}", getCurrentIp());
                 return toResponse(saved);
+        }
+
+        private String getCurrentIp() {
+                try {
+                        return com.uom.lims.security.ClientIpResolver.resolve(
+                                ((org.springframework.web.context.request.ServletRequestAttributes) 
+                                        org.springframework.web.context.request.RequestContextHolder.currentRequestAttributes()).getRequest());
+                } catch (Exception e) {
+                        return "SYSTEM";
+                }
         }
 
         /**

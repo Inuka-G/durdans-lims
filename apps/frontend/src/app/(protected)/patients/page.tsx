@@ -2,7 +2,7 @@
 
 import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { AlertTriangle, Building2, ChevronRight, Info, Search, SearchX, UserPlus, Users } from "lucide-react";
 import { getPatients, Patient } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
@@ -30,12 +30,23 @@ function PatientsPageInner() {
     const [patients, setPatients] = useState<Patient[]>([]);
     const [loading, setLoading] = useState(true);
     const [loadError, setLoadError] = useState<string | null>(null);
+    const router = useRouter();
     // A search spans every branch, so results can include patients registered
     // elsewhere. Compare against the caller's own branch to label those rows.
-    const { branchCode: myBranch } = useAuth();
+    const { branchCode: myBranch, roles, user } = useAuth();
     // The term the current result set was loaded for ("" = own-branch list).
     const [activeQuery, setActiveQuery] = useState("");
     const searched = Boolean(activeQuery);
+
+    useEffect(() => {
+        if (roles.includes("PATIENT")) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const patientCode = (user as any)?.preferred_username;
+            if (patientCode) {
+                router.replace(`/patients/${patientCode}`);
+            }
+        }
+    }, [roles, user, router]);
 
     const loadPatients = async (query = "") => {
         setLoading(true);

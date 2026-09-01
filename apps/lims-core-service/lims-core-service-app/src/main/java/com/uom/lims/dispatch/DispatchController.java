@@ -56,7 +56,7 @@ public class DispatchController implements DispatchApi {
     }
 
     @Override
-    @PreAuthorize("hasAnyRole('DISPATCH_OFFICER','DISPATCH','FRONT_DESK','SUPER_ADMIN','BRANCH_ADMIN','LAB_SUPERVISOR','MLT','PATHOLOGIST')")
+    @PreAuthorize("hasAnyRole('DISPATCH_OFFICER','DISPATCH','FRONT_DESK','SUPER_ADMIN','BRANCH_ADMIN','LAB_SUPERVISOR','MLT','PATHOLOGIST','PATIENT')")
     public PageResponse<DispatchDashboardItemResponse> listDispatchReports(
             DispatchItemStatus status,
             String branchCode,
@@ -64,13 +64,32 @@ public class DispatchController implements DispatchApi {
             int page,
             int size,
             String sort) {
-        return dispatchService.listDispatchReports(status, branchCode, keyword, page, size, sort);
+        
+        String effectiveKeyword = keyword;
+        if (com.uom.lims.security.SecurityUtils.hasRole("PATIENT")) {
+            org.springframework.security.core.Authentication authentication = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+            if (authentication != null && authentication.getPrincipal() instanceof org.springframework.security.oauth2.jwt.Jwt jwt) {
+                effectiveKeyword = jwt.getClaimAsString("preferred_username");
+            }
+        }
+                
+        return dispatchService.listDispatchReports(status, branchCode, effectiveKeyword, page, size, sort);
     }
 
     @Override
-    @PreAuthorize("hasAnyRole('DISPATCH_OFFICER','DISPATCH','FRONT_DESK','SUPER_ADMIN','BRANCH_ADMIN','LAB_SUPERVISOR','MLT','PATHOLOGIST')")
+    @PreAuthorize("hasAnyRole('DISPATCH_OFFICER','DISPATCH','FRONT_DESK','SUPER_ADMIN','BRANCH_ADMIN','LAB_SUPERVISOR','MLT','PATHOLOGIST','PATIENT')")
     public DispatchItemResponse getDispatchReport(String reportReference, String branchCode) {
-        return dispatchService.getDispatchReport(reportReference, branchCode);
+        DispatchItemResponse response = dispatchService.getDispatchReport(reportReference, branchCode);
+        if (com.uom.lims.security.SecurityUtils.hasRole("PATIENT")) {
+            org.springframework.security.core.Authentication authentication = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+            if (authentication != null && authentication.getPrincipal() instanceof org.springframework.security.oauth2.jwt.Jwt jwt) {
+                String patientCode = jwt.getClaimAsString("preferred_username");
+                if (patientCode != null && !patientCode.equals(response.getPatientCode())) {
+                    throw new org.springframework.security.access.AccessDeniedException("Access Denied");
+                }
+            }
+        }
+        return response;
     }
 
     @Override

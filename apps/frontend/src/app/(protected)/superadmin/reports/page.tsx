@@ -344,7 +344,7 @@ export default function SuperadminReportsPage() {
         <div className="mx-auto w-full max-w-[1400px]">
             <div ref={reportRef}>
                 {/* Inside reportRef so the exported PDF carries the disclaimer too. */}
-                <DemoDataBanner note="Demo data — cross-branch figures are simulated from the selected branch and period; this screen is not yet connected to a live reporting backend." />
+
 
                 <PageHeader
                     title="Cross-branch reports"

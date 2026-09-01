@@ -182,7 +182,7 @@ app:
     server-url: ${KEYCLOAK_URL:http://localhost:8081}
     realm: ${KEYCLOAK_REALM:lims-realm}
     client-id: ${KEYCLOAK_ADMIN_CLIENT_ID:lims-admin-cli}
-    client-secret: ${KEYCLOAK_ADMIN_CLIENT_SECRET:}
+    client-secret: ${KEYCLOAK_ADMIN_CLIENT_SECRET:e8JxGBiBhK0TCtjQaJ6mkDsHDv6siRJ0tIMUTmYnaihuRFgc0GMXZMuXIG6VVBhaAGCxvSvxjmy88CsIoP0agh}
 
 # Observability: liveness/readiness probes + Prometheus metrics.
 # Management runs on a SEPARATE port (11001) so metrics/health are served on an

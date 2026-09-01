@@ -230,25 +230,25 @@ services:
     restart: always
 
   # ---- Frontend (Next.js, standalone) ----
-  frontend:
-    build:
-      context: ../apps/frontend
-      dockerfile: Dockerfile
-      args:
-        # Browser-facing URLs (published host ports), inlined at build time.
-        NEXT_PUBLIC_API_URL: http://localhost:11000
-        NEXT_PUBLIC_KEYCLOAK_URL: http://localhost:8081
-        NEXT_PUBLIC_KEYCLOAK_REALM: lims-realm
-        NEXT_PUBLIC_KEYCLOAK_CLIENT_ID: lims-frontend
-    image: durdans-lims/frontend:local
-    container_name: lims-frontend
-    networks: [lims-net]
-    ports:
-      - "3000:3000"
-    depends_on:
-      app:
-        condition: service_started
-    restart: always
+  # frontend:
+  #   build:
+  #     context: ../apps/frontend
+  #     dockerfile: Dockerfile
+  #     args:
+  #       # Browser-facing URLs (published host ports), inlined at build time.
+  #       NEXT_PUBLIC_API_URL: http://localhost:11000
+  #       NEXT_PUBLIC_KEYCLOAK_URL: http://localhost:8081
+  #       NEXT_PUBLIC_KEYCLOAK_REALM: lims-realm
+  #       NEXT_PUBLIC_KEYCLOAK_CLIENT_ID: lims-frontend
+  #   image: durdans-lims/frontend:local
+  #   container_name: lims-frontend
+  #   networks: [lims-net]
+  #   ports:
+  #     - "3000:3000"
+  #   depends_on:
+  #     app:
+  #       condition: service_started
+  #   restart: always
 
   # ---- Nightly logical backup of BOTH Postgres DBs (H5 / DR) ----
   # Runs pg-backup.sh on a schedule against the app DB and the Keycloak DB, writing
@@ -288,22 +288,22 @@ services:
     restart: always
 
   # ---- Prometheus (scrapes the app's internal management port) ----
-  prometheus:
-    image: prom/prometheus:v2.53.0
-    container_name: lims-prometheus
-    networks: [lims-net]
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./observability/rules:/etc/prometheus/rules:ro
-      - prometheus_data:/prometheus
-    depends_on:
-      app:
-        condition: service_started
-      alertmanager:
-        condition: service_started
-    restart: always
+  # prometheus:
+  #   image: prom/prometheus:v2.53.0
+  #   container_name: lims-prometheus
+  #   networks: [lims-net]
+  #   ports:
+  #     - "9090:9090"
+  #   volumes:
+  #     - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+  #     - ./observability/rules:/etc/prometheus/rules:ro
+  #     - prometheus_data:/prometheus
+  #   depends_on:
+  #     app:
+  #       condition: service_started
+  #     alertmanager:
+  #       condition: service_started
+  #   restart: always
 
   # ---- Alertmanager (routes firing alerts; G2) ----
   alertmanager:
@@ -331,23 +331,23 @@ services:
     restart: always
 
   # ---- Grafana ----
-  grafana:
-    image: grafana/grafana:11.1.0
-    container_name: lims-grafana
-    networks: [lims-net]
-    ports:
-      - "3001:3000"
-    environment:
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
-    volumes:
-      - grafana_data:/var/lib/grafana
-      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
-    depends_on:
-      prometheus:
-        condition: service_started
-      tempo:
-        condition: service_started
-    restart: always
+  # grafana:
+  #   image: grafana/grafana:11.1.0
+  #   container_name: lims-grafana
+  #   networks: [lims-net]
+  #   ports:
+  #     - "3001:3000"
+  #   environment:
+  #     GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+  #   volumes:
+  #     - grafana_data:/var/lib/grafana
+  #     - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+  #   depends_on:
+  #     prometheus:
+  #       condition: service_started
+  #     tempo:
+  #       condition: service_started
+  #   restart: always
 
 volumes:
   postgres_data:
