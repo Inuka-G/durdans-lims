@@ -315,7 +315,7 @@ export default function BranchUserManagementPage() {
 
                 {/* Pagination */}
                 <div className="p-4 border-t border-[#ecf0f6] flex items-center justify-between text-[13px]">
-                    <span className="text-[#64748b] font-medium">Showing {filteredUsers.length > 0 ? 1 : 0} to {filteredUsers.length} of {users.length} results</span>
+                    <span className="text-[#64748b] font-medium">Showin {filteredUsers.length > 0 ? 1 : 0} to {filteredUsers.length} of {users.length} results</span>
                     <div className="flex items-center gap-1 font-bold">
                         <button className="px-3 py-1.5 text-[#94a3b8] hover:text-[#0f172a] transition-colors disabled:opacity-50">Previous</button>
                         <button className="w-8 h-8 flex items-center justify-center bg-[#1277E1] text-white rounded-lg">1</button>
