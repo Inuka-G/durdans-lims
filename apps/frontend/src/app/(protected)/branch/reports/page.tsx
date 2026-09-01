@@ -32,8 +32,8 @@ export default function BranchReportsPage() {
 
     useEffect(() => {
         const targetCode = branchCode || "b6030d28-10ef-4165-9554-8887fabfddb8";
-        getBranchesPage(0, 100).then((data) => {
-            const branch = data.content.find((b) => b.id === targetCode || b.code.toUpperCase() === targetCode.toUpperCase());
+        getBranches().then((data) => {
+            const branch = data.find((b) => b.id === targetCode || b.code.toUpperCase() === targetCode.toUpperCase());
             if (branch) {
                 setBranchName(branch.name);
             } else {
