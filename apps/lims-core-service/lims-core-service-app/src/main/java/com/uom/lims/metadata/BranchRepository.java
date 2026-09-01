@@ -10,4 +10,5 @@ import java.util.UUID;
 @Repository
 public interface BranchRepository extends JpaRepository<BranchEntity, UUID> {
     Optional<BranchEntity> findByCode(String code);
+    Optional<BranchEntity> findByCodeIgnoreCase(String code);
 }

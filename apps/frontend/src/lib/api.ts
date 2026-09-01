@@ -1721,9 +1721,15 @@ export interface BranchResponse {
     code: string;
     name: string;
     location?: string;
+    address?: string;
     contactEmail?: string;
     contactPhone?: string;
     status?: string;
+    establishedDate?: string;
+    legalEntityName?: string;
+    adminUserId?: string | null;
+    adminName?: string | null;
+    adminEmail?: string | null;
 }
 
 export interface SuperadminUserResponse {

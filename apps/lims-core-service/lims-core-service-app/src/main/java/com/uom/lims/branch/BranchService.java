@@ -133,7 +133,7 @@ public class BranchService {
     }
 
     private BranchEntity findByCode(String code) {
-        return branchRepository.findByCode(normalizeCode(code))
+        return branchRepository.findByCodeIgnoreCase(normalizeCode(code))
                 .filter(b -> !b.isDeleted())
                 .orElseThrow(() -> new ResourceNotFoundException("Branch not found: " + code));
     }

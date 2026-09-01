@@ -24,7 +24,6 @@ import java.util.Map;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-@ConditionalOnProperty(name = "app.keycloak-admin.enabled", havingValue = "true")
 public class KeycloakAdminService {
 
     private final Keycloak keycloak;
