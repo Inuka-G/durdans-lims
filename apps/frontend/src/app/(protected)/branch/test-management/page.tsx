@@ -85,7 +85,7 @@ export default function BranchTestManagementPage() {
 
     const handleCreateTest = async (testData: BranchTest) => {
         try {
-            await createBranchTest(activeBranchId, testData);
+            await createBranchTest(activeBranchId!, testData);
             toast.success("Test created successfully!");
             fetchTests(); // Refresh the list
         } catch (error) {
@@ -97,7 +97,7 @@ export default function BranchTestManagementPage() {
     const handleEditTest = async (testData: Partial<BranchTest>) => {
         if (!selectedTest?.id) return;
         try {
-            await patchBranchTest(activeBranchId, selectedTest.id, testData);
+            await patchBranchTest(activeBranchId!, selectedTest.id, testData);
             toast.success("Test updated successfully!");
             fetchTests(); // Refresh the list
         } catch (error) {
@@ -110,7 +110,7 @@ export default function BranchTestManagementPage() {
         if (!test.id) return;
         const newStatus = !test.isActive;
         try {
-            await patchBranchTest(activeBranchId, test.id, { isActive: newStatus });
+            await patchBranchTest(activeBranchId!, test.id, { isActive: newStatus });
             toast.success(`Test ${newStatus ? 'activated' : 'deactivated'} successfully!`);
             fetchTests(); // Refresh the list
         } catch (error) {
