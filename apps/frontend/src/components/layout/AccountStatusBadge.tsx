@@ -21,7 +21,7 @@ function resolvePositionTitle(pathname: string, roles: string[]): string {
         return "Phlebotomist";
     }
     if (pathname.startsWith("/reception")) {
-        return "Receptionist";
+        return "Lab Receptionist";
     }
     if (pathname.startsWith("/orders-billing") || pathname.startsWith("/billing")) {
         return "Billing Officer";
@@ -47,7 +47,7 @@ function resolvePositionTitle(pathname: string, roles: string[]): string {
     if (roles.includes("DISPATCH_OFFICER")) return "Dispatch Officer";
     if (roles.includes("MLT")) return "Medical Lab Technologist";
     if (roles.includes("PHLEBOTOMIST")) return "Phlebotomist";
-    if (roles.includes("RECEPTIONIST")) return "Receptionist";
+    if (roles.includes("RECEPTIONIST")) return "Lab Receptionist";
     if (roles.includes("BILLING")) return "Billing Officer";
 
     return "Medical Staff";
