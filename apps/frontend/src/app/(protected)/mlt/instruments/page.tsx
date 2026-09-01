@@ -108,7 +108,7 @@ export default function InstrumentsPage() {
                     )
                 }
                 actions={
-                    <Button icon={RefreshCw} loading={loading} onClick={loadInstruments}>
+                    <Button icon={RefreshCw} loading={loading} onClick={() => { void loadInstruments(false); }}>
                         Refresh
                     </Button>
                 }
@@ -181,7 +181,7 @@ export default function InstrumentsPage() {
                         title="No instruments registered"
                         description="Analysers connected through the instrument middleware will appear here."
                         action={
-                            <Button size="sm" icon={RefreshCw} onClick={loadInstruments}>
+                            <Button size="sm" icon={RefreshCw} onClick={() => { void loadInstruments(false); }}>
                                 Refresh
                             </Button>
                         }
