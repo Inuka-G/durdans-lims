@@ -38,6 +38,9 @@ function resolvePositionTitle(pathname: string, roles: string[]): string {
     if (pathname.startsWith("/audit")) {
         return "Quality & Compliance Auditor";
     }
+    if (pathname.startsWith("/patient-portal")) {
+        return "Registered Patient";
+    }
 
     // 2. Fallback based on User Realm Roles
     if (roles.includes("SUPER_ADMIN")) return "Super Administrator";

@@ -161,8 +161,8 @@ export default function UserEditModal({ isOpen, onClose, onSaved, onSave, userDa
                                 <option value={formData.branchId}>{formData.branch}</option>
                             )}
                             {branches.map((b: any) => (
-                                <option key={b.id || b.code} value={b.id || b.code}>
-                                    {b.name} ({b.code})
+                                <option key={b.id || b.code} value={b.id || b.code} disabled={b.status === "INACTIVE"}>
+                                    {b.name} ({b.code}){b.status === "INACTIVE" ? " - Inactive" : ""}
                                 </option>
                             ))}
                         </>

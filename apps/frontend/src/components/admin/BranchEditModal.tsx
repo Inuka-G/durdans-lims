@@ -36,7 +36,7 @@ export default function BranchEditModal({ isOpen, onClose, branchData, onSave }:
                 location: branchData.location || "",
                 contactEmail: branchData.contactEmail || "",
                 contactPhone: branchData.contactPhone || "",
-                status: branchData.status || "Active",
+                status: branchData.status || "ACTIVE",
             });
         }
     }, [branchData]);
@@ -113,8 +113,8 @@ export default function BranchEditModal({ isOpen, onClose, branchData, onSave }:
                     value={formData.status}
                     onChange={(e) => setFormData({ ...formData, status: e.target.value })}
                 >
-                    <option value="Active">Active</option>
-                    <option value="Inactive">Inactive</option>
+                    <option value="ACTIVE">Active</option>
+                    <option value="INACTIVE">Inactive</option>
                 </SelectField>
             </form>
         </Modal>
