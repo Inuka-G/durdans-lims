@@ -6,7 +6,7 @@ import BranchDetailsPanel from "@/components/admin/BranchDetailsPanel";
 import BranchCreateModal from "@/components/admin/BranchCreateModal";
 import BranchEditModal from "@/components/admin/BranchEditModal";
 import AssignAdminModal from "@/components/admin/AssignAdminModal";
-import { getBranches, createBranch, updateBranch, BranchResponse } from "@/lib/api";
+import { getBranches, createBranch, updateBranch, BranchResponse, getBranchesPage } from "@/lib/api";
 
 export type Branch = BranchResponse;
 
@@ -23,7 +23,8 @@ export default function BranchManagementPage() {
         setLoading(true);
         try {
             const data = await getBranches();
-            setBranches(data);
+            const mappedBranches = data.map(b => ({ ...b, id: b.code }));
+            setBranches(mappedBranches);
         } catch (error) {
             console.error("Failed to fetch branches", error);
             toast.error("Failed to load branches from the server.");

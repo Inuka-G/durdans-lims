@@ -218,12 +218,15 @@ public class GlobalExceptionHandler {
                 }
                 log.error("Unexpected error [{}]", correlationId, ex);
 
+                String stackTrace = java.util.Arrays.stream(ex.getStackTrace())
+                        .map(StackTraceElement::toString)
+                        .reduce("", (a, b) -> a + "\n" + b);
                 return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
                                 Map.of(
                                                 "timestamp", LocalDateTime.now(),
                                                 "status", HttpStatus.INTERNAL_SERVER_ERROR.value(),
                                                 "error", "Internal Server Error",
-                                                "message", "An unexpected error occurred. Reference: " + correlationId,
+                                                "message", ex.getClass().getName() + ": " + ex.getMessage() + "\n" + stackTrace,
                                                 "correlationId", correlationId));
         }
 
