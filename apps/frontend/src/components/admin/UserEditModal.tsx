@@ -12,6 +12,7 @@ interface UserRecord {
     name: string;
     email: string;
     branch: string;
+    branchId?: string;
     roles: string[];
     status: "ACTIVE" | "INACTIVE";
 }
@@ -21,15 +22,17 @@ interface UserEditModalProps {
     onClose: () => void;
     /** Called after a successful save so the caller can refresh its list. */
     onSaved?: () => void;
+    onSave?: (id: string, data: Partial<UserRecord>) => Promise<void>;
     userData: UserRecord | null;
 }
 
-export default function UserEditModal({ isOpen, onClose, onSaved, userData }: UserEditModalProps) {
+export default function UserEditModal({ isOpen, onClose, onSaved, onSave, userData }: UserEditModalProps) {
     const formId = useId();
     const [formData, setFormData] = useState({
         name: "",
         email: "",
         branch: "",
+        branchId: "",
         role: ASSIGNABLE_ROLES[0].value,
     });
     const [error, setError] = useState<string | null>(null);
@@ -40,7 +43,7 @@ export default function UserEditModal({ isOpen, onClose, onSaved, userData }: Us
     useEffect(() => {
         if (!isOpen) return;
         setBranchesLoading(true);
-        getBranchesPage()
+        getBranches()
             .then(setBranches)
             .catch(() => setBranches([]))
             .finally(() => setBranchesLoading(false));
@@ -52,6 +55,7 @@ export default function UserEditModal({ isOpen, onClose, onSaved, userData }: Us
                 name: userData.name,
                 email: userData.email,
                 branch: userData.branch,
+                branchId: userData.branchId || "",
                 role: userData.roles[0] || ASSIGNABLE_ROLES[0].value,
             });
             setError(null);
@@ -64,17 +68,28 @@ export default function UserEditModal({ isOpen, onClose, onSaved, userData }: Us
         setSubmitting(true);
         setError(null);
         try {
-            const trimmed = formData.name.trim();
-            const sp = trimmed.indexOf(" ");
-            const firstName = sp === -1 ? trimmed : trimmed.slice(0, sp);
-            const lastName = sp === -1 ? "" : trimmed.slice(sp + 1);
-            await updateAdminUser(userData.id, {
-                firstName,
-                lastName,
-                email: formData.email,
-                role: formData.role,
-                branchCode: formData.branch,
-            });
+            if (onSave) {
+                await onSave(userData.id, {
+                    name: formData.name,
+                    email: formData.email,
+                    roles: [formData.role],
+                    branch: formData.branch,
+                    branchId: formData.branchId,
+                    status: userData.status,
+                });
+            } else {
+                const trimmed = formData.name.trim();
+                const sp = trimmed.indexOf(" ");
+                const firstName = sp === -1 ? trimmed : trimmed.slice(0, sp);
+                const lastName = sp === -1 ? "" : trimmed.slice(sp + 1);
+                await updateAdminUser(userData.id, {
+                    firstName,
+                    lastName,
+                    email: formData.email,
+                    role: formData.role,
+                    branchCode: formData.branch,
+                });
+            }
             onSaved?.();
             onClose();
         } catch {
@@ -135,18 +150,18 @@ export default function UserEditModal({ isOpen, onClose, onSaved, userData }: Us
                 <SelectField
                     label="Branch"
                     disabled={branchesLoading || branches.length === 0}
-                    value={formData.branch}
-                    onChange={(e) => setFormData({ ...formData, branch: e.target.value })}
+                    value={formData.branchId}
+                    onChange={(e) => setFormData({ ...formData, branchId: e.target.value })}
                 >
                     {branchesLoading ? (
-                        <option value={formData.branch}>Loading branches…</option>
+                        <option value={formData.branchId}>Loading branches…</option>
                     ) : (
                         <>
-                            {!branches.some((b) => b.code === formData.branch) && formData.branch && (
-                                <option value={formData.branch}>{formData.branch}</option>
+                            {!branches.some((b: any) => b.id === formData.branchId || b.code === formData.branchId) && formData.branchId && (
+                                <option value={formData.branchId}>{formData.branch}</option>
                             )}
-                            {branches.map((b) => (
-                                <option key={b.code} value={b.code}>
+                            {branches.map((b: any) => (
+                                <option key={b.id || b.code} value={b.id || b.code}>
                                     {b.name} ({b.code})
                                 </option>
                             ))}

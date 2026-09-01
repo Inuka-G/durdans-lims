@@ -40,7 +40,7 @@ export default function UserCreateModal({ isOpen, onClose }: UserCreateModalProp
     useEffect(() => {
         if (!isOpen) return;
         setBranchesLoading(true);
-        getBranchesPage()
+        getBranches()
             .then((list) => {
                 setBranches(list);
                 setFormData((f) => (f.branch ? f : { ...f, branch: list[0]?.code ?? "" }));

@@ -40,9 +40,9 @@ export default function BranchTestManagementPage() {
     
     const resolveBranch = async () => {
         try {
-            const data = await getBranchesPage(0, 100);
+            const data = await getBranches();
             const targetCode = branchCode || DEFAULT_BRANCH_ID;
-            const branch = data.content.find((b) => b.id === targetCode || b.code.toUpperCase() === targetCode.toUpperCase());
+            const branch = data.find((b) => b.id === targetCode || b.code.toUpperCase() === targetCode.toUpperCase());
             if (branch) {
                 setBranchName(branch.name);
                 setActiveBranchId(branch.id);

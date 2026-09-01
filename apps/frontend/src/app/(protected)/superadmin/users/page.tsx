@@ -27,7 +27,6 @@ import { useAuth } from "@/hooks/useAuth";
 
 export default function GlobalUserControlPage() {
     const { user: authUser } = useAuth();
-    const [activeTab, setActiveTab] = useState<"directory" | "matrix">("directory");
     const [users, setUsers] = useState<UserRecord[]>([]);
     const [loading, setLoading] = useState(true);
 
@@ -55,14 +54,14 @@ export default function GlobalUserControlPage() {
                 getSuperadminRoles().catch(() => [])
             ]);
 
-            const fetchedBranches = branchesData.content || [];
+            const fetchedBranches = Array.isArray(branchesData) ? branchesData : (branchesData as any).content || [];
             setBranches(fetchedBranches);
             setRoles(rolesData);
 
             const mappedUsers: UserRecord[] = usersData.map(u => {
                 let branchName = "Not Assigned";
                 if (u.branchId) {
-                    const foundBranch = fetchedBranches.find((b: BranchResponse) => b.id.toString() === u.branchId);
+                    const foundBranch = fetchedBranches.find((b: any) => b.id?.toString() === u.branchId || b.code === u.branchId);
                     branchName = foundBranch ? foundBranch.name : `Branch ${u.branchId}`;
                 }
 
@@ -208,27 +207,6 @@ export default function GlobalUserControlPage() {
                 <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">Global User & Role Control</h1>
                 <p className="text-sm font-medium text-slate-500 mt-1 pb-4">Centralized identity and access management for all hospital branches.</p>
 
-                {/* Tabs */}
-                <div className="flex items-center gap-6 border-b border-slate-200">
-                    <button
-                        onClick={() => setActiveTab("directory")}
-                        className={`pb-3 text-sm font-bold transition-all border-b-2 px-1 ${activeTab === "directory"
-                            ? "text-blue-600 border-blue-600"
-                            : "text-slate-500 border-transparent hover:text-slate-800"
-                            }`}
-                    >
-                        User Directory
-                    </button>
-                    <button
-                        onClick={() => setActiveTab("matrix")}
-                        className={`pb-3 text-sm font-bold transition-all border-b-2 px-1 ${activeTab === "matrix"
-                            ? "text-blue-600 border-blue-600"
-                            : "text-slate-500 border-transparent hover:text-slate-800"
-                            }`}
-                    >
-                        Global Role Matrix
-                    </button>
-                </div>
             </div>
 
             {/* Controls Bar */}
@@ -289,7 +267,6 @@ export default function GlobalUserControlPage() {
             </div>
 
             {/* Data Table */}
-            {activeTab === "directory" && (
                 <div className="bg-white border border-slate-200 shadow-sm rounded-2xl overflow-hidden flex-1 flex flex-col">
                     <div className="overflow-x-auto">
                         <table className="w-full text-left border-collapse min-w-[1000px]">
@@ -380,7 +357,7 @@ export default function GlobalUserControlPage() {
                                                     ) : (
                                                         <button
                                                             onClick={() => handleToggleStatus(user)}
-                                                            className="text-emerald-500/70 hover:text-emerald-600 bg-emerald-50 rounded transition-colors p-1" title="Activate User"
+                                                            className="text-red-500 hover:text-red-600 bg-red-50 rounded transition-colors p-1" title="Activate User"
                                                         >
                                                             <span className="material-icons text-[18px]">person_add</span>
                                                         </button>
@@ -393,18 +370,9 @@ export default function GlobalUserControlPage() {
                         </table>
                     </div>
                 </div>
-            )}
 
-            {/* Empty State for Matrix Tab */}
-            {activeTab === "matrix" && (
-                <div className="bg-white border border-slate-200 shadow-sm rounded-2xl flex-1 flex flex-col items-center justify-center p-12 text-center">
-                    <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center text-blue-500 mb-4">
-                        <span className="material-icons text-3xl">grid_view</span>
-                    </div>
-                    <h2 className="text-lg font-bold text-slate-900 mb-2">Global Role Matrix Configuration</h2>
-                    <p className="text-sm font-medium text-slate-500 max-w-md">The master matrix configuration panel is accessed via the specific role definition portal.</p>
-                </div>
-            )}
+
+
 
             {/* Custom Footer */}
             <div className="mt-6 pt-6 border-t border-slate-200 flex flex-col sm:flex-row justify-between items-center text-xs font-semibold text-slate-400 gap-4">
