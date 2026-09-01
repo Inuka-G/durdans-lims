@@ -27,8 +27,7 @@ public class SecurityConfig {
     public SecurityConfig(
             @Value("${app.security.cors.allowed-origin-patterns:"
                     + "http://localhost:3000,http://localhost:3001,http://localhost:3002,http://localhost:3003,"
-                    + "http://127.0.0.1:3000,http://127.0.0.1:3001,http://127.0.0.1:3002,http://127.0.0.1:3003}")
-            String allowedOriginPatterns) {
+                    + "http://127.0.0.1:3000,http://127.0.0.1:3001,http://127.0.0.1:3002,http://127.0.0.1:3003}") String allowedOriginPatterns) {
         this.allowedOriginPatterns = allowedOriginPatterns;
     }
 
@@ -59,14 +58,16 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/agent/**").hasRole("AGENT_READONLY")
 
                         // Role-restricted endpoints
-                        .requestMatchers("/api/v1/mlt/**").hasAnyRole("MLT", "LAB_SUPERVISOR", "BRANCH_ADMIN", "SUPER_ADMIN")
-                        .requestMatchers("/api/v1/reception/**").hasAnyRole("LAB_RECEPTIONIST", "LAB_RECEPTION", "BRANCH_ADMIN", "SUPER_ADMIN")
+                        .requestMatchers("/api/v1/mlt/**")
+                        .hasAnyRole("MLT", "LAB_SUPERVISOR", "BRANCH_ADMIN", "SUPER_ADMIN")
+                        .requestMatchers("/api/v1/reception/**")
+                        .hasAnyRole("LAB_RECEPTIONIST", "LAB_RECEPTION", "BRANCH_ADMIN", "SUPER_ADMIN")
                         .requestMatchers("/api/v1/verification/**")
-                                .hasAnyRole("LAB_SUPERVISOR", "BRANCH_ADMIN", "SUPER_ADMIN")
+                        .hasAnyRole("LAB_SUPERVISOR", "BRANCH_ADMIN", "SUPER_ADMIN")
                         // Admins may read the pathologist's queue and history; the
                         // controller keeps authorize / return to PATHOLOGIST alone.
                         .requestMatchers("/api/v1/clinical/**")
-                                .hasAnyRole("PATHOLOGIST", "BRANCH_ADMIN", "SUPER_ADMIN")
+                        .hasAnyRole("PATHOLOGIST", "BRANCH_ADMIN", "SUPER_ADMIN")
 
                         // All other API endpoints require authentication
                         .requestMatchers("/api/**").authenticated()
