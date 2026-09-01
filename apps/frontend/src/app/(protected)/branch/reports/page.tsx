@@ -276,20 +276,109 @@ export default function BranchReportsPage() {
                         disabled={isExporting}
                         className={`flex items-center justify-center gap-2 bg-white border border-[#ecf0f6] text-[#0f172a] px-5 py-2.5 rounded-xl font-bold shadow-sm text-[13px] ${isExporting ? 'opacity-50 cursor-wait' : 'hover:bg-[#f8fafc] transition-colors'}`}
                     >
-                        {isExporting ? (
-                            <span className="material-icons text-[#94a3b8] text-[18px] animate-spin">sync</span>
-                        ) : (
-                            <span className="material-icons text-[#ef4444] text-[18px]">picture_as_pdf</span>
-                        )}
-                        {isExporting ? 'Generating...' : 'PDF'}
-                    </button>
-                    <button
-                        onClick={handleExportCSV}
-                        className="flex items-center justify-center gap-2 bg-white border border-[#ecf0f6] hover:bg-[#f8fafc] text-[#0f172a] px-5 py-2.5 rounded-xl font-bold transition-colors shadow-sm text-[13px]"
-                    >
-                        <span className="material-icons text-[#22c55e] text-[18px]">table_chart</span>
-                        CSV
-                    </button>
+                        <p className="sr-only">
+                            Daily revenue for {rangeLabel}. Peak LKR {peakRevenue.toLocaleString()}.
+                        </p>
+                        <div className="h-[300px] w-full">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={barData} barSize={28} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="var(--edge)" vertical={false} />
+                                    <XAxis
+                                        dataKey="name"
+                                        axisLine={false}
+                                        tickLine={false}
+                                        tick={AXIS_TICK}
+                                        tickFormatter={tickLabel}
+                                        interval={0}
+                                        dy={6}
+                                    />
+                                    <YAxis
+                                        axisLine={false}
+                                        tickLine={false}
+                                        tick={AXIS_TICK}
+                                        width={48}
+                                        tickFormatter={(v) => Number(v).toLocaleString()}
+                                    />
+                                    <Tooltip
+                                        cursor={{ fill: 'var(--primary-soft)' }}
+                                        contentStyle={TOOLTIP_STYLE}
+                                        itemStyle={{ color: 'var(--fg)' }}
+                                        labelStyle={{ color: 'var(--fg-muted)' }}
+                                        labelFormatter={(label) => tickLabel(label) || 'Revenue'}
+                                        formatter={(value) => [`LKR ${Number(value).toLocaleString()}`, 'Revenue']}
+                                    />
+                                    <Bar dataKey="revenue" name="Revenue" fill="var(--color-primary)" radius={[3, 3, 0, 0]} />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </div>
+                    </SectionCard>
+
+                    <SectionCard title="Revenue by category" flush>
+                        <div className="relative h-[220px] w-full px-4 pt-4">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <PieChart>
+                                    <Pie
+                                        data={pieData}
+                                        cx="50%"
+                                        cy="50%"
+                                        innerRadius={62}
+                                        outerRadius={86}
+                                        paddingAngle={4}
+                                        dataKey="value"
+                                        stroke="var(--surface)"
+                                    >
+                                        {pieData.map((entry, index) => (
+                                            <Cell key={`cell-${index}`} fill={entry.color} />
+                                        ))}
+                                    </Pie>
+                                    <Tooltip
+                                        contentStyle={TOOLTIP_STYLE}
+                                        itemStyle={{ color: 'var(--fg)' }}
+                                        formatter={(value, name) => [`${value}%`, name]}
+                                    />
+                                </PieChart>
+                            </ResponsiveContainer>
+                            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center pt-4" aria-hidden="true">
+                                <span className="text-[22px] font-semibold leading-none tabular-nums text-fg">{pieTotal}%</span>
+                                <span className="mt-1 text-[12px] text-fg-muted">Lab tests</span>
+                            </div>
+                        </div>
+
+                        <div className="mt-3 overflow-x-auto">
+                            <table className="w-full table-fixed text-left text-sm">
+                                <caption className="sr-only">Revenue share by category</caption>
+                                <thead>
+                                    <tr className="border-b border-edge text-xs font-semibold text-fg-muted">
+                                        <th scope="col" className="px-3 py-2 pl-4 font-semibold">Category</th>
+                                        <th scope="col" className="w-24 px-3 py-2 pr-4 text-right font-semibold">Share</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-edge whitespace-nowrap">
+                                    {pieData.map((item) => (
+                                        <tr key={item.name} className="hover:bg-surface-hover">
+                                            <td className="px-3 py-2 pl-4">
+                                                <span className="inline-flex items-center gap-2">
+                                                    <span
+                                                        className="h-2.5 w-2.5 shrink-0 rounded-full"
+                                                        style={{ backgroundColor: item.color }}
+                                                        aria-hidden="true"
+                                                    />
+                                                    <span className="text-fg-secondary">{item.name}</span>
+                                                </span>
+                                            </td>
+                                            <td className="px-3 py-2 pr-4 text-right font-medium tabular-nums text-fg">{item.value}%</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                                <tfoot>
+                                    <tr className="border-t border-edge bg-surface-muted text-xs">
+                                        <th scope="row" className="px-3 py-2 pl-4 text-left font-medium text-fg-muted">Total</th>
+                                        <td className="px-3 py-2 pr-4 text-right font-semibold tabular-nums text-fg">{pieTotal}%</td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                    </SectionCard>
                 </div>
             </div>
 

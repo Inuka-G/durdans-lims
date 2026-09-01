@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -39,6 +40,13 @@ public class AdminUserController {
             @RequestBody AdminUserService.CreateUserRequest request) {
         return ResponseEntity.ok(ApiResponse.success(
                 adminUserService.createUser(request), "User created"));
+    }
+
+    @PutMapping("/{id}")
+    public ResponseEntity<ApiResponse<AdminUserService.AdminUserResponse>> update(
+            @PathVariable String id, @RequestBody AdminUserService.UpdateUserRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(
+                adminUserService.updateUser(id, request), "User updated"));
     }
 
     @PatchMapping("/{id}/enabled")

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
+
+    <!--
+        CatalogAdminController's own Javadoc says review "cannot be done by whoever
+        typed it" — LAB_SUPERVISOR is authorised for both saving a draft translation
+        and reviewing/approving one, and nothing enforced that split. A single
+        LAB_SUPERVISOR could PUT a draft then immediately POST review on it
+        themselves, and an unreviewed clinical translation would reach patients as
+        if a second person had confirmed it.
+
+        drafted_by records who last saved the draft (Keycloak subject, not display
+        name, so the comparison at review time is exact); reviewTestTranslation /
+        reviewPackageTranslation now reject a reviewer whose subject matches it.
+    -->
+
+    <changeSet id="20260830100000-1-test-i18n-drafted-by" author="claude">
+        <comment>Who last saved this test translation draft</comment>
+        <addColumn tableName="test_catalog_i18n">
+            <column name="drafted_by" type="VARCHAR(255)"/>
+        </addColumn>
+    </changeSet>
+
+    <changeSet id="20260830100000-2-package-i18n-drafted-by" author="claude">
+        <comment>Who last saved this package translation draft</comment>
+        <addColumn tableName="test_package_i18n">
+            <column name="drafted_by" type="VARCHAR(255)"/>
+        </addColumn>
+    </changeSet>
+
+</databaseChangeLog>

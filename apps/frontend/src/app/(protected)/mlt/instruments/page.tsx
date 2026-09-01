@@ -35,25 +35,31 @@ export default function InstrumentsPage() {
     const [demoMode, setDemoMode] = useState(false);
     const [syncingId, setSyncingId] = useState<string | null>(null);
 
-    const loadInstruments = useCallback(async () => {
+    const loadInstruments = useCallback(async (silent = false) => {
         try {
-            setLoading(true);
+            if (!silent) setLoading(true);
             setError(null);
             setDemoMode(false);
             const data = await getInstruments();
             setInstruments(data);
         } catch (err) {
             console.error('Failed to load instruments', err);
-            setInstruments(MOCK_INSTRUMENT_STATUS_FALLBACK);
-            setDemoMode(true);
+            if (!silent) {
+                setInstruments(MOCK_INSTRUMENT_STATUS_FALLBACK);
+                setDemoMode(true);
+            }
             setError(null);
         } finally {
-            setLoading(false);
+            if (!silent) setLoading(false);
         }
     }, []);
 
     useEffect(() => {
         loadInstruments();
+        const interval = setInterval(() => {
+            loadInstruments(true);
+        }, 8000);
+        return () => clearInterval(interval);
     }, [loadInstruments]);
 
     const handleSync = useCallback(async (id: string) => {
@@ -102,7 +108,7 @@ export default function InstrumentsPage() {
                     )
                 }
                 actions={
-                    <Button icon={RefreshCw} loading={loading} onClick={loadInstruments}>
+                    <Button icon={RefreshCw} loading={loading} onClick={() => { void loadInstruments(false); }}>
                         Refresh
                     </Button>
                 }
@@ -175,7 +181,7 @@ export default function InstrumentsPage() {
                         title="No instruments registered"
                         description="Analysers connected through the instrument middleware will appear here."
                         action={
-                            <Button size="sm" icon={RefreshCw} onClick={loadInstruments}>
+                            <Button size="sm" icon={RefreshCw} onClick={() => { void loadInstruments(false); }}>
                                 Refresh
                             </Button>
                         }
@@ -200,7 +206,7 @@ export default function InstrumentsPage() {
                                     <span className="truncate">{instrument.type}</span>
                                 </p>
 
-                                <dl className="mb-4 grid grid-cols-1 gap-x-4 gap-y-2 text-[13px] sm:grid-cols-2">
+                                <dl className="mb-4 grid grid-cols-1 gap-x-4 gap-y-2 text-sm sm:grid-cols-2">
                                     <div className="flex min-w-0 gap-1.5">
                                         <dt className="shrink-0 text-fg-muted">Model</dt>
                                         <dd className="truncate font-medium text-fg" title={instrument.model}>

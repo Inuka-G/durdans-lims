@@ -102,7 +102,13 @@ public class AuditService {
         // so truncating here makes the in-memory value identical to what the seal
         // trigger hashes and what the verifier reads back — the hash chain (H3) is
         // only reproducible if these match exactly.
-        auditLog.setTimestamp(LocalDateTime.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS));
+        // UTC is named rather than inherited from the JVM default. The column is a bare
+        // TIMESTAMP with no zone, so whatever wall clock is written here is all the
+        // reader ever gets — and the containers happen to run UTC today, which made this
+        // work by accident. Setting TZ on the host would have silently shifted new rows
+        // 5h30m away from every historical one, in a table nobody is allowed to correct.
+        auditLog.setTimestamp(LocalDateTime.now(java.time.ZoneOffset.UTC)
+                .truncatedTo(java.time.temporal.ChronoUnit.MICROS));
         auditLog.setDetails(details);
 
         repository.save(auditLog);

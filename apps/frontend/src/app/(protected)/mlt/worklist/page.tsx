@@ -7,16 +7,19 @@ import {
     ArrowRight,
     CheckCircle2,
     ClipboardList,
+    Clock,
     FlaskConical,
     Microscope,
     RefreshCw,
     SearchX,
+    Siren,
     X,
 } from 'lucide-react';
 import { getMltWorklist, type MltWorklistItem } from '@/lib/api';
 import Button from '@/components/ui/Button';
 import PageHeader from '@/components/ui/PageHeader';
 import { InputField, SelectField } from '@/components/ui/Field';
+import SegmentedControl, { type SegmentOption } from '@/components/ui/SegmentedControl';
 import SectionCard from '@/components/ui/SectionCard';
 import EmptyState from '@/components/ui/EmptyState';
 import Pagination from '@/components/ui/Pagination';
@@ -26,6 +29,13 @@ import PriorityBadge from '@/components/shared/PriorityBadge';
 
 const PAGE_SIZE = 8;
 const SKELETON_ROWS = 6;
+
+const PRIORITY_OPTIONS: SegmentOption<string>[] = [
+    { value: 'ALL', label: 'All priorities' },
+    { value: 'STAT', label: 'STAT' },
+    { value: 'URGENT', label: 'Urgent' },
+    { value: 'NORMAL', label: 'Normal' },
+];
 
 /** Option values stay unchanged so the filter logic keeps matching; only the label is sentence case. */
 const OPTION_LABELS: Record<string, string> = {
@@ -49,6 +59,12 @@ function sampleStatusTone(status: string): ChipTone {
     return MLT_STATUS_TONE[key] ?? toneForStatus(key);
 }
 
+const PRIORITY_ORDER: Record<string, number> = {
+    STAT: 0,
+    URGENT: 1,
+    NORMAL: 2,
+};
+
 export default function MLTWorklistPage() {
     const router = useRouter();
     const pathname = usePathname();
@@ -56,6 +72,7 @@ export default function MLTWorklistPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
+    const [priorityFilter, setPriorityFilter] = useState('ALL');
     const [testTypeFilter, setTestTypeFilter] = useState('All Test Types');
     const [currentPage, setCurrentPage] = useState(1);
 
@@ -86,7 +103,7 @@ export default function MLTWorklistPage() {
     const filteredSamples = useMemo(() => {
         const query = searchQuery.trim().toLowerCase();
 
-        return samples.filter((sample) => {
+        const filtered = samples.filter((sample) => {
             const matchesSearch =
                 query.length === 0 ||
                 sample.barcode.toLowerCase().includes(query) ||
@@ -97,9 +114,25 @@ export default function MLTWorklistPage() {
             const matchesTestType =
                 testTypeFilter === 'All Test Types' || sample.testName === testTypeFilter;
 
-            return matchesSearch && matchesTestType;
+            const matchesPriority =
+                priorityFilter === 'ALL' || sample.priority === priorityFilter;
+
+            return matchesSearch && matchesTestType && matchesPriority;
         });
-    }, [samples, searchQuery, testTypeFilter]);
+
+        // Strict Priority Hierarchy: STAT (0) -> URGENT (1) -> NORMAL (2)
+        // Secondary: FIFO (oldest collected / registered first within the same priority)
+        return filtered.sort((a, b) => {
+            const priorityA = PRIORITY_ORDER[a.priority] ?? 3;
+            const priorityB = PRIORITY_ORDER[b.priority] ?? 3;
+            if (priorityA !== priorityB) {
+                return priorityA - priorityB;
+            }
+            const timeA = a.collectedAt ? new Date(a.collectedAt).getTime() : 0;
+            const timeB = b.collectedAt ? new Date(b.collectedAt).getTime() : 0;
+            return timeA - timeB;
+        });
+    }, [samples, searchQuery, testTypeFilter, priorityFilter]);
 
     const totalPages = Math.max(1, Math.ceil(filteredSamples.length / PAGE_SIZE));
     const paginatedSamples = filteredSamples.slice(
@@ -114,16 +147,15 @@ export default function MLTWorklistPage() {
     }, [currentPage, totalPages]);
 
     const pendingTests = samples.length;
-    const urgentSamples = samples.filter(
-        (sample) => sample.priority === 'URGENT' || sample.priority === 'STAT'
-    ).length;
+    const statCount = samples.filter((sample) => sample.priority === 'STAT').length;
+    const urgentCount = samples.filter((sample) => sample.priority === 'URGENT').length;
     const inTestingCount = samples.filter((sample) => sample.status === 'IN_TESTING').length;
-    const acceptedCount = samples.filter((sample) => sample.status === 'ACCEPTED').length;
 
-    const hasFilters = searchQuery.trim().length > 0 || testTypeFilter !== 'All Test Types';
+    const hasFilters = searchQuery.trim().length > 0 || testTypeFilter !== 'All Test Types' || priorityFilter !== 'ALL';
 
     const clearFilters = () => {
         setSearchQuery('');
+        setPriorityFilter('ALL');
         setTestTypeFilter('All Test Types');
         setCurrentPage(1);
     };
@@ -169,15 +201,22 @@ export default function MLTWorklistPage() {
             <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
                 <StatCard label="Pending tests" value={pendingTests} icon={FlaskConical} color="blue" loading={loading} />
                 <StatCard
-                    label="Urgent samples"
-                    value={urgentSamples}
+                    label="STAT priority"
+                    value={statCount}
+                    icon={Siren}
+                    color="red"
+                    sub={!loading && statCount > 0 ? 'Action needed' : undefined}
+                    loading={loading}
+                />
+                <StatCard
+                    label="Urgent priority"
+                    value={urgentCount}
                     icon={AlertTriangle}
                     color="orange"
-                    sub={!loading && urgentSamples > 0 ? 'STAT or urgent priority' : undefined}
+                    sub={!loading && urgentCount > 0 ? 'Priority testing' : undefined}
                     loading={loading}
                 />
                 <StatCard label="In testing" value={inTestingCount} icon={Microscope} color="violet" loading={loading} />
-                <StatCard label="Accepted samples" value={acceptedCount} icon={CheckCircle2} color="emerald" loading={loading} />
             </div>
 
             {/* Worklist */}
@@ -193,9 +232,19 @@ export default function MLTWorklistPage() {
                             setSearchQuery(event.target.value);
                             setCurrentPage(1);
                         }}
-                        placeholder="Search barcode, patient ID, order ID or test"
+                        placeholder="Scan barcode, patient ID or order number..."
                         autoComplete="off"
                         className="min-w-[200px] flex-1"
+                    />
+                    <SegmentedControl
+                        value={priorityFilter}
+                        onChange={(val) => {
+                            setPriorityFilter(val);
+                            setCurrentPage(1);
+                        }}
+                        options={PRIORITY_OPTIONS}
+                        ariaLabel="Filter by priority"
+                        size="sm"
                     />
                     <SelectField
                         label="Test type"
@@ -205,11 +254,11 @@ export default function MLTWorklistPage() {
                             setTestTypeFilter(event.target.value);
                             setCurrentPage(1);
                         }}
-                        className="w-full sm:w-56"
+                        className="w-48 shrink-0"
                     >
-                        {testTypes.map((testType) => (
-                            <option key={testType} value={testType}>
-                                {OPTION_LABELS[testType] ?? testType}
+                        {testTypes.map((type) => (
+                            <option key={type} value={type}>
+                                {type}
                             </option>
                         ))}
                     </SelectField>
@@ -273,7 +322,7 @@ export default function MLTWorklistPage() {
                         <EmptyState
                             icon={SearchX}
                             title="No samples match"
-                            description="Try a different search term or test type."
+                            description="Try a different search term, priority, or test type."
                             action={
                                 <Button size="sm" icon={X} onClick={clearFilters}>
                                     Clear filters
@@ -284,26 +333,26 @@ export default function MLTWorklistPage() {
                 ) : (
                     <>
                         <div className="overflow-x-auto">
-                            <table className="w-full min-w-[850px] table-fixed text-left text-[13px]">
+                            <table className="w-full min-w-[850px] table-fixed text-left text-sm">
                                 <caption className="sr-only">Samples waiting for testing</caption>
                                 <thead>
-                                    <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
-                                        <th scope="col" className="w-36 py-2 pl-4 pr-3 font-medium">
+                                    <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
+                                        <th scope="col" className="w-48 py-2 pl-4 pr-3 font-semibold">
                                             Barcode
                                         </th>
-                                        <th scope="col" className="w-44 px-3 py-2 font-medium">
+                                        <th scope="col" className="w-44 px-3 py-2 font-semibold">
                                             Patient / order
                                         </th>
-                                        <th scope="col" className="px-3 py-2 font-medium">
+                                        <th scope="col" className="px-3 py-2 font-semibold">
                                             Test type
                                         </th>
-                                        <th scope="col" className="w-24 px-3 py-2 font-medium">
+                                        <th scope="col" className="w-24 px-3 py-2 font-semibold">
                                             Priority
                                         </th>
-                                        <th scope="col" className="w-44 px-3 py-2 font-medium">
+                                        <th scope="col" className="w-44 px-3 py-2 font-semibold">
                                             Status
                                         </th>
-                                        <th scope="col" className="w-24 py-2 pl-2 pr-3 text-right font-medium">
+                                        <th scope="col" className="w-24 py-2 pl-2 pr-3 text-right font-semibold">
                                             <span className="sr-only">Actions</span>
                                         </th>
                                     </tr>
@@ -329,13 +378,26 @@ export default function MLTWorklistPage() {
                                                 <PriorityBadge priority={sample.priority} />
                                             </td>
                                             <td className="px-3 py-2">
-                                                <StatusChip
-                                                    tone={sampleStatusTone(sample.status)}
-                                                    dot
-                                                    title={humanizeStatus(sample.status || '—')}
-                                                >
-                                                    {humanizeStatus(sample.status || '—')}
-                                                </StatusChip>
+                                                <div className="flex flex-wrap items-center gap-1">
+                                                    <StatusChip
+                                                        tone={sampleStatusTone(sample.status)}
+                                                        dot
+                                                        title={humanizeStatus(sample.status || '—')}
+                                                    >
+                                                        {humanizeStatus(sample.status || '—')}
+                                                    </StatusChip>
+                                                    {/* A case the supervisor sent back is not fresh work: it needs re-entry. */}
+                                                    {sample.returnedToMlt && (
+                                                        <StatusChip
+                                                            tone="danger"
+                                                            dot
+                                                            size="sm"
+                                                            title={sample.returnReason ? `Returned by supervisor: ${sample.returnReason}` : 'Returned by supervisor'}
+                                                        >
+                                                            Returned by supervisor
+                                                        </StatusChip>
+                                                    )}
+                                                </div>
                                             </td>
                                             <td className="py-2 pl-2 pr-3 text-right">
                                                 <Button

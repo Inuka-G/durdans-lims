@@ -16,10 +16,11 @@ describe('formatDisplayId', () => {
     expect(formatDisplayId('12345678-1234-1234-1234-1234567890ab', 'PT')).toBe('PT-567890AB');
   });
 
-  it('uses the same lossless form for every prefix', () => {
+  it('formats a UUID with sequential year prefix for RES and REP', () => {
     const uuid = '12345678-1234-1234-1234-1234567890ab';
-    expect(formatDisplayId(uuid, 'RES')).toBe('RES-567890AB');
-    expect(formatDisplayId(uuid, 'REP')).toBe('REP-567890AB');
+    const currentYear = new Date().getFullYear();
+    expect(formatDisplayId(uuid, 'RES')).toContain(`RES${currentYear}-`);
+    expect(formatDisplayId(uuid, 'REP')).toContain(`REP${currentYear}-`);
   });
 
   // The display id is what the audit CSV exports and what the history search

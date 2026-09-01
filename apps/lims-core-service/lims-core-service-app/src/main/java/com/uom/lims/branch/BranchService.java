@@ -1,129 +1,190 @@
 package com.uom.lims.branch;
 
-import com.uom.lims.api.branch.dto.request.BranchCreateRequest;
-import com.uom.lims.api.branch.dto.request.BranchUpdateRequest;
-import com.uom.lims.api.branch.dto.response.BranchResponse;
-import com.uom.lims.api.common.PageResponse;
+import com.uom.lims.admin.AdminUserService;
 import com.uom.lims.entity.BranchEntity;
-import com.uom.lims.exception.InvalidRequestException;
+import com.uom.lims.exception.BusinessRuleException;
 import com.uom.lims.exception.ResourceNotFoundException;
 import com.uom.lims.metadata.BranchRepository;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
+import java.util.Comparator;
 import java.util.List;
-import java.util.UUID;
-import java.util.stream.Collectors;
+import java.util.Set;
 
-@Slf4j
+/**
+ * The real branch directory behind the Super Admin "Branch management" screen.
+ *
+ * <p>The {@code branch} table already existed (see {@link BranchRepository})
+ * and was already seeded with every real branch this hospital network has —
+ * it just had no columns for the details/admin the screen wants, and no API.
+ * This adds both, on the existing table, instead of standing up a second,
+ * disconnected source of truth.
+ *
+ * <p>{@link AdminUserService} is optional: it only exists as a bean when
+ * {@code app.keycloak-admin.enabled=true}. When it's there, assigning a
+ * branch admin here also re-parents that Keycloak user (branch attribute +
+ * BRANCH_ADMIN role) so the assignment is real on both sides, not just a
+ * label on the branch row; when it's not, the assignment still records who
+ * the admin is, it just can't push that back into Keycloak.
+ */
 @Service
 @RequiredArgsConstructor
 public class BranchService {
 
+    private static final Set<String> VALID_STATUSES = Set.of("ACTIVE", "INACTIVE");
+
     private final BranchRepository branchRepository;
-    private final com.uom.lims.audit.AuditService auditService;
+    private final ObjectProvider<AdminUserService> adminUserService;
+
+    public List<BranchResponse> listBranches() {
+        return branchRepository.findAll().stream()
+                .filter(b -> !b.isDeleted())
+                .sorted(Comparator.comparing(BranchEntity::getCode))
+                .map(BranchService::toResponse)
+                .toList();
+    }
+
+    public BranchResponse getBranch(String code) {
+        return toResponse(findByCode(code));
+    }
 
     @Transactional
-    public BranchResponse createBranch(BranchCreateRequest request) {
-        log.info("Creating branch with code: {}", request.getCode());
-        
-        if (branchRepository.findByCode(request.getCode()).isPresent()) {
-            throw new InvalidRequestException("Branch with code " + request.getCode() + " already exists");
+    public BranchResponse createBranch(CreateBranchRequest request) {
+        String code = normalizeCode(request.code());
+        if (code == null || code.isBlank()) {
+            throw new BusinessRuleException("Branch code is required");
         }
+        if (request.name() == null || request.name().isBlank()) {
+            throw new BusinessRuleException("Branch name is required");
+        }
+        branchRepository.findByCode(code).ifPresent(existing -> {
+            throw new BusinessRuleException("A branch with code " + code + " already exists");
+        });
 
         BranchEntity entity = new BranchEntity();
-        entity.setCode(request.getCode());
-        entity.setName(request.getName());
-        entity.setLocation(request.getLocation());
-        entity.setContactEmail(request.getContactEmail());
-        entity.setContactPhone(request.getContactPhone());
-        entity.setStatus(request.getStatus() != null ? request.getStatus() : "Active");
+        entity.setCode(code);
+        entity.setName(request.name());
+        entity.setLocation(blankToNull(request.location()));
+        entity.setAddress(blankToNull(request.address()));
+        entity.setContactEmail(blankToNull(request.contactEmail()));
+        entity.setContactPhone(blankToNull(request.contactPhone()));
+        entity.setStatus(normalizeStatus(request.status()));
+        entity.setLegalEntityName(blankToNull(request.legalEntityName()));
+        entity.setEstablishedDate(request.establishedDate());
 
-        BranchEntity saved = branchRepository.save(entity);
-        
-        String details = String.format("{\"name\":\"%s\", \"location\":\"%s\"}", saved.getName(), saved.getLocation());
-        auditService.log("CREATE_BRANCH", "BRANCH", saved.getId(), null, details, getCurrentIp());
-        
-        return mapToResponse(saved);
+        return toResponse(branchRepository.save(entity));
     }
 
     @Transactional
-    public BranchResponse updateBranch(UUID id, BranchUpdateRequest request) {
-        log.info("Updating branch with id: {}", id);
-        
-        BranchEntity entity = branchRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Branch not found with id: " + id));
-
-        String oldName = entity.getName();
-        String oldLocation = entity.getLocation();
-        String oldStatus = entity.getStatus();
-
-        entity.setName(request.getName());
-        if (request.getLocation() != null) entity.setLocation(request.getLocation());
-        if (request.getContactEmail() != null) entity.setContactEmail(request.getContactEmail());
-        if (request.getContactPhone() != null) entity.setContactPhone(request.getContactPhone());
-        if (request.getStatus() != null) entity.setStatus(request.getStatus());
-
-        BranchEntity saved = branchRepository.save(entity);
-        
-        String details = String.format("{\"name\":{\"old\":\"%s\", \"new\":\"%s\"}, \"location\":{\"old\":\"%s\", \"new\":\"%s\"}, \"status\":{\"old\":\"%s\", \"new\":\"%s\"}}", 
-            oldName != null ? oldName : "", saved.getName() != null ? saved.getName() : "", 
-            oldLocation != null ? oldLocation : "", saved.getLocation() != null ? saved.getLocation() : "", 
-            oldStatus != null ? oldStatus : "", saved.getStatus() != null ? saved.getStatus() : "");
-            
-        auditService.log("UPDATE_BRANCH", "BRANCH", saved.getId(), null, details, getCurrentIp());
-        
-        return mapToResponse(saved);
-    }
-
-    public BranchResponse getBranchById(UUID id) {
-        BranchEntity entity = branchRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Branch not found with id: " + id));
-        return mapToResponse(entity);
-    }
-
-    public PageResponse<BranchResponse> getAllBranches(int page, int size) {
-        Pageable pageable = PageRequest.of(page, size);
-        Page<BranchEntity> branchPage = branchRepository.findAll(pageable);
-        
-        List<BranchResponse> content = branchPage.getContent().stream()
-                .map(this::mapToResponse)
-                .collect(Collectors.toList());
-                
-        return new PageResponse<>(
-                content,
-                branchPage.getNumber(),
-                branchPage.getSize(),
-                branchPage.getTotalElements(),
-                branchPage.getTotalPages(),
-                branchPage.isLast()
-        );
-    }
-
-    private BranchResponse mapToResponse(BranchEntity entity) {
-        return BranchResponse.builder()
-                .id(entity.getId())
-                .code(entity.getCode())
-                .name(entity.getName())
-                .location(entity.getLocation())
-                .contactEmail(entity.getContactEmail())
-                .contactPhone(entity.getContactPhone())
-                .status(entity.getStatus())
-                .build();
-    }
-
-    private String getCurrentIp() {
-        try {
-            return com.uom.lims.security.ClientIpResolver.resolve(
-                ((org.springframework.web.context.request.ServletRequestAttributes) 
-                    org.springframework.web.context.request.RequestContextHolder.currentRequestAttributes()).getRequest());
-        } catch (Exception e) {
-            return "SYSTEM";
+    public BranchResponse updateBranch(String code, UpdateBranchRequest request) {
+        BranchEntity entity = findByCode(code);
+        if (request.name() != null && !request.name().isBlank()) {
+            entity.setName(request.name());
         }
+        if (request.location() != null) {
+            entity.setLocation(blankToNull(request.location()));
+        }
+        if (request.address() != null) {
+            entity.setAddress(blankToNull(request.address()));
+        }
+        if (request.contactEmail() != null) {
+            entity.setContactEmail(blankToNull(request.contactEmail()));
+        }
+        if (request.contactPhone() != null) {
+            entity.setContactPhone(blankToNull(request.contactPhone()));
+        }
+        if (request.status() != null) {
+            entity.setStatus(normalizeStatus(request.status()));
+        }
+        if (request.legalEntityName() != null) {
+            entity.setLegalEntityName(blankToNull(request.legalEntityName()));
+        }
+        if (request.establishedDate() != null) {
+            entity.setEstablishedDate(request.establishedDate());
+        }
+        return toResponse(branchRepository.save(entity));
+    }
+
+    @Transactional
+    public BranchResponse assignAdmin(String code, AssignBranchAdminRequest request) {
+        if (request.userId() == null || request.userId().isBlank()) {
+            throw new BusinessRuleException("A user is required to assign as branch admin");
+        }
+        BranchEntity entity = findByCode(code);
+        entity.setAdminUserId(request.userId());
+        entity.setAdminName(request.name());
+        entity.setAdminEmail(request.email());
+        entity = branchRepository.save(entity);
+
+        // Make it real on the Keycloak side too, when that integration is on:
+        // re-parent the chosen user to this branch and grant BRANCH_ADMIN,
+        // exactly what editing them from Global User Control would do.
+        AdminUserService keycloakUsers = adminUserService.getIfAvailable();
+        if (keycloakUsers != null) {
+            keycloakUsers.updateUser(request.userId(),
+                    new AdminUserService.UpdateUserRequest(null, null, null, "BRANCH_ADMIN", code));
+        }
+
+        return toResponse(entity);
+    }
+
+    private BranchEntity findByCode(String code) {
+        return branchRepository.findByCode(normalizeCode(code))
+                .filter(b -> !b.isDeleted())
+                .orElseThrow(() -> new ResourceNotFoundException("Branch not found: " + code));
+    }
+
+    private static String normalizeCode(String code) {
+        return code == null ? null : code.trim().toUpperCase();
+    }
+
+    private static String normalizeStatus(String status) {
+        if (status == null || status.isBlank()) {
+            return "ACTIVE";
+        }
+        String upper = status.trim().toUpperCase();
+        if (!VALID_STATUSES.contains(upper)) {
+            throw new BusinessRuleException("Status must be ACTIVE or INACTIVE");
+        }
+        return upper;
+    }
+
+    private static String blankToNull(String value) {
+        return (value == null || value.isBlank()) ? null : value.trim();
+    }
+
+    private static BranchResponse toResponse(BranchEntity b) {
+        return new BranchResponse(
+                b.getCode(), b.getName(), b.getLocation(), b.getAddress(),
+                b.getContactEmail(), b.getContactPhone(), b.getStatus(),
+                b.getEstablishedDate(), b.getLegalEntityName(),
+                b.getAdminUserId(), b.getAdminName(), b.getAdminEmail());
+    }
+
+    /** Create-branch request. {@code code} is the short business code (e.g. "BR001", "COL-7"). */
+    public record CreateBranchRequest(String code, String name, String location, String address,
+                                      String contactEmail, String contactPhone, String status,
+                                      String legalEntityName, LocalDate establishedDate) {
+    }
+
+    /** Edit-branch request. Every field is optional; only non-null ones are applied. */
+    public record UpdateBranchRequest(String name, String location, String address,
+                                      String contactEmail, String contactPhone, String status,
+                                      String legalEntityName, LocalDate establishedDate) {
+    }
+
+    /** Assign (or re-assign) this branch's admin. */
+    public record AssignBranchAdminRequest(String userId, String name, String email) {
+    }
+
+    /** Branch view. */
+    public record BranchResponse(String code, String name, String location, String address,
+                                 String contactEmail, String contactPhone, String status,
+                                 LocalDate establishedDate, String legalEntityName,
+                                 String adminUserId, String adminName, String adminEmail) {
     }
 }

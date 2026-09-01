@@ -1,6 +1,27 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+    AlertTriangle,
+    LayoutGrid,
+    Pencil,
+    RefreshCw,
+    Search,
+    UserCheck,
+    UserPlus,
+    UserX,
+    Users,
+    X,
+} from "lucide-react";
+import UserCreateModal from "@/components/admin/UserCreateModal";
+import UserEditModal from "@/components/admin/UserEditModal";
+import { ASSIGNABLE_ROLES, getAdminUsers, setAdminUserEnabled, AdminUser } from "@/lib/api";
+import Button from "@/components/ui/Button";
+import PageHeader from "@/components/ui/PageHeader";
+import SectionCard from "@/components/ui/SectionCard";
+import SegmentedControl from "@/components/ui/SegmentedControl";
+import EmptyState from "@/components/ui/EmptyState";
+import StatusChip, { humanizeStatus, toneForStatus } from "@/components/ui/StatusChip";
 
 // Types for Mock Data
 type UserStatus = "ACTIVE" | "INACTIVE";
@@ -15,15 +36,35 @@ interface UserRecord {
     branch: string;
     roles: string[];
     status: UserStatus;
-    lastLogin: string;
 }
 import UserCreateModal from "@/components/admin/UserCreateModal";
 import UserEditModal from "@/components/admin/UserEditModal";
 import ResetPasswordModal from "@/components/admin/ResetPasswordModal";
 
-import { toast } from "sonner";
-import { getSuperadminUsers, updateSuperadminUser, resetSuperadminUserPassword, getBranches, getSuperadminRoles, BranchResponse } from "@/lib/api";
-import { useAuth } from "@/hooks/useAuth";
+const SKELETON_ROWS = 6;
+
+const TAB_OPTIONS: { value: Tab; label: string }[] = [
+    { value: "directory", label: "User directory" },
+    { value: "matrix", label: "Global role matrix" },
+];
+
+const ROLE_LABELS: Record<string, string> = Object.fromEntries(ASSIGNABLE_ROLES.map((r) => [r.value, r.label]));
+
+/** Friendly label for a realm role code, falling back to the raw code for anything not in ASSIGNABLE_ROLES (e.g. SUPER_ADMIN, which this UI doesn't assign but may still need to display). */
+function roleLabel(role: string): string {
+    return ROLE_LABELS[role] ?? role;
+}
+
+function toRecord(u: AdminUser): UserRecord {
+    return {
+        id: u.id,
+        name: `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || u.username,
+        email: u.email ?? "—",
+        branch: u.branchCode ?? "—",
+        roles: u.roles ?? [],
+        status: u.enabled ? "ACTIVE" : "INACTIVE",
+    };
+}
 
 export default function GlobalUserControlPage() {
     const { user: authUser } = useAuth();
@@ -273,43 +314,70 @@ export default function GlobalUserControlPage() {
                             {roles.map(r => (
                                 <option key={r} value={r}>{r}</option>
                             ))}
-                        </select>
-                        <span className="material-icons absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-lg">expand_more</span>
-                    </div>
-
-                    {/* Create Button */}
-                    <button
-                        onClick={() => setIsCreateModalOpen(true)}
-                        className="w-full sm:w-auto flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-bold transition-colors shadow-sm shadow-blue-500/30 active:scale-95 whitespace-nowrap"
-                    >
-                        <span className="material-icons text-[18px]">person_add</span>
-                        Create New User
-                    </button>
-                </div>
-            </div>
-
-            {/* Data Table */}
-            {activeTab === "directory" && (
-                <div className="bg-white border border-slate-200 shadow-sm rounded-2xl overflow-hidden flex-1 flex flex-col">
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left border-collapse min-w-[1000px]">
-                            <thead>
-                                <tr className="border-b border-slate-200 bg-slate-50/50">
-                                    <th className="py-4 px-6 text-[11px] font-extrabold text-slate-500 uppercase tracking-widest">User ID</th>
-                                    <th className="py-4 px-6 text-[11px] font-extrabold text-slate-500 uppercase tracking-widest">User Details</th>
-                                    <th className="py-4 px-6 text-[11px] font-extrabold text-slate-500 uppercase tracking-widest">Branch</th>
-                                    <th className="py-4 px-6 text-[11px] font-extrabold text-slate-500 uppercase tracking-widest">Assigned Roles</th>
-                                    <th className="py-4 px-6 text-[11px] font-extrabold text-slate-500 uppercase tracking-widest text-center">Status</th>
-                                    <th className="py-4 px-6 text-[11px] font-extrabold text-slate-500 uppercase tracking-widest">Last Login</th>
-                                    <th className="py-4 px-6 text-[11px] font-extrabold text-slate-500 uppercase tracking-widest text-center">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100">
-                                {loading ? (
-                                    <tr>
-                                        <td colSpan={7} className="py-12 text-center">
-                                            <span className="material-icons animate-spin text-blue-600 text-3xl">sync</span>
-                                        </td>
+                        </ul>
+                    ) : showErrorState ? (
+                        <EmptyState
+                            icon={AlertTriangle}
+                            title="User administration unavailable"
+                            description={error ?? undefined}
+                            action={
+                                <Button size="sm" icon={RefreshCw} onClick={load}>
+                                    Retry
+                                </Button>
+                            }
+                        />
+                    ) : users.length === 0 ? (
+                        <EmptyState
+                            icon={Users}
+                            title="No users yet"
+                            description="Create the first user to give staff access to the system."
+                            action={
+                                <Button size="sm" icon={UserPlus} onClick={() => setIsCreateModalOpen(true)}>
+                                    Create user
+                                </Button>
+                            }
+                        />
+                    ) : visibleUsers.length === 0 ? (
+                        <EmptyState
+                            icon={Search}
+                            title="No users match"
+                            description="Try a different name, ID or email."
+                            action={
+                                <Button size="sm" icon={X} onClick={() => setSearch("")}>
+                                    Clear search
+                                </Button>
+                            }
+                        />
+                    ) : (
+                        <div className="overflow-x-auto">
+                            {/* min-w must cover the fixed columns plus a >=160px floor for the auto
+                                Name column at every band. lg reveals Roles (w-48), pushing the fixed
+                                sum to 624px, so the table needs >=792px there. Last login isn't a
+                                column: the Keycloak admin API this page reads from doesn't expose a
+                                per-user last-login timestamp, so showing one would just be another
+                                permanently-empty field. */}
+                            <table className="w-full min-w-[760px] table-fixed text-left text-sm lg:min-w-[792px]">
+                                <caption className="sr-only">User directory</caption>
+                                <thead>
+                                    <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
+                                        <th scope="col" className="w-28 py-2 pl-4 pr-3 font-semibold">
+                                            User ID
+                                        </th>
+                                        <th scope="col" className="px-3 py-2 font-semibold">
+                                            Name
+                                        </th>
+                                        <th scope="col" className="hidden w-28 px-3 py-2 font-semibold md:table-cell">
+                                            Branch
+                                        </th>
+                                        <th scope="col" className="hidden w-48 px-3 py-2 font-semibold lg:table-cell">
+                                            Roles
+                                        </th>
+                                        <th scope="col" className="w-24 px-3 py-2 font-semibold">
+                                            Status
+                                        </th>
+                                        <th scope="col" className="w-28 py-2 pl-3 pr-4 text-right font-semibold">
+                                            Actions
+                                        </th>
                                     </tr>
                                 ) : filteredUsers.length === 0 ? (
                                     <tr>
@@ -340,59 +408,72 @@ export default function GlobalUserControlPage() {
                                                         <span key={role} className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-blue-600 border border-blue-100">
                                                             {role}
                                                         </span>
-                                                    )) : (
-                                                        <span className="text-[10px] text-slate-400">No roles assigned</span>
-                                                    )}
-                                                </div>
-                                            </td>
-                                            <td className="py-4 px-6 text-center">
-                                                <span className={`inline-flex items-center justify-center px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${user.status === 'ACTIVE'
-                                                    ? 'bg-emerald-50 text-emerald-600 border border-emerald-100'
-                                                    : 'bg-slate-100 text-slate-500 border border-slate-200'
-                                                    }`}>
-                                                    {user.status}
-                                                </span>
-                                            </td>
-                                            <td className="py-4 px-6">
-                                                <span className="text-[12px] font-semibold text-slate-500">{user.lastLogin}</span>
-                                            </td>
-                                            <td className="py-4 px-6 text-center">
-                                                <div className="flex items-center justify-center gap-3">
-                                                    <button
-                                                        onClick={() => handleEditClick(user)}
-                                                        className="text-slate-400 hover:text-blue-600 transition-colors p-1" title="Edit User"
-                                                    >
-                                                        <span className="material-icons text-[18px]">edit</span>
-                                                    </button>
-                                                    <button
-                                                        onClick={() => handleResetPasswordClick(user)}
-                                                        className="text-slate-400 hover:text-slate-800 transition-colors p-1" title="Reset Password"
-                                                    >
-                                                        <span className="material-icons text-[18px]">history</span>
-                                                    </button>
-                                                    {user.status === 'ACTIVE' ? (
-                                                        <button
-                                                            onClick={() => handleToggleStatus(user)}
-                                                            className="text-slate-400 hover:text-red-500 transition-colors p-1" title="Deactivate User"
-                                                        >
-                                                            <span className="material-icons text-[18px]">person_off</span>
-                                                        </button>
+                                                        <span className="truncate text-xs text-fg-muted" title={user.email}>
+                                                            {user.email}
+                                                        </span>
+                                                    </div>
+                                                </td>
+                                                <td className="hidden truncate px-3 py-2 text-fg-secondary md:table-cell">{user.branch}</td>
+                                                <td className="hidden px-3 py-2 lg:table-cell">
+                                                    {user.roles.length === 0 ? (
+                                                        <span className="text-fg-faint">—</span>
                                                     ) : (
-                                                        <button
-                                                            onClick={() => handleToggleStatus(user)}
-                                                            className="text-emerald-500/70 hover:text-emerald-600 bg-emerald-50 rounded transition-colors p-1" title="Activate User"
-                                                        >
-                                                            <span className="material-icons text-[18px]">person_add</span>
-                                                        </button>
+                                                        <div className="flex flex-wrap gap-1">
+                                                            {user.roles.map((role) => (
+                                                                <StatusChip key={role} size="sm" title={role}>
+                                                                    {roleLabel(role)}
+                                                                </StatusChip>
+                                                            ))}
+                                                        </div>
                                                     )}
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    )))}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
+                                                </td>
+                                                <td className="px-3 py-2">
+                                                    <StatusChip tone={toneForStatus(user.status)} dot>
+                                                        {humanizeStatus(user.status)}
+                                                    </StatusChip>
+                                                </td>
+                                                <td className="py-2 pl-3 pr-4">
+                                                    <div className="flex items-center justify-end gap-1">
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            icon={Pencil}
+                                                            onClick={() => handleEditClick(user)}
+                                                            aria-label={`Edit ${user.name}`}
+                                                            title="Edit user"
+                                                            className="w-7 px-0"
+                                                        />
+                                                        {active ? (
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                icon={UserX}
+                                                                onClick={() => handleToggleStatus(user.id)}
+                                                                aria-label={`Deactivate ${user.name}`}
+                                                                title="Deactivate user"
+                                                                className="w-7 px-0 hover:text-status-danger-fg"
+                                                            />
+                                                        ) : (
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                icon={UserCheck}
+                                                                onClick={() => handleToggleStatus(user.id)}
+                                                                aria-label={`Activate ${user.name}`}
+                                                                title="Activate user"
+                                                                className="w-7 px-0 text-status-verified-fg hover:text-status-verified-fg"
+                                                            />
+                                                        )}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </SectionCard>
             )}
 
             {/* Empty State for Matrix Tab */}
@@ -431,16 +512,8 @@ export default function GlobalUserControlPage() {
             <UserEditModal
                 isOpen={isEditModalOpen}
                 onClose={() => setIsEditModalOpen(false)}
+                onSaved={load}
                 userData={selectedUser}
-                onSave={handleUpdateUser}
-            />
-
-            <ResetPasswordModal
-                isOpen={isResetPasswordModalOpen}
-                onClose={() => setIsResetPasswordModalOpen(false)}
-                userId={selectedUser?.id || null}
-                userName={selectedUser?.name || ""}
-                onConfirm={handleConfirmResetPassword}
             />
         </div>
     );

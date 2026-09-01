@@ -17,13 +17,134 @@ export default function BranchDashboard() {
     return (
         <div className="w-full bg-[#f8fafc] min-h-[calc(100vh-76px)] p-6 font-sans">
 
-            {/* Top KPI Row */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-                {/* Total Patients */}
-                <div className="bg-white rounded-2xl p-6 border border-[#ecf0f6] shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow">
-                    <div className="flex justify-between items-start mb-4">
-                        <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-500">
-                            <span className="material-icons text-[20px]">group</span>
+            <DemoDataBanner />
+
+            {/* ── KPI row ── */}
+            <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <KpiTile label="Total patients" value="2,482" icon={Users} delta={{ value: 12, unit: "%", label: "vs last month" }} />
+                <KpiTile label="Test orders" value="842" icon={FlaskConical} delta={{ value: 5.4, unit: "%", label: "vs last month" }} />
+                <KpiTile label="Revenue" value="LKR 1.2M" icon={Wallet} delta={{ value: -2.1, unit: "%", label: "vs last month" }} />
+                <KpiTile label="Pending reports" value="47" icon={FileClock} tone="warning" note="Awaiting verification" />
+            </div>
+
+            {/* ── Charts + alerts / quick links ── */}
+            <div className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-3 lg:items-start">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:col-span-2">
+                    {/* Revenue trend */}
+                    <SectionCard
+                        title="Revenue trend"
+                        actions={
+                            <Button variant="ghost" size="sm" icon={Download}>
+                                Download CSV
+                            </Button>
+                        }
+                        bodyClassName="p-3"
+                    >
+                        <figure aria-label="Revenue over the last 7 days" className="m-0">
+                            <figcaption className="sr-only">Daily revenue for the last 7 days in Sri Lankan rupees.</figcaption>
+                            <div className="h-[220px] w-full">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <AreaChart data={data} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
+                                        <defs>
+                                            <linearGradient id="branchRevenueFill" x1="0" y1="0" x2="0" y2="1">
+                                                <stop offset="5%" stopColor="var(--color-primary)" stopOpacity={0.2} />
+                                                <stop offset="95%" stopColor="var(--color-primary)" stopOpacity={0} />
+                                            </linearGradient>
+                                        </defs>
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--edge)" />
+                                        <XAxis
+                                            dataKey="name"
+                                            axisLine={false}
+                                            tickLine={false}
+                                            tick={{ fill: "var(--fg-muted)", fontSize: 11 }}
+                                            dy={8}
+                                        />
+                                        <YAxis hide={true} />
+                                        <Tooltip
+                                            cursor={{ stroke: "var(--edge-strong)" }}
+                                            contentStyle={{
+                                                borderRadius: 6,
+                                                border: "1px solid var(--edge)",
+                                                background: "var(--surface)",
+                                                color: "var(--fg)",
+                                                boxShadow: "0 2px 8px rgb(15 23 42 / 0.12)",
+                                                fontSize: 12,
+                                                padding: "6px 10px",
+                                            }}
+                                            itemStyle={{ color: "var(--fg)" }}
+                                            labelStyle={{ color: "var(--fg-muted)" }}
+                                            formatter={(value) => [formatLkr(Number(value)), "Revenue"]}
+                                        />
+                                        <Area
+                                            type="monotone"
+                                            dataKey="revenue"
+                                            name="Revenue"
+                                            stroke="var(--color-primary)"
+                                            strokeWidth={2}
+                                            fillOpacity={1}
+                                            fill="url(#branchRevenueFill)"
+                                        />
+                                    </AreaChart>
+                                </ResponsiveContainer>
+                            </div>
+                        </figure>
+                    </SectionCard>
+
+                    {/* Test volume by category */}
+                    <SectionCard title="Test volume by category" actions={<StatusChip size="sm">Monthly</StatusChip>} bodyClassName="p-4">
+                        <ul aria-label="Test volume by category, this month" className="flex h-[220px] items-end justify-between gap-3">
+                            {TEST_VOLUME.map((item) => (
+                                <li key={item.label} className="flex h-full flex-1 flex-col items-center justify-end gap-2">
+                                    <div className="relative flex h-full w-full max-w-[48px] items-end overflow-hidden rounded-t bg-surface-muted">
+                                        <div
+                                            aria-hidden="true"
+                                            className="w-full rounded-t bg-primary transition-[height] duration-300"
+                                            style={{ height: `${item.percent}%` }}
+                                        />
+                                    </div>
+                                    <span className="text-[12px] font-medium text-fg-muted">
+                                        {item.label}
+                                        <span className="sr-only">: {item.percent}% of capacity</span>
+                                    </span>
+                                </li>
+                            ))}
+                        </ul>
+                    </SectionCard>
+                </div>
+
+                {/* Right column */}
+                <div className="flex flex-col gap-4">
+                    <SectionCard title="Alerts and notifications" count={ALERTS.length} flush>
+                        <ul className="divide-y divide-edge">
+                            {ALERTS.map((alert) => {
+                                const Icon = alert.icon;
+                                return (
+                                    <li key={alert.id} className="flex gap-3 px-4 py-3">
+                                        <Icon className={cn("mt-0.5 h-4 w-4 shrink-0", ALERT_ICON_TONE[alert.tone])} aria-hidden="true" />
+                                        <div className="min-w-0">
+                                            <h3 className="text-sm font-semibold text-fg">{alert.title}</h3>
+                                            <p className="mt-0.5 text-xs leading-snug text-fg-muted">{alert.body}</p>
+                                            {alert.action && (
+                                                <button type="button" className={cn(LINK_CLASS, "mt-1.5")}>
+                                                    {alert.action}
+                                                </button>
+                                            )}
+                                        </div>
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                        <div className="border-t border-edge p-2">
+                            <Link
+                                href="/branch/activity-logs"
+                                className={cn(
+                                    "flex h-8 w-full items-center justify-center gap-1 rounded-md text-xs font-medium text-fg-secondary",
+                                    "hover:bg-surface-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                                )}
+                            >
+                                View all notifications
+                                <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+                            </Link>
                         </div>
                         <span className="text-xs font-bold text-emerald-500 bg-emerald-50 px-2 py-0.5 rounded-full flex items-center gap-0.5">
                             <span className="material-icons text-[12px]">trending_up</span> 12%
@@ -82,84 +203,71 @@ export default function BranchDashboard() {
                 </div>
             </div>
 
-            {/* Middle Row (Charts) */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-
-                {/* Left Column for Charts (takes 2 columns width) */}
-                <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
-
-                    {/* Revenue Trend Chart */}
-                    <div className="bg-white rounded-2xl border border-[#ecf0f6] shadow-sm flex flex-col w-full h-[320px]">
-                        <div className="p-5 flex justify-between items-center border-b border-[#ecf0f6]">
-                            <h2 className="text-[14px] font-extrabold text-[#0f172a]">Revenue Trend (Last 7 Days)</h2>
-                            <button className="text-[12px] font-bold text-[#1277E1] hover:underline">Download CSV</button>
-                        </div>
-                        <div className="flex-1 p-4">
-                            <ResponsiveContainer width="100%" height="100%">
-                                <AreaChart data={data}>
-                                    <defs>
-                                        <linearGradient id="colorReveu" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="5%" stopColor="#1277E1" stopOpacity={0.2} />
-                                            <stop offset="95%" stopColor="#1277E1" stopOpacity={0} />
-                                        </linearGradient>
-                                    </defs>
-                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                                    <XAxis
-                                        dataKey="name"
-                                        axisLine={false}
-                                        tickLine={false}
-                                        tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 700 }}
-                                        dy={10}
-                                    />
-                                    <YAxis hide={true} />
-                                    <Tooltip
-                                        contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                                        itemStyle={{ color: '#0f172a', fontWeight: 'bold' }}
-                                    />
-                                    <Area type="monotone" dataKey="revenue" stroke="#1277E1" strokeWidth={4} fillOpacity={1} fill="url(#colorReveu)" />
-                                </AreaChart>
-                            </ResponsiveContainer>
-                        </div>
-                    </div>
-
-                    {/* Test Volume Chart */}
-                    <div className="bg-white rounded-2xl border border-[#ecf0f6] shadow-sm flex flex-col w-full h-[320px]">
-                        <div className="p-5 flex justify-between items-center border-b border-[#ecf0f6]">
-                            <h2 className="text-[14px] font-extrabold text-[#0f172a]">Test Volume by Category</h2>
-                            <span className="text-[10px] font-bold bg-[#f1f5f9] text-[#64748b] px-2 py-1 rounded-md uppercase tracking-wider">MONTHLY</span>
-                        </div>
-                        <div className="flex-1 p-5 flex items-end justify-between gap-2 pb-8">
-                            {/* Static CSS-based bar chart to match precise UI */}
-                            <div className="group flex flex-col items-center gap-2 flex-1 pt-6 h-full justify-end cursor-pointer">
-                                <div className="w-full bg-[#1277E1] max-w-[50px] rounded-t-lg transition-all duration-300 group-hover:bg-blue-600 relative h-[60%]">
-                                    <div className="absolute -top-4 left-0 right-0 h-4 bg-[#e2e8f0] rounded-t-lg opacity-50"></div>
-                                </div>
-                                <span className="text-[10px] font-extrabold text-[#64748b]">Blood</span>
-                            </div>
-
-                            <div className="group flex flex-col items-center gap-2 flex-1 pt-6 h-full justify-end cursor-pointer">
-                                <div className="w-full bg-[#1277E1] max-w-[50px] rounded-t-lg transition-all duration-300 group-hover:bg-blue-600 relative h-[35%]">
-                                    <div className="absolute -top-12 left-0 right-0 h-12 bg-[#e2e8f0] rounded-t-lg opacity-50"></div>
-                                </div>
-                                <span className="text-[10px] font-extrabold text-[#64748b]">Urine</span>
-                            </div>
-
-                            <div className="group flex flex-col items-center gap-2 flex-1 pt-6 h-full justify-end cursor-pointer">
-                                <div className="w-full bg-[#1277E1] max-w-[50px] rounded-t-lg transition-all duration-300 group-hover:bg-blue-600 relative h-[75%]">
-                                    <div className="absolute -top-2 left-0 right-0 h-2 bg-[#e2e8f0] rounded-t-lg opacity-50"></div>
-                                </div>
-                                <span className="text-[10px] font-extrabold text-[#64748b]">Biopsy</span>
-                            </div>
-
-                            <div className="group flex flex-col items-center gap-2 flex-1 pt-6 h-full justify-end cursor-pointer">
-                                <div className="w-full bg-[#1277E1] max-w-[50px] rounded-t-lg transition-all duration-300 group-hover:bg-blue-600 relative h-[45%]">
-                                    <div className="absolute -top-6 left-0 right-0 h-6 bg-[#e2e8f0] rounded-t-lg opacity-50"></div>
-                                </div>
-                                <span className="text-[10px] font-extrabold text-[#64748b]">PCR</span>
-                            </div>
-                        </div>
-                    </div>
-
+            {/* ── Haematology test details ── */}
+            <SectionCard
+                title="Haematology test details"
+                count={HAEMATOLOGY_TESTS.length}
+                flush
+                actions={
+                    <Button size="sm" icon={Download}>
+                        Export data
+                    </Button>
+                }
+            >
+                <p className="flex items-center gap-2 border-b border-edge px-4 py-2 text-xs text-fg-muted">
+                    <Droplet className="h-4 w-4 shrink-0 text-fg-faint" aria-hidden="true" />
+                    Live monitoring of blood and bone marrow tests processing across this branch.
+                </p>
+                <div className="overflow-x-auto">
+                    <table className="w-full min-w-[640px] table-fixed text-left text-sm">
+                        <colgroup>
+                            <col className="w-[36%]" />
+                            <col className="w-[14%]" />
+                            <col className="w-[22%]" />
+                            <col className="w-[14%]" />
+                            <col className="w-[14%]" />
+                        </colgroup>
+                        <thead>
+                            <tr className="border-b border-edge text-xs font-semibold text-fg-muted">
+                                <th scope="col" className="py-2 pl-4 pr-3 font-semibold">Test</th>
+                                <th scope="col" className="px-3 py-2 font-semibold">Code</th>
+                                <th scope="col" className="px-3 py-2 font-semibold">Mode</th>
+                                <th scope="col" className="px-3 py-2 text-right font-semibold">Orders today</th>
+                                <th scope="col" className="px-3 py-2 font-semibold">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-edge whitespace-nowrap">
+                            {HAEMATOLOGY_TESTS.map((test) => (
+                                <tr key={test.code} className="hover:bg-surface-hover">
+                                    <td className="py-2 pl-4 pr-3">
+                                        <div className="flex items-center gap-3">
+                                            <span
+                                                aria-hidden="true"
+                                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-muted text-[12px] font-semibold text-fg-secondary"
+                                            >
+                                                {test.abbr}
+                                            </span>
+                                            <span className="truncate font-medium text-fg" title={test.name}>
+                                                {test.name}
+                                            </span>
+                                        </div>
+                                    </td>
+                                    <td className="px-3 py-2 tabular-nums text-fg-secondary">{test.code}</td>
+                                    <td className="px-3 py-2">
+                                        <StatusChip tone={test.modeTone} dot size="sm" title={test.mode}>
+                                            {test.mode}
+                                        </StatusChip>
+                                    </td>
+                                    <td className="px-3 py-2 text-right tabular-nums font-semibold text-fg">{test.ordersToday}</td>
+                                    <td className="px-3 py-2">
+                                        <StatusChip tone={test.statusTone} size="sm" title={test.status}>
+                                            {test.status}
+                                        </StatusChip>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
                 </div>
             </div>
 

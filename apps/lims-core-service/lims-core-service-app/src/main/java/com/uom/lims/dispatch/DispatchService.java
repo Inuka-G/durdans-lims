@@ -73,7 +73,7 @@ public class DispatchService {
     private static final ZoneId DISPLAY_ZONE = ZoneId.of("Asia/Colombo");
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.UK);
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("h:mm a", Locale.UK);
-    private static final DateTimeFormatter RECORD_TS = DateTimeFormatter.ofPattern("d MMM, h:mm a", Locale.UK);
+    private static final DateTimeFormatter RECORD_TS = DateTimeFormatter.ofPattern("d MMM yyyy, h:mm a", Locale.UK);
     private static final List<DeliveryMethod> DEFAULT_DELIVERY_METHODS = List.of(
             DeliveryMethod.SMS,
             DeliveryMethod.EMAIL);
@@ -97,7 +97,9 @@ public class DispatchService {
     @org.springframework.context.annotation.Lazy
     private DispatchService self;
 
-    /** Phase-1 result: the (now detached) dispatch item plus the attempts to send. */
+    /**
+     * Phase-1 result: the (now detached) dispatch item plus the attempts to send.
+     */
     private record PreparedDispatch(ReportDispatchItemEntity item,
             java.util.List<ReportDeliveryAttemptEntity> attempts) {
     }
@@ -108,15 +110,15 @@ public class DispatchService {
     }
 
     @Transactional
-    public DispatchItemResponse registerAuthorizedReportSystem(RegisterAuthorizedReportRequest request, String ipAddress) {
+    public DispatchItemResponse registerAuthorizedReportSystem(RegisterAuthorizedReportRequest request,
+            String ipAddress) {
         return registerAuthorizedReportInternal(request, ipAddress, false);
     }
 
     private DispatchItemResponse registerAuthorizedReportInternal(
             RegisterAuthorizedReportRequest request,
             String ipAddress,
-            boolean validateBranchContext
-    ) {
+            boolean validateBranchContext) {
         String branch = request.getBranchCode().trim().toUpperCase();
         if (validateBranchContext) {
             assertRegisterBranchAllowed(branch);
@@ -146,8 +148,8 @@ public class DispatchService {
         }
         List<DeliveryMethod> preferredMethods = request.getPreferredDeliveryMethods() != null
                 && !request.getPreferredDeliveryMethods().isEmpty()
-                ? request.getPreferredDeliveryMethods()
-                : DEFAULT_DELIVERY_METHODS;
+                        ? request.getPreferredDeliveryMethods()
+                        : DEFAULT_DELIVERY_METHODS;
         try {
             entity.setPreferredMethodsJson(objectMapper.writeValueAsString(preferredMethods));
         } catch (Exception e) {
@@ -185,7 +187,8 @@ public class DispatchService {
         Optional<String> branchFilter = resolveBranchFilterForQuery(branchCodeParam);
         Pageable pageable = buildPageable(page, size, sort, "authorizedAt");
 
-        Specification<ReportDispatchItemEntity> spec = dispatchListSpec(branchFilter, Optional.ofNullable(status), Optional.ofNullable(keyword));
+        Specification<ReportDispatchItemEntity> spec = dispatchListSpec(branchFilter, Optional.ofNullable(status),
+                Optional.ofNullable(keyword));
         Page<ReportDispatchItemEntity> result = itemRepository.findAll(spec, pageable);
 
         return new PageResponse<>(
@@ -215,7 +218,8 @@ public class DispatchService {
         Optional<String> branchFilter = resolveBranchFilterForQuery(branchCodeParam);
         Pageable pageable = buildPageable(page, size, sort, "authorizedAt");
 
-        Specification<ReportDispatchItemEntity> spec = deliveryRecordsSpec(branchFilter, Optional.ofNullable(status), Optional.ofNullable(keyword));
+        Specification<ReportDispatchItemEntity> spec = deliveryRecordsSpec(branchFilter, Optional.ofNullable(status),
+                Optional.ofNullable(keyword));
         Page<ReportDispatchItemEntity> result = itemRepository.findAll(spec, pageable);
 
         return new PageResponse<>(
@@ -236,7 +240,8 @@ public class DispatchService {
         return rows.stream().limit(Math.max(1, Math.min(limit, 200))).map(this::toFailedDelivery).toList();
     }
 
-    public DispatchItemResponse dispatchReport(String reportReference, String branchCodeParam, DispatchReportRequest request,
+    public DispatchItemResponse dispatchReport(String reportReference, String branchCodeParam,
+            DispatchReportRequest request,
             String ipAddress) {
         List<DeliveryMethod> methods = request.getMethods().stream().distinct().toList();
         if (methods.isEmpty()) {
@@ -316,7 +321,10 @@ public class DispatchService {
         return new PreparedDispatch(item, List.of(attempt));
     }
 
-    /** Phase 3: merge the detached item (with the mutated attempt statuses), aggregate, audit, publish. */
+    /**
+     * Phase 3: merge the detached item (with the mutated attempt statuses),
+     * aggregate, audit, publish.
+     */
     @Transactional
     public DispatchItemResponse finalizeDispatch(ReportDispatchItemEntity item,
             List<ReportDeliveryAttemptEntity> completedAttempts, String auditAction,
@@ -327,8 +335,8 @@ public class DispatchService {
         attemptRepository.saveAll(completedAttempts);
         ReportDispatchItemEntity managed = itemRepository.findById(item.getId())
                 .orElseThrow(() -> new ResourceNotFoundException("Dispatch item not found"));
-        List<ReportDeliveryAttemptEntity> persistedAttempts =
-                attemptRepository.findByDispatchItemIdOrderByCreatedAtAsc(managed.getId());
+        List<ReportDeliveryAttemptEntity> persistedAttempts = attemptRepository
+                .findByDispatchItemIdOrderByCreatedAtAsc(managed.getId());
         managed.setOverallStatus(aggregateStatusFromAttempts(persistedAttempts, parsePreferredMethods(managed)));
         ReportDispatchItemEntity saved = itemRepository.save(managed);
         updateLinkedOrderIfDelivered(saved);
@@ -367,8 +375,8 @@ public class DispatchService {
         attempt.setDeliveredAt(now);
         attempt.setFailureReason(null);
 
-        List<ReportDeliveryAttemptEntity> persistedAttempts =
-                attemptRepository.findByDispatchItemIdOrderByCreatedAtAsc(item.getId());
+        List<ReportDeliveryAttemptEntity> persistedAttempts = attemptRepository
+                .findByDispatchItemIdOrderByCreatedAtAsc(item.getId());
         item.setOverallStatus(aggregateStatusFromAttempts(persistedAttempts, parsePreferredMethods(item)));
         ReportDispatchItemEntity saved = itemRepository.save(item);
         updateLinkedOrderIfDelivered(saved);
@@ -452,7 +460,8 @@ public class DispatchService {
      * A dispatch item may only be registered for a result a pathologist has
      * actually signed, in the branch that owns it.
      *
-     * <p>reportReference is the TestResult id (see
+     * <p>
+     * reportReference is the TestResult id (see
      * {@code ClinicalAuthorizationService}, which builds the event with
      * {@code result.getId().toString()}). Without this check the endpoint accepted
      * any string, so a report could enter dispatch — and be emailed to the patient
@@ -516,7 +525,8 @@ public class DispatchService {
     private ReportDispatchItemEntity loadItemForCurrentUser(String reportReference, String branchCodeParam) {
         if (isSuperAdmin() || isDispatchRole()) {
             if (branchCodeParam != null && !branchCodeParam.isBlank()) {
-                return itemRepository.findByReportReferenceAndBranchCode(reportReference, branchCodeParam.trim().toUpperCase())
+                return itemRepository
+                        .findByReportReferenceAndBranchCode(reportReference, branchCodeParam.trim().toUpperCase())
                         .orElseThrow(() -> new ResourceNotFoundException("Dispatch item not found"));
             }
             return itemRepository.findFirstByReportReferenceOrderByAuthorizedAtDesc(reportReference)
@@ -526,7 +536,8 @@ public class DispatchService {
         if (branch == null) {
             throw new InvalidRequestException("Missing branch in security context");
         }
-        ReportDispatchItemEntity item = itemRepository.findByReportReferenceAndBranchCode(reportReference, branch.toUpperCase())
+        ReportDispatchItemEntity item = itemRepository
+                .findByReportReferenceAndBranchCode(reportReference, branch.toUpperCase())
                 .orElseThrow(() -> new ResourceNotFoundException("Dispatch item not found"));
         if (branchCodeParam != null && !branchCodeParam.isBlank()
                 && !branch.equalsIgnoreCase(branchCodeParam.trim())) {
@@ -557,10 +568,9 @@ public class DispatchService {
         if (auth == null) {
             return false;
         }
-        return auth.getAuthorities().stream().anyMatch(a ->
-                "ROLE_DISPATCH".equals(a.getAuthority())
-                        || "ROLE_DISPATCH_OFFICER".equals(a.getAuthority())
-                        || "ROLE_REPORT_DISPATCH".equals(a.getAuthority()));
+        return auth.getAuthorities().stream().anyMatch(a -> "ROLE_DISPATCH".equals(a.getAuthority())
+                || "ROLE_DISPATCH_OFFICER".equals(a.getAuthority())
+                || "ROLE_REPORT_DISPATCH".equals(a.getAuthority()));
     }
 
     private boolean isSuperAdmin() {
@@ -593,7 +603,8 @@ public class DispatchService {
             branch.ifPresent(b -> predicates.add(cb.equal(root.get("branchCode"), b)));
             status.ifPresent(s -> {
                 if (s == DispatchItemStatus.PENDING) {
-                    predicates.add(root.get("overallStatus").in(DispatchItemStatus.PENDING, DispatchItemStatus.PARTIAL));
+                    predicates
+                            .add(root.get("overallStatus").in(DispatchItemStatus.PENDING, DispatchItemStatus.PARTIAL));
                 } else {
                     predicates.add(cb.equal(root.get("overallStatus"), s));
                 }
@@ -622,7 +633,8 @@ public class DispatchService {
             branch.ifPresent(b -> predicates.add(cb.equal(root.get("branchCode"), b)));
             status.ifPresent(s -> {
                 if (s == DispatchItemStatus.PENDING) {
-                    predicates.add(root.get("overallStatus").in(DispatchItemStatus.PENDING, DispatchItemStatus.PARTIAL));
+                    predicates
+                            .add(root.get("overallStatus").in(DispatchItemStatus.PENDING, DispatchItemStatus.PARTIAL));
                 } else {
                     predicates.add(cb.equal(root.get("overallStatus"), s));
                 }
@@ -641,6 +653,20 @@ public class DispatchService {
 
     private DispatchDashboardItemResponse toDashboardItem(ReportDispatchItemEntity e) {
         ZonedDateTime z = e.getAuthorizedAt().atZone(DISPLAY_ZONE);
+        String authorizedBy = null;
+        String priorityLevel = null;
+        try {
+            UUID resultId = UUID.fromString(e.getReportReference());
+            Optional<TestResultEntity> tr = testResultRepository.findById(resultId);
+            if (tr.isPresent()) {
+                authorizedBy = tr.get().getClinicallyAuthorizedBy();
+                if (tr.get().getSample() != null && tr.get().getSample().getPriority() != null) {
+                    priorityLevel = tr.get().getSample().getPriority().name();
+                }
+            }
+        } catch (Exception ignored) {
+        }
+
         return DispatchDashboardItemResponse.builder()
                 .id(e.getId())
                 .reportId(e.getReportReference())
@@ -651,11 +677,14 @@ public class DispatchService {
                 .authorizedTime(z.format(TIME_FMT))
                 .deliveryMethods(parsePreferredMethods(e))
                 .status(e.getOverallStatus())
+                .authorizedBy(authorizedBy)
+                .priorityLevel(priorityLevel)
                 .build();
     }
 
     private DeliveryRecordResponse toDeliveryRecord(ReportDispatchItemEntity item) {
-        List<ReportDeliveryAttemptEntity> attempts = attemptRepository.findByDispatchItemIdOrderByCreatedAtAsc(item.getId());
+        List<ReportDeliveryAttemptEntity> attempts = attemptRepository
+                .findByDispatchItemIdOrderByCreatedAtAsc(item.getId());
         List<DeliveryMethod> methods = attempts.stream()
                 .map(ReportDeliveryAttemptEntity::getMethod)
                 .collect(Collectors.toCollection(LinkedHashSet::new))
@@ -682,36 +711,74 @@ public class DispatchService {
                 .reduce((first, second) -> second)
                 .orElse(null);
 
+        String authorizedBy = null;
+        try {
+            UUID resultId = UUID.fromString(item.getReportReference());
+            Optional<TestResultEntity> tr = testResultRepository.findById(resultId);
+            if (tr.isPresent()) {
+                authorizedBy = tr.get().getClinicallyAuthorizedBy();
+            }
+        } catch (Exception ignored) {
+        }
+
+        Instant lastMod = Optional.ofNullable(item.getLastModifiedAt()).orElse(item.getCreatedAt());
+        String updatedAtStr = lastMod != null
+                ? lastMod.atZone(DISPLAY_ZONE).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+                : null;
+        String dispatchedBy = item.getLastModifiedBy() != null && !item.getLastModifiedBy().isBlank()
+                ? item.getLastModifiedBy()
+                : item.getCreatedBy();
+
         return DeliveryRecordResponse.builder()
                 .reportId(item.getReportReference())
                 .patientName(item.getPatientDisplayName())
+                .patientCode(item.getPatientCode())
                 .testName(item.getTestPanelLabel())
+                .authorizedBy(authorizedBy)
+                .dispatchedBy(dispatchedBy)
                 .methods(methods)
                 .status(rowStatus)
                 .dispatchedTime(minDisp != null ? minDisp.atZone(DISPLAY_ZONE).format(RECORD_TS) : "—")
                 .deliveredTime(deliveredDisplay)
                 .trackingNumber(trackedAttempt != null ? trackedAttempt.getTrackingNumber() : null)
                 .trackingUrl(trackedAttempt != null ? trackedAttempt.getTrackingUrl() : null)
+                .updatedAt(updatedAtStr)
                 .build();
     }
 
     private FailedDeliveryResponse toFailedDelivery(ReportDeliveryAttemptEntity a) {
         ReportDispatchItemEntity i = a.getDispatchItem();
         Instant when = Optional.ofNullable(a.getLastModifiedAt()).orElse(a.getCreatedAt());
+        DispatchReportPayload reportPayload = resolveReportPayload(i);
+        String patientCode = i.getPatientCode() != null && !i.getPatientCode().isBlank()
+                ? i.getPatientCode()
+                : (reportPayload != null ? reportPayload.patientCode() : null);
+        String dispatchedBy = a.getLastModifiedBy() != null && !a.getLastModifiedBy().isBlank()
+                ? a.getLastModifiedBy()
+                : (i.getLastModifiedBy() != null && !i.getLastModifiedBy().isBlank()
+                        ? i.getLastModifiedBy()
+                        : (i.getCreatedBy() != null ? i.getCreatedBy() : (reportPayload != null ? reportPayload.authorizedBy() : "System")));
+
         return FailedDeliveryResponse.builder()
                 .attemptId(a.getId())
                 .reportId(i.getReportReference())
-                .patientName(i.getPatientDisplayName())
+                .patientName(i.getPatientDisplayName() != null && !i.getPatientDisplayName().isBlank()
+                        ? i.getPatientDisplayName()
+                        : (reportPayload != null ? reportPayload.patientName() : "Patient"))
+                .patientCode(patientCode)
                 .testName(i.getTestPanelLabel())
                 .method(a.getMethod())
-                .failureReason(Optional.ofNullable(a.getFailureReason()).orElse("Unknown"))
+                .failureReason(Optional.ofNullable(a.getFailureReason()).orElse("Unknown failure"))
                 .failedDateTime(when.atZone(DISPLAY_ZONE).format(RECORD_TS))
                 .retryCount(a.getRetryCount())
+                .dispatchedBy(dispatchedBy)
+                .recipientContact(a.getRecipientContact())
                 .build();
     }
 
     private DispatchItemResponse mapToDetailResponse(ReportDispatchItemEntity e) {
-        List<ReportDeliveryAttemptEntity> attempts = attemptRepository.findByDispatchItemIdOrderByCreatedAtAsc(e.getId());
+        List<ReportDeliveryAttemptEntity> attempts = attemptRepository
+                .findByDispatchItemIdOrderByCreatedAtAsc(e.getId());
         List<DeliveryAttemptResponse> attemptDtos = attempts.stream().map(this::toAttemptDto).toList();
         DispatchReportPayload reportPayload = resolveReportPayload(e);
         return DispatchItemResponse.builder()
@@ -766,13 +833,14 @@ public class DispatchService {
         List<TestResultEntity> sampleResults = sample == null
                 ? List.of(anchor)
                 : testResultRepository.findBySampleId(sample.getId()).stream()
-                .filter(result -> !result.isDeleted())
-                .filter(result -> !Boolean.TRUE.equals(result.getDraft()))
-                .sorted(Comparator
-                        .comparing((TestResultEntity result) -> result.getParameter().getDisplayOrder(),
-                                Comparator.nullsLast(Comparator.naturalOrder()))
-                        .thenComparing(result -> result.getParameter().getName(), String.CASE_INSENSITIVE_ORDER))
-                .toList();
+                        .filter(result -> !result.isDeleted())
+                        .filter(result -> !Boolean.TRUE.equals(result.getDraft()))
+                        .sorted(Comparator
+                                .comparing((TestResultEntity result) -> result.getParameter().getDisplayOrder(),
+                                        Comparator.nullsLast(Comparator.naturalOrder()))
+                                .thenComparing(result -> result.getParameter().getName(),
+                                        String.CASE_INSENSITIVE_ORDER))
+                        .toList();
 
         String authorizedBy = firstNonBlank(sampleResults.stream()
                 .map(TestResultEntity::getClinicallyAuthorizedBy)
@@ -793,7 +861,8 @@ public class DispatchService {
                 order == null ? null : trimToNull(order.getReferringDoctor()),
                 order == null ? null : trimToNull(order.getReferringDepartment()),
                 sample == null ? null : sample.getBarcode(),
-                sample == null || sample.getCollectedAt() == null ? null : sample.getCollectedAt().atZone(DISPLAY_ZONE).toOffsetDateTime(),
+                sample == null || sample.getCollectedAt() == null ? null
+                        : sample.getCollectedAt().atZone(DISPLAY_ZONE).toOffsetDateTime(),
                 authorizedAt,
                 authorizedBy,
                 clinicalNote,
@@ -807,7 +876,8 @@ public class DispatchService {
                 .result(result.getResultValue())
                 .unit(result.getParameter().getUnit())
                 .flag(flag)
-                .referenceRange(formatReferenceRange(result.getParameter().getRefLow(), result.getParameter().getRefHigh()))
+                .referenceRange(
+                        formatReferenceRange(result.getParameter().getRefLow(), result.getParameter().getRefHigh()))
                 .abnormal(flag != null && !"NORMAL".equals(flag))
                 .build();
     }
@@ -853,10 +923,10 @@ public class DispatchService {
             OffsetDateTime reportGeneratedAt,
             String authorizedBy,
             String clinicalNote,
-            List<DispatchReportResultResponse> results
-    ) {
+            List<DispatchReportResultResponse> results) {
         static DispatchReportPayload empty() {
-            return new DispatchReportPayload(null, null, null, null, null, null, null, null, null, null, null, null, List.of());
+            return new DispatchReportPayload(null, null, null, null, null, null, null, null, null, null, null, null,
+                    List.of());
         }
     }
 
@@ -867,8 +937,10 @@ public class DispatchService {
                 .status(a.getStatus())
                 .failureReason(a.getFailureReason())
                 .retryCount(a.getRetryCount())
-                .dispatchedAt(a.getDispatchedAt() != null ? a.getDispatchedAt().atZone(DISPLAY_ZONE).toOffsetDateTime() : null)
-                .deliveredAt(a.getDeliveredAt() != null ? a.getDeliveredAt().atZone(DISPLAY_ZONE).toOffsetDateTime() : null)
+                .dispatchedAt(a.getDispatchedAt() != null ? a.getDispatchedAt().atZone(DISPLAY_ZONE).toOffsetDateTime()
+                        : null)
+                .deliveredAt(
+                        a.getDeliveredAt() != null ? a.getDeliveredAt().atZone(DISPLAY_ZONE).toOffsetDateTime() : null)
                 .recipientContact(a.getRecipientContact())
                 .trackingNumber(a.getTrackingNumber())
                 .trackingUrl(a.getTrackingUrl())
@@ -904,12 +976,13 @@ public class DispatchService {
                 .filter(attempt -> activeMethods.contains(attempt.getMethod()))
                 .forEach(attempt -> latest.put(attempt.getMethod(), attempt));
         List<ReportDeliveryAttemptEntity> current = List.copyOf(latest.values());
-        if (current.isEmpty()) return DispatchItemStatus.PENDING;
+        if (current.isEmpty())
+            return DispatchItemStatus.PENDING;
 
         boolean anyDelivered = current.stream().anyMatch(a -> a.getStatus() == DeliveryAttemptStatus.DELIVERED);
         boolean anyFailed = current.stream().anyMatch(a -> a.getStatus() == DeliveryAttemptStatus.FAILED);
-        boolean anyOpen = current.stream().anyMatch(a ->
-                a.getStatus() == DeliveryAttemptStatus.PENDING || a.getStatus() == DeliveryAttemptStatus.SENT);
+        boolean anyOpen = current.stream().anyMatch(
+                a -> a.getStatus() == DeliveryAttemptStatus.PENDING || a.getStatus() == DeliveryAttemptStatus.SENT);
 
         boolean allDelivered = current.size() == activeMethods.stream().distinct().count()
                 && current.stream().allMatch(a -> a.getStatus() == DeliveryAttemptStatus.DELIVERED);

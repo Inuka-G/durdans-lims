@@ -1,8 +1,8 @@
 "use client";
 
-import { useId, useState, useEffect } from "react";
+import { useEffect, useId, useState } from "react";
 import { AlertCircle } from "lucide-react";
-import { createAdminUser, getBranches, getSuperadminRoles, BranchResponse } from "@/lib/api";
+import { ASSIGNABLE_ROLES, Branch, createAdminUser, getBranches } from "@/lib/api";
 import Modal from "@/components/ui/Modal";
 import Button from "@/components/ui/Button";
 import SegmentedControl from "@/components/ui/SegmentedControl";
@@ -22,45 +22,35 @@ const STATUS_OPTIONS: { value: UserStatus; label: string }[] = [
     { value: "INACTIVE", label: "Inactive" },
 ];
 
+const EMPTY_FORM = {
+    name: "",
+    email: "",
+    branch: "",
+    role: ASSIGNABLE_ROLES[0].value,
+    status: "ACTIVE" as UserStatus,
+    temporaryPassword: "",
+};
+
 export default function UserCreateModal({ isOpen, onClose }: UserCreateModalProps) {
     const { user: authUser } = useAuth();
     const formId = useId();
-    const [formData, setFormData] = useState({
-        username: "",
-        name: "",
-        email: "",
-        phone: "",
-        branch: "",
-        role: "",
-        status: "ACTIVE",
-    });
-    
-    const [roles, setRoles] = useState<string[]>([]);
-    const [branches, setBranches] = useState<BranchResponse[]>([]);
-    
-    useEffect(() => {
-        if (isOpen) {
-            getSuperadminRoles().then(setRoles).catch(console.error);
-            getBranches(0, 1000).then((res) => {
-                setBranches(res.content);
-                if (res.content.length > 0 && !formData.branch) {
-                    setFormData(prev => ({ ...prev, branch: res.content[0].code }));
-                }
-            }).catch(console.error);
-            
-            // Set initial role if loaded
-            getSuperadminRoles().then(r => {
-               if (r.length > 0 && !formData.role) {
-                   setFormData(prev => ({ ...prev, role: r[0] }));
-               }
-            }).catch(console.error);
-        }
-    }, [isOpen]);
-    
-    const [adminUsername, setAdminUsername] = useState("");
-    const [adminPassword, setAdminPassword] = useState("");
+    const [formData, setFormData] = useState(EMPTY_FORM);
     const [error, setError] = useState<string | null>(null);
     const [submitting, setSubmitting] = useState(false);
+    const [branches, setBranches] = useState<Branch[]>([]);
+    const [branchesLoading, setBranchesLoading] = useState(true);
+
+    useEffect(() => {
+        if (!isOpen) return;
+        setBranchesLoading(true);
+        getBranches()
+            .then((list) => {
+                setBranches(list);
+                setFormData((f) => (f.branch ? f : { ...f, branch: list[0]?.code ?? "" }));
+            })
+            .catch(() => setBranches([]))
+            .finally(() => setBranchesLoading(false));
+    }, [isOpen]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -90,11 +80,12 @@ export default function UserCreateModal({ isOpen, onClose }: UserCreateModalProp
                 email: formData.email,
                 firstName,
                 lastName,
-                phone: formData.phone,
-                role: formData.role, // Pass exactly as retrieved from API
+                role: formData.role,
                 branchCode: formData.branch,
-                adminPassword: adminPassword,
+                temporaryPassword: formData.temporaryPassword,
+                enabled: formData.status === "ACTIVE",
             });
+            setFormData(EMPTY_FORM);
             onClose();
             toast.success(`User '${firstName} ${lastName}' created successfully!`, { position: 'top-right' });
         } catch (err: any) {
@@ -129,7 +120,7 @@ export default function UserCreateModal({ isOpen, onClose }: UserCreateModalProp
                 {error && (
                     <div
                         role="alert"
-                        className="flex items-start gap-2 rounded-md bg-status-danger-bg px-3 py-2 text-[13px] text-status-danger-fg ring-1 ring-inset ring-status-danger-edge sm:col-span-2"
+                        className="flex items-start gap-2 rounded-md bg-status-danger-bg px-3 py-2 text-sm text-status-danger-fg ring-1 ring-inset ring-status-danger-edge sm:col-span-2"
                     >
                         <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
                         <span>{error}</span>
@@ -170,30 +161,41 @@ export default function UserCreateModal({ isOpen, onClose }: UserCreateModalProp
                 />
 
                 <InputField
-                    label="Phone number"
-                    type="tel"
-                    placeholder="+1 (555) 000-0000"
+                    label="Temporary password"
+                    required
+                    type="text"
+                    placeholder="Given to the user to sign in and change on first login"
                     autoComplete="off"
                     className="sm:col-span-2"
-                    value={formData.phone}
-                    onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))}
+                    value={formData.temporaryPassword}
+                    onChange={(e) => setFormData({ ...formData, temporaryPassword: e.target.value })}
                 />
 
                 <SelectField
                     label="Branch"
+                    required
+                    disabled={branchesLoading || branches.length === 0}
                     value={formData.branch}
                     onChange={(e) => setFormData({ ...formData, branch: e.target.value })}
                 >
-                    <option value="" disabled>Select a branch</option>
-                    {branches.map(b => (
-                        <option key={b.code} value={b.code} disabled={b.status !== 'Active'}>{b.name}{b.status !== 'Active' ? ' (Inactive)' : ''}</option>
-                    ))}
+                    {branchesLoading ? (
+                        <option value="">Loading branches…</option>
+                    ) : branches.length === 0 ? (
+                        <option value="">No branches available</option>
+                    ) : (
+                        branches.map((b) => (
+                            <option key={b.code} value={b.code}>
+                                {b.name} ({b.code})
+                            </option>
+                        ))
+                    )}
                 </SelectField>
 
                 <SelectField label="Role" value={formData.role} onChange={(e) => setFormData({ ...formData, role: e.target.value })}>
-                    <option value="" disabled>Select a role</option>
-                    {roles.map(r => (
-                        <option key={r} value={r}>{r}</option>
+                    {ASSIGNABLE_ROLES.map((r) => (
+                        <option key={r.value} value={r.value}>
+                            {r.label}
+                        </option>
                     ))}
                 </SelectField>
 
@@ -201,7 +203,7 @@ export default function UserCreateModal({ isOpen, onClose }: UserCreateModalProp
                     <p className="mb-1 text-xs font-medium text-fg-secondary">Initial status</p>
                     <SegmentedControl<UserStatus>
                         ariaLabel="Initial status"
-                        value={formData.status as UserStatus}
+                        value={formData.status}
                         onChange={(next) => setFormData({ ...formData, status: next })}
                         options={STATUS_OPTIONS}
                     />

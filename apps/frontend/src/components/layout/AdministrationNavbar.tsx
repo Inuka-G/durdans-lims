@@ -1,28 +1,26 @@
 "use client";
 
-import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Building2, Check, ChevronDown, Hospital, LogOut, Monitor, Moon, Sun } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useMetadata } from "@/providers/MetadataProvider";
 import { useTheme, type ThemePreference } from "@/providers/ThemeProvider";
 import { cn } from "@/lib/utils";
+import ModuleTabs from "@/components/layout/ModuleTabs";
+import AccountStatusBadge from "@/components/layout/AccountStatusBadge";
 
 /**
  * Administration (super admin › access management) top bar.
- * Same shell as TopNav — brand, branch chip, account menu — but the current
- * screen's name sits where TopNav puts module tabs: navigation inside this
- * suite belongs to AdministrationSidebar, and several of its destinations
- * render a different top bar, so duplicating them here could never be honest.
+ * Same shell as TopNav — brand, branch chip, account menu, module tabs. This
+ * used to show the current screen's name instead of tabs, on the reasoning
+ * that several Administration destinations render a different top bar so
+ * duplicating tabs here "could never be honest" — but every shell now
+ * renders the same shared ModuleTabs, so that's no longer true, and a user
+ * holding more than one role needs this bar to get to their other role's
+ * screens same as every other shell. In-suite navigation (Global user
+ * control, Role definitions, Branch management, Audit trails, Security)
+ * still lives in AdministrationSidebar, on the left.
  */
-const PAGE_TITLES: { match: string; title: string }[] = [
-    { match: "/users", title: "Global user control" },
-    { match: "/roles", title: "Role definitions" },
-    { match: "/branches", title: "Branch management" },
-    { match: "/audit", title: "Audit trails" },
-    { match: "/security", title: "Security settings" },
-];
-
 const THEME_OPTIONS: { value: ThemePreference; label: string; icon: typeof Sun }[] = [
     { value: "light", label: "Light", icon: Sun },
     { value: "dark", label: "Dark", icon: Moon },
@@ -30,14 +28,11 @@ const THEME_OPTIONS: { value: ThemePreference; label: string; icon: typeof Sun }
 ];
 
 export default function AdministrationNavbar() {
-    const pathname = usePathname();
-    const pageTitle = PAGE_TITLES.find((p) => pathname.includes(p.match))?.title ?? "Administration";
     const { logout, user } = useAuth();
     const { metadata } = useMetadata();
     const { theme, setTheme } = useTheme();
 
     const userName = user?.name || user?.preferred_username || "User";
-    const subtitleLine = "Super admin · Corporate headquarters";
 
     /* ── Account menu (Logout lives here, not in the nav bar) ── */
     const [menuOpen, setMenuOpen] = useState(false);
@@ -116,9 +111,7 @@ export default function AdministrationNavbar() {
                         </span>
                     )}
 
-                    <p className="min-w-0 flex-1 truncate text-sm font-semibold text-fg" aria-live="polite">
-                        {pageTitle}
-                    </p>
+                    <ModuleTabs />
                 </div>
 
                 <div ref={menuRef} className="relative shrink-0" onKeyDown={onMenuKeyDown}>
@@ -134,7 +127,9 @@ export default function AdministrationNavbar() {
                     >
                         <span className="hidden text-right lg:block">
                             <span className="block text-sm font-semibold leading-tight text-fg">{userName}</span>
-                            <span className="block text-[11px] leading-tight text-fg-muted">{subtitleLine}</span>
+                            <span className="block text-[12px] leading-tight">
+                                <AccountStatusBadge />
+                            </span>
                         </span>
                         <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary-soft text-sm font-semibold text-primary-strong">
                             {userName.charAt(0).toUpperCase()}
@@ -146,10 +141,12 @@ export default function AdministrationNavbar() {
                         <div className="absolute right-0 mt-1.5 w-60 overflow-hidden rounded-md border border-edge bg-surface py-1 shadow-lg shadow-black/10">
                             <div className="border-b border-edge px-3 py-2">
                                 <p className="truncate text-sm font-medium text-fg">{userName}</p>
-                                <p className="truncate text-[11px] text-fg-muted">{subtitleLine}</p>
+                                <p className="truncate text-[12px]">
+                                    <AccountStatusBadge />
+                                </p>
                             </div>
                             <div role="menu" aria-label="Account">
-                                <div className="px-3 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wide text-fg-muted" id="theme-group-label">
+                                <div className="px-3 pb-1 pt-2 text-[12px] font-medium uppercase tracking-wide text-fg-muted" id="theme-group-label">
                                     Theme
                                 </div>
                                 <div role="group" aria-labelledby="theme-group-label" className="px-1 pb-1">

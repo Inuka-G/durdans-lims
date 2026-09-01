@@ -586,17 +586,17 @@ export default function SuppliesPage() {
                 ) : (
                     <div className="overflow-x-auto">
                         {/* Fixed widths per band: base 704 · md 912 · lg 1136 — each under its min-w */}
-                        <table className="w-full min-w-[760px] table-fixed text-left text-[13px] md:min-w-[940px] lg:min-w-[1180px]">
+                        <table className="w-full min-w-[760px] table-fixed text-left text-sm md:min-w-[940px] lg:min-w-[1180px]">
                             <caption className="sr-only">Supplies inventory</caption>
                             <thead>
-                                <tr className="whitespace-nowrap border-b border-edge text-xs font-medium text-fg-muted">
-                                    <th scope="col" className="w-64 py-2 pl-4 pr-3 font-medium">Item</th>
-                                    <th scope="col" className="hidden w-52 px-3 py-2 font-medium md:table-cell">Tests</th>
-                                    <th scope="col" className="w-56 px-3 py-2 font-medium">Stock</th>
-                                    <th scope="col" className="hidden w-20 px-3 py-2 text-right font-medium lg:table-cell">Min</th>
-                                    <th scope="col" className="w-32 px-3 py-2 font-medium">Status</th>
-                                    <th scope="col" className="hidden w-36 px-3 py-2 font-medium lg:table-cell">Last restocked</th>
-                                    <th scope="col" className="w-24 py-2 pl-3 pr-4 text-right font-medium">
+                                <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
+                                    <th scope="col" className="w-64 py-2 pl-4 pr-3 font-semibold">Item</th>
+                                    <th scope="col" className="hidden w-52 px-3 py-2 font-semibold md:table-cell">Tests</th>
+                                    <th scope="col" className="w-56 px-3 py-2 font-semibold">Stock</th>
+                                    <th scope="col" className="hidden w-20 px-3 py-2 text-right font-semibold lg:table-cell">Min</th>
+                                    <th scope="col" className="w-32 px-3 py-2 font-semibold">Status</th>
+                                    <th scope="col" className="hidden w-36 px-3 py-2 font-semibold lg:table-cell">Last restocked</th>
+                                    <th scope="col" className="w-24 py-2 pl-3 pr-4 text-right font-semibold">
                                         <span className="sr-only">Actions</span>
                                     </th>
                                 </tr>

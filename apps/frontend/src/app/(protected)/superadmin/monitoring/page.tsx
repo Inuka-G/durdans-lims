@@ -80,7 +80,7 @@ function MeterTile({
     const bar = tone === "danger" ? "bg-status-danger" : tone === "warning" ? "bg-status-pending" : "bg-primary";
     return (
         <div className="rounded-lg border border-edge bg-surface px-4 py-3.5">
-            <span className="flex items-center gap-2 text-xs font-medium text-fg-muted">
+            <span className="flex items-center gap-2 text-xs font-semibold text-fg-muted">
                 <Icon className="h-4 w-4 shrink-0 text-fg-faint" aria-hidden="true" />
                 <span className="truncate">{label}</span>
             </span>
@@ -211,7 +211,7 @@ export default function SystemMonitoringPage() {
                         <SectionCard title="Core microservices" count={services.length} flush>
                             <ul className="divide-y divide-edge">
                                 {services.map((s) => (
-                                    <li key={s.name} className="flex items-center justify-between gap-2 px-4 py-2 text-[13px] text-fg hover:bg-surface-hover">
+                                    <li key={s.name} className="flex items-center justify-between gap-2 px-4 py-2 text-sm text-fg hover:bg-surface-hover">
                                         <span className="min-w-0 truncate font-medium">{s.name}</span>
                                         <StatusChip tone={s.tone} dot size="sm">
                                             {s.state}

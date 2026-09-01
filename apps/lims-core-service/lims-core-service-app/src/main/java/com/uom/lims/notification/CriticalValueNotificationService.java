@@ -297,17 +297,31 @@ public class CriticalValueNotificationService {
             log.error("No contact resolved for critical callback {} — cannot deliver", n.getId());
             return false;
         }
-        String subject = "CRITICAL LAB VALUE — patient " + n.getPatientCode();
-        String body = String.format(
-                "CRITICAL result requiring callback and read-back:%n"
-                        + "Patient: %s%nTest: %s%nValue: %s (%s)%nPriority: %s%n"
-                        + "Please acknowledge in the LIMS with a read-back of the value.",
-                n.getPatientCode(), n.getParameterName(), n.getResultValue(), n.getFlag(), n.getPriority());
+        String subject = "CRITICAL LAB VALUE - patient " + n.getPatientCode();
+        // Line breaks are "\n", not "%n". %n is the platform separator, so the same
+        // callback rendered as "\r\n" on a developer machine and "\n" on the host, and the
+        // stray CR then travelled all the way to the SMS gateway. One form, fixed here.
+        //
+        // The SMS now carries the whole callback instead of a crammed single line. A
+        // clinician being called back about a panic value needs the parameter, the value,
+        // the flag and the priority in front of them; the old one-liner gave the patient
+        // code and a bare number, and its em dashes pushed the message out of GSM-7 into
+        // the 70-character segments that then truncated what little was there.
+        String body = "Durdans LIMS\n"
+                + "CRITICAL LAB VALUE\n"
+                + "\n"
+                + "Patient: " + n.getPatientCode() + "\n"
+                + "Test: " + n.getParameterName() + "\n"
+                + "Value: " + n.getResultValue() + " (" + n.getFlag() + ")\n"
+                + "Priority: " + n.getPriority() + "\n"
+                + "\n"
+                + "Callback and read-back required.\n"
+                + "Please acknowledge in the LIMS with a read-back of the value.";
         try {
             if ("EMAIL".equals(channel)) {
                 emailService.sendNotificationEmail(contact, subject, body.replace("\n", "<br>"));
             } else {
-                smsService.sendSms(contact, subject + " — " + n.getParameterName() + " " + n.getResultValue());
+                smsService.sendSms(contact, body);
             }
             return true;
         } catch (Exception e) {

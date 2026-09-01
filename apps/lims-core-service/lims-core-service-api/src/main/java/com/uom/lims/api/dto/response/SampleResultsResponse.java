@@ -19,5 +19,10 @@ public record SampleResultsResponse(
         Instant collectedAt,
         String collectedBy,
         List<ResultParameterResponse> results,
-        String mltNotes) {
+        String mltNotes,
+        /** True while the supervisor has sent this case back to the MLT for re-run / re-entry. */
+        boolean returnedToMlt,
+        String returnReason,
+        String returnedBy,
+        Instant returnedAt) {
 }

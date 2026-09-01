@@ -40,11 +40,13 @@ async def _post(session: aiohttp.ClientSession, path: str, payload: dict[str, An
         return {"error": "lookup failed"}
 
 
-async def fetch_caller_profile(session: aiohttp.ClientSession, caller_wa_id: str) -> str:
-    """The caller's WhatsApp profile name if they have ever messaged us; "" otherwise.
-    Best effort and fast — a greeting must not wait on it."""
+async def fetch_caller_profile(session: aiohttp.ClientSession, caller_wa_id: str) -> dict[str, Any]:
+    """Everything we may say to this number before it proves who it is: the WhatsApp
+    profile name, the language they last wrote in, and a one-line memory of their
+    previous call. Best effort and fast — a greeting must not wait on it, so an
+    empty dict (an unknown caller) is a perfectly good answer."""
     if not caller_wa_id:
-        return ""
+        return {}
     try:
         async with session.post(
             f"{settings.tools_base_url}/internal/voice/tools/caller-profile",
@@ -53,19 +55,60 @@ async def fetch_caller_profile(session: aiohttp.ClientSession, caller_wa_id: str
             headers={"X-Internal-Token": settings.internal_token},
         ) as response:
             if response.status != 200:
-                return ""
+                return {}
             data = await response.json()
-            return str(data.get("displayName") or "").strip()
+            return data if isinstance(data, dict) else {}
     except Exception as exc:  # noqa: BLE001
         logger.debug("caller-profile lookup skipped: {}", exc)
-        return ""
+        return {}
 
 
-def build_tool_handlers(session: aiohttp.ClientSession, caller_wa_id: str):
-    """Returns {function_name: async handler} with the caller's identity closed over."""
+async def save_call_memory(session: aiohttp.ClientSession, caller_wa_id: str,
+                           summary: str, locale: str) -> None:
+    """Leave one sentence behind so the next call does not start from nothing.
+
+    Fire-and-forget by design: the call is already over, and a memory we failed to
+    write is worth strictly less than a teardown we blocked. The summary is a topic
+    line, never a clinical detail — see the caller-memory contract in the service.
+    """
+    summary = (summary or "").strip()
+    if not caller_wa_id or not summary:
+        return
+    try:
+        async with session.post(
+            f"{settings.tools_base_url}/internal/voice/tools/call-memory",
+            json={"callerWaId": caller_wa_id, "summary": summary, "locale": locale},
+            timeout=aiohttp.ClientTimeout(total=3),
+            headers={"X-Internal-Token": settings.internal_token},
+        ) as response:
+            if response.status != 200:
+                logger.warning("call-memory write returned {}", response.status)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("call-memory write skipped: {}", exc)
+
+
+def build_tool_handlers(session: aiohttp.ClientSession, caller_wa_id: str,
+                        topics: list[str] | None = None):
+    """Returns {function_name: async handler} with the caller's identity closed over.
+
+    ``topics`` collects what the call was ABOUT, for the one-line memory written at
+    hang-up. It records the tool that ran — never what the caller said — so a NIC or
+    a name recited on the line can never end up in a note we read back out loud on
+    the next call.
+    """
+    seen = topics if topics is not None else []
+
+    def remember(topic: str) -> None:
+        if topic and topic not in seen:
+            seen.append(topic)
 
     async def search_tests(params) -> None:
         args = params.arguments or {}
+        query = str(args.get("query", "")).strip()
+        # The query is a test name the caller asked for ("FBC", "sugar test"),
+        # which is what makes the memory useful; it carries no identity. Clipped
+        # anyway — it is model output, and a memory is a label, not a field.
+        remember(f"test prices ({query[:40]})" if query else "test prices")
         result = await _post(session, "search-tests", {
             "query": args.get("query", ""),
             "locale": args.get("locale"),
@@ -74,11 +117,13 @@ def build_tool_handlers(session: aiohttp.ClientSession, caller_wa_id: str):
 
     async def list_packages(params) -> None:
         args = params.arguments or {}
+        remember("health packages")
         result = await _post(session, "list-packages", {"locale": args.get("locale")})
         await params.result_callback(result)
 
     async def get_order_status(params) -> None:
         args = params.arguments or {}
+        remember("report status")
         result = await _post(session, "order-status", {
             "orderNo": args.get("orderNo", ""),
             # Server-side identity: the number that is actually on the call.
@@ -88,6 +133,7 @@ def build_tool_handlers(session: aiohttp.ClientSession, caller_wa_id: str):
 
     async def verify_patient(params) -> None:
         args = params.arguments or {}
+        remember("report status")
         result = await _post(session, "verify-patient", {
             "identityNumber": args.get("identityNumber", ""),
             "fullName": args.get("fullName", ""),

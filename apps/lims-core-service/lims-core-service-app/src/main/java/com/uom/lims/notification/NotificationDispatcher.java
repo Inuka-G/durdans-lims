@@ -35,22 +35,39 @@ public class NotificationDispatcher {
     @Async("notificationExecutor")
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onPhoneOtpRequested(PhoneOtpRequestedEvent event) {
-        try {
-            smsService.sendSms(event.phone(),
-                    "Durdans LIMS verification code: " + event.rawOtp()
-                            + ". Valid for 5 minutes. Do not share this code with anyone.");
-        } catch (Exception e) {
-            log.error("Failed to send OTP SMS to {}", PiiMasker.maskPhone(event.phone()), e);
-        }
+        String message = "Durdans LIMS\n"
+                + "\n"
+                + "Verification code: " + event.rawOtp() + "\n"
+                + "\n"
+                + "Valid for 5 minutes.\n"
+                + "Do not share this code with anyone.";
+        send("phone OTP", event.phone(), message);
     }
 
     @Async("notificationExecutor")
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onPatientLifecycleSmsRequested(PatientLifecycleSmsRequestedEvent event) {
+        send("patient lifecycle SMS", event.phone(), event.message());
+    }
+
+    /**
+     * The send has to be swallowed - the transaction it followed has already committed,
+     * and a failed SMS must not be retried into a second OTP or a duplicate bill alert.
+     * What it must not do is vanish. The caller (an HTTP 200 and an "OTP sent" toast)
+     * has no idea this failed, so the log is the only record there is, and it separates
+     * the two causes that need different people to fix them: a number the gateway
+     * cannot dial is the front desk's to correct, anything else is the gateway's.
+     */
+    private void send(String kind, String phone, String message) {
+        String masked = PiiMasker.maskPhone(phone);
         try {
-            smsService.sendSms(event.phone(), event.message());
+            smsService.sendSms(phone, message);
+            log.debug("Sent {} to {} ({} chars)", kind, masked, message.length());
+        } catch (IllegalArgumentException e) {
+            log.error("Did not send {} to {}: unusable phone number on the patient record - {}",
+                    kind, masked, e.getMessage());
         } catch (Exception e) {
-            log.error("Failed to send patient lifecycle SMS to {}", PiiMasker.maskPhone(event.phone()), e);
+            log.error("Failed to send {} to {}", kind, masked, e);
         }
     }
 }

@@ -1,7 +1,6 @@
 package com.uom.lims.controller;
 
 import com.uom.lims.api.common.PageResponse;
-import com.uom.lims.api.dto.response.VerificationPendingItemResponse;
 import com.uom.lims.api.verification.dto.request.BulkVerificationRequest;
 import com.uom.lims.api.verification.dto.response.BulkVerificationBatchResponse;
 import com.uom.lims.api.verification.dto.request.VerificationRequest;
@@ -15,7 +14,6 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.data.domain.Page;
-import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -38,13 +36,6 @@ import java.time.LocalDateTime;
 public class VerificationController {
 
     private final VerificationService verificationService;
-
-    @PreAuthorize("hasAnyRole('LAB_SUPERVISOR','BRANCH_ADMIN','SUPER_ADMIN')")
-    @GetMapping("/pending")
-    @Operation(summary = "Get pending samples for supervisor verification queue")
-    public ResponseEntity<List<VerificationPendingItemResponse>> getPendingSamples() {
-        return ResponseEntity.ok(verificationService.getPendingSamples());
-    }
 
     @PreAuthorize("hasAnyRole('LAB_SUPERVISOR','BRANCH_ADMIN','SUPER_ADMIN')")
     @GetMapping("/pending-results")
