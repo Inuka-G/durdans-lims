@@ -33,14 +33,14 @@ function SidebarForRoute({ pathname }: { pathname: string }) {
     if (pathname.startsWith("/dispatch")) return <DispatchSidebar />;
     if (pathname.startsWith("/branch")) return <BranchSidebar />;
     if (pathname.startsWith("/patient-portal")) return <PatientSidebar />;
-    if (pathname.startsWith("/superadmin/roles") || pathname.includes("/admin/")) return <AdministrationSidebar />;
+    if (pathname.includes("/admin/")) return <AdministrationSidebar />;
     if (pathname.startsWith("/superadmin")) return <SuperBranchSidebar />;
     return <Sidebar />;
 }
 
 export default function ProtectedLayout({ children }: { children: ReactNode }) {
     const pathname = usePathname();
-    const isSuperAdminAdmin = pathname.startsWith("/superadmin/roles") || pathname.includes("/admin/");
+    const isSuperAdminAdmin = pathname.includes("/admin/");
     const isSuperBranch = pathname.startsWith("/superadmin") && !isSuperAdminAdmin;
     const isBranch = pathname.startsWith("/branch");
 

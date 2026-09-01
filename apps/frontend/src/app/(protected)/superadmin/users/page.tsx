@@ -1,102 +1,156 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-    AlertTriangle,
-    LayoutGrid,
-    Pencil,
-    RefreshCw,
-    Search,
-    UserCheck,
-    UserPlus,
-    UserX,
-    Users,
-    X,
-} from "lucide-react";
-import UserCreateModal from "@/components/admin/UserCreateModal";
-import UserEditModal from "@/components/admin/UserEditModal";
-import { ASSIGNABLE_ROLES, getAdminUsers, setAdminUserEnabled, AdminUser } from "@/lib/api";
-import Button from "@/components/ui/Button";
-import PageHeader from "@/components/ui/PageHeader";
-import SectionCard from "@/components/ui/SectionCard";
-import SegmentedControl from "@/components/ui/SegmentedControl";
-import EmptyState from "@/components/ui/EmptyState";
-import StatusChip, { humanizeStatus, toneForStatus } from "@/components/ui/StatusChip";
+import { useState, useEffect } from "react";
 
+// Types for Mock Data
 type UserStatus = "ACTIVE" | "INACTIVE";
-type Tab = "directory" | "matrix";
 
 interface UserRecord {
     id: string;
+    username: string;
     name: string;
     email: string;
+    phone?: string;
+    branchId: string;
     branch: string;
     roles: string[];
     status: UserStatus;
+    lastLogin: string;
 }
+import UserCreateModal from "@/components/admin/UserCreateModal";
+import UserEditModal from "@/components/admin/UserEditModal";
+import ResetPasswordModal from "@/components/admin/ResetPasswordModal";
 
-const SKELETON_ROWS = 6;
-
-const TAB_OPTIONS: { value: Tab; label: string }[] = [
-    { value: "directory", label: "User directory" },
-    { value: "matrix", label: "Global role matrix" },
-];
-
-const ROLE_LABELS: Record<string, string> = Object.fromEntries(ASSIGNABLE_ROLES.map((r) => [r.value, r.label]));
-
-/** Friendly label for a realm role code, falling back to the raw code for anything not in ASSIGNABLE_ROLES (e.g. SUPER_ADMIN, which this UI doesn't assign but may still need to display). */
-function roleLabel(role: string): string {
-    return ROLE_LABELS[role] ?? role;
-}
-
-function toRecord(u: AdminUser): UserRecord {
-    return {
-        id: u.id,
-        name: `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || u.username,
-        email: u.email ?? "—",
-        branch: u.branchCode ?? "—",
-        roles: u.roles ?? [],
-        status: u.enabled ? "ACTIVE" : "INACTIVE",
-    };
-}
+import { toast } from "sonner";
+import { getSuperadminUsers, updateSuperadminUser, resetSuperadminUserPassword, getBranches, getSuperadminRoles, BranchResponse } from "@/lib/api";
+import { useAuth } from "@/hooks/useAuth";
 
 export default function GlobalUserControlPage() {
-    const [activeTab, setActiveTab] = useState<Tab>("directory");
+    const { user: authUser } = useAuth();
+    const [activeTab, setActiveTab] = useState<"directory" | "matrix">("directory");
     const [users, setUsers] = useState<UserRecord[]>([]);
     const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const [search, setSearch] = useState("");
 
+    // Modal states
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const [isResetPasswordModalOpen, setIsResetPasswordModalOpen] = useState(false);
     const [selectedUser, setSelectedUser] = useState<UserRecord | null>(null);
 
-    const load = useCallback(async () => {
+    // Search & Filter states
+    const [searchQuery, setSearchQuery] = useState("");
+    const [branchFilter, setBranchFilter] = useState("All Branches");
+    const [roleFilter, setRoleFilter] = useState("All Roles");
+
+    // Data states for filters
+    const [branches, setBranches] = useState<BranchResponse[]>([]);
+    const [roles, setRoles] = useState<string[]>([]);
+
+    const fetchUsers = async () => {
         setLoading(true);
-        setError(null);
         try {
-            const data = await getAdminUsers();
-            setUsers(data.map(toRecord));
-        } catch {
-            setError("User administration is unavailable. Enable the Keycloak admin module on the backend (app.keycloak-admin.enabled).");
-            setUsers([]);
+            const [usersData, branchesData, rolesData] = await Promise.all([
+                getSuperadminUsers(),
+                getBranches().catch(() => ({ content: [] as BranchResponse[] })),
+                getSuperadminRoles().catch(() => [])
+            ]);
+
+            const fetchedBranches = branchesData.content || [];
+            setBranches(fetchedBranches);
+            setRoles(rolesData);
+
+            const mappedUsers: UserRecord[] = usersData.map(u => {
+                let branchName = "Not Assigned";
+                if (u.branchId) {
+                    const foundBranch = fetchedBranches.find((b: BranchResponse) => b.id.toString() === u.branchId);
+                    branchName = foundBranch ? foundBranch.name : `Branch ${u.branchId}`;
+                }
+
+                return {
+                    id: u.id,
+                    username: u.username || "Unknown",
+                    name: u.fullName || u.username || "Unknown",
+                    email: u.email || "",
+                    branchId: u.branchId || "",
+                    branch: branchName,
+                    roles: u.roles || [],
+                    status: u.isActive ? "ACTIVE" : "INACTIVE",
+                    lastLogin: "N/A"
+                };
+            });
+
+            setUsers(mappedUsers);
+        } catch (error) {
+            console.error("Failed to load users", error);
+            toast.error("Failed to load user directory.");
         } finally {
             setLoading(false);
         }
-    }, []);
+    };
 
     useEffect(() => {
-        load();
-    }, [load]);
+        fetchUsers();
+    }, []);
 
-    const handleToggleStatus = async (userId: string) => {
-        const user = users.find((u) => u.id === userId);
-        if (!user) return;
+    const filteredUsers = users.filter(u => {
+        const query = searchQuery.toLowerCase();
+        const matchesSearch = !query ||
+            u.name.toLowerCase().includes(query) ||
+            u.username.toLowerCase().includes(query) ||
+            u.email.toLowerCase().includes(query);
+
+        const matchesBranch = branchFilter === "All Branches" || u.branch === branchFilter;
+        const matchesRole = roleFilter === "All Roles" || (u.roles && u.roles.includes(roleFilter));
+
+        return matchesSearch && matchesBranch && matchesRole;
+    });
+
+    const handleUpdateUser = async (id: string, data: Partial<UserRecord>) => {
         try {
-            await setAdminUserEnabled(userId, user.status !== "ACTIVE");
-            await load();
-        } catch {
-            setError("Failed to update user status.");
+            const backendData = {
+                fullName: data.name || "",
+                email: data.email || "",
+                role: data.roles?.[0] || "",
+                isActive: data.status === "ACTIVE",
+                branchId: ""
+            };
+
+            // Map branch strings to IDs
+            if (data.branchId) {
+                backendData.branchId = data.branchId;
+            } else if (data.branch && data.branch.includes("Branch ")) {
+                const parsedId = data.branch.replace("Branch ", "");
+                backendData.branchId = parsedId;
+            }
+
+            await updateSuperadminUser(id, backendData);
+            toast.success("User updated successfully", { position: 'top-right' });
+            await fetchUsers(); // Refresh the table
+        } catch (error: any) {
+            console.error("Failed to update user", error);
+            toast.error(error?.response?.data?.message || error.message || "Failed to update user.", { position: 'top-right' });
+            throw error;
+        }
+    };
+
+    const handleToggleStatus = async (user: UserRecord) => {
+        const newStatus = user.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
+        try {
+            const backendData = {
+                fullName: user.name,
+                email: user.email,
+                phone: user.phone || "",
+                role: user.roles?.[0] || "",
+                isActive: newStatus === "ACTIVE",
+                branchId: user.branchId || ""
+            };
+
+            await updateSuperadminUser(user.id, backendData);
+            toast.success(`User successfully ${newStatus === 'ACTIVE' ? 'activated' : 'deactivated'}`, { position: 'top-right' });
+            await fetchUsers(); // Refresh the table
+        } catch (error: any) {
+            console.error("Failed to toggle user status", error);
+            toast.error(error?.response?.data?.message || error.message || "Failed to update user status.", { position: 'top-right' });
         }
     };
 
@@ -105,284 +159,288 @@ export default function GlobalUserControlPage() {
         setIsEditModalOpen(true);
     };
 
-    // Client-side filter over the loaded directory (name, id or email).
-    const visibleUsers = useMemo(() => {
-        const q = search.trim().toLowerCase();
-        if (!q) return users;
-        return users.filter(
-            (u) => u.name.toLowerCase().includes(q) || u.id.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)
-        );
-    }, [users, search]);
+    const handleResetPasswordClick = (user: UserRecord) => {
+        setSelectedUser(user);
+        setIsResetPasswordModalOpen(true);
+    };
 
-    const showErrorState = !!error && users.length === 0;
-    const showErrorBanner = !!error && users.length > 0;
+    const handleConfirmResetPassword = async (userId: string, password: string, adminUsername: string, adminPassword: string): Promise<boolean> => {
+        try {
+            if (!authUser?.preferred_username) {
+                return false;
+            }
+
+            const expectedUsername = authUser.preferred_username.trim().toLowerCase();
+            const providedUsername = adminUsername.trim().toLowerCase();
+
+            if (providedUsername !== expectedUsername) {
+                toast.error("Username does not match your active session.", { position: 'top-right' });
+                return false;
+            }
+
+            // Perform the reset (backend will verify the adminPassword)
+            await resetSuperadminUserPassword(userId, password, adminPassword);
+            toast.success(`Password successfully reset to '${password}'`, { position: 'top-right' });
+            return true;
+        } catch (error: any) {
+            console.error("Failed to reset password", error);
+            if (error?.response?.data?.message?.includes("Incorrect admin password") || error?.response?.status === 401 || error?.response?.status === 400) {
+                toast.error("Incorrect admin password. Verification failed.", { position: 'top-right' });
+            } else {
+                toast.error(error?.response?.data?.message || error.message || "Failed to reset password.", { position: 'top-right' });
+            }
+            return false;
+        }
+    };
 
     return (
-        <div className="mx-auto w-full max-w-[1400px]">
-            <PageHeader
-                title="Global user and role control"
-                crumbs={[{ label: "System" }, { label: "Global administration" }, { label: "User and role control" }]}
-                meta={<span>Centralised identity and access management for all hospital branches</span>}
-                actions={
-                    <>
-                        <Button icon={RefreshCw} onClick={load} loading={loading && users.length > 0}>
-                            Refresh
-                        </Button>
-                        <Button variant="primary" icon={UserPlus} onClick={() => setIsCreateModalOpen(true)}>
-                            Create user
-                        </Button>
-                    </>
-                }
-            />
+        <div className="max-w-[1400px] mx-auto w-full font-sans text-slate-900 min-h-[calc(100vh-136px)] pt-2 pb-10 flex flex-col">
 
-            {/* Screen-reader status for async changes. The error is announced here only when the
-                visible role="alert" banner is not already announcing it, and counts only apply to
-                the directory tab. */}
-            <p role="status" aria-live="polite" className="sr-only">
-                {loading
-                    ? "Loading users"
-                    : error
-                      ? showErrorBanner
-                          ? ""
-                          : error
-                      : activeTab === "directory"
-                        ? `${visibleUsers.length} of ${users.length} ${users.length === 1 ? "user" : "users"} shown.`
-                        : ""}
-            </p>
+            {/* Breadcrumb & Header */}
+            <div className="mb-8">
+                <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 mb-2">
+                    <span className="hover:text-slate-800 cursor-pointer transition-colors">System</span>
+                    <span className="text-[10px] opacity-50">/</span>
+                    <span className="hover:text-slate-800 cursor-pointer transition-colors">Global Administration</span>
+                    <span className="text-[10px] opacity-50">/</span>
+                    <span className="text-slate-800 font-bold">User & Role Control</span>
+                </div>
+                <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">Global User & Role Control</h1>
+                <p className="text-sm font-medium text-slate-500 mt-1 pb-4">Centralized identity and access management for all hospital branches.</p>
 
-            <div className="mb-4">
-                <SegmentedControl value={activeTab} onChange={setActiveTab} options={TAB_OPTIONS} ariaLabel="User control view" />
+                {/* Tabs */}
+                <div className="flex items-center gap-6 border-b border-slate-200">
+                    <button
+                        onClick={() => setActiveTab("directory")}
+                        className={`pb-3 text-sm font-bold transition-all border-b-2 px-1 ${activeTab === "directory"
+                            ? "text-blue-600 border-blue-600"
+                            : "text-slate-500 border-transparent hover:text-slate-800"
+                            }`}
+                    >
+                        User Directory
+                    </button>
+                    <button
+                        onClick={() => setActiveTab("matrix")}
+                        className={`pb-3 text-sm font-bold transition-all border-b-2 px-1 ${activeTab === "matrix"
+                            ? "text-blue-600 border-blue-600"
+                            : "text-slate-500 border-transparent hover:text-slate-800"
+                            }`}
+                    >
+                        Global Role Matrix
+                    </button>
+                </div>
             </div>
 
-            {activeTab === "directory" && (
-                <SectionCard title="Users" count={loading ? undefined : users.length} flush>
-                    {/* Toolbar */}
-                    <div className="flex flex-wrap items-center gap-2 border-b border-edge bg-surface-muted px-3 py-2">
-                        <label className="relative block min-w-[200px] flex-1 sm:max-w-md">
-                            <span className="sr-only">Search users by name, ID or email</span>
-                            <Search
-                                className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-faint"
-                                aria-hidden="true"
-                            />
-                            <input
-                                type="search"
-                                value={search}
-                                onChange={(e) => setSearch(e.target.value)}
-                                placeholder="Search by name, ID or email"
-                                autoComplete="off"
-                                className="h-9 w-full rounded-md border border-edge bg-surface pl-8 pr-8 text-sm text-fg placeholder:text-fg-faint focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-                            />
-                            {search && (
-                                <button
-                                    type="button"
-                                    onClick={() => setSearch("")}
-                                    aria-label="Clear search"
-                                    className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-fg-muted hover:bg-surface-hover hover:text-fg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                                >
-                                    <X className="h-3.5 w-3.5" aria-hidden="true" />
-                                </button>
-                            )}
-                        </label>
+            {/* Controls Bar */}
+            <div className="bg-white border text-sm border-slate-200 shadow-sm rounded-2xl p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6">
+
+                {/* Search */}
+                <div className="relative flex-1 max-w-[500px]">
+                    <span className="material-icons text-sm absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">search</span>
+                    <input
+                        type="text"
+                        placeholder="Search by name, ID or email..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="bg-slate-50 border border-slate-100 text-slate-800 font-semibold py-2.5 pl-10 pr-4 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all w-full placeholder:text-slate-400 placeholder:font-medium"
+                    />
+                </div>
+
+                <div className="flex flex-col sm:flex-row items-center gap-4">
+                    {/* Branch Filter */}
+                    <div className="relative w-full sm:w-[180px]">
+                        <select
+                            value={branchFilter}
+                            onChange={(e) => setBranchFilter(e.target.value)}
+                            className="w-full appearance-none bg-slate-50 border border-slate-100 text-slate-800 font-bold py-2.5 pl-4 pr-10 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer"
+                        >
+                            <option value="All Branches">All Branches</option>
+                            {branches.map(b => (
+                                <option key={b.code} value={b.name}>{b.name}</option>
+                            ))}
+                        </select>
+                        <span className="material-icons absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-lg">expand_more</span>
                     </div>
 
-                    {showErrorBanner && (
-                        <div
-                            role="alert"
-                            className="mx-3 mt-3 flex items-start gap-2 rounded-md bg-status-danger-bg px-3 py-2 text-xs text-status-danger-fg ring-1 ring-inset ring-status-danger-edge"
+                    {/* Role Filter */}
+                    <div className="relative w-full sm:w-[180px]">
+                        <select
+                            value={roleFilter}
+                            onChange={(e) => setRoleFilter(e.target.value)}
+                            className="w-full appearance-none bg-slate-50 border border-slate-100 text-slate-800 font-bold py-2.5 pl-4 pr-10 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer"
                         >
-                            <AlertTriangle className="mt-px h-4 w-4 shrink-0" aria-hidden="true" />
-                            <span>{error}</span>
-                        </div>
-                    )}
-
-                    {/* States live outside the table so they centre on small screens */}
-                    {loading ? (
-                        <ul aria-hidden="true" className="divide-y divide-edge">
-                            {Array.from({ length: SKELETON_ROWS }).map((_, i) => (
-                                <li key={i} className="flex items-center gap-3 px-4 py-2.5">
-                                    <span className="h-3 w-16 shrink-0 rounded bg-skeleton" />
-                                    <span className="h-4 w-36 shrink-0 rounded bg-skeleton" />
-                                    <span className="hidden h-3 w-16 rounded bg-skeleton md:block" />
-                                    <span className="hidden h-3 w-24 rounded bg-skeleton lg:block" />
-                                    <span className="h-4 w-14 rounded bg-skeleton" />
-                                    <span className="ml-auto h-3 w-16 rounded bg-skeleton" />
-                                </li>
+                            <option value="All Roles">All Roles</option>
+                            {roles.map(r => (
+                                <option key={r} value={r}>{r}</option>
                             ))}
-                        </ul>
-                    ) : showErrorState ? (
-                        <EmptyState
-                            icon={AlertTriangle}
-                            title="User administration unavailable"
-                            description={error ?? undefined}
-                            action={
-                                <Button size="sm" icon={RefreshCw} onClick={load}>
-                                    Retry
-                                </Button>
-                            }
-                        />
-                    ) : users.length === 0 ? (
-                        <EmptyState
-                            icon={Users}
-                            title="No users yet"
-                            description="Create the first user to give staff access to the system."
-                            action={
-                                <Button size="sm" icon={UserPlus} onClick={() => setIsCreateModalOpen(true)}>
-                                    Create user
-                                </Button>
-                            }
-                        />
-                    ) : visibleUsers.length === 0 ? (
-                        <EmptyState
-                            icon={Search}
-                            title="No users match"
-                            description="Try a different name, ID or email."
-                            action={
-                                <Button size="sm" icon={X} onClick={() => setSearch("")}>
-                                    Clear search
-                                </Button>
-                            }
-                        />
-                    ) : (
-                        <div className="overflow-x-auto">
-                            {/* min-w must cover the fixed columns plus a >=160px floor for the auto
-                                Name column at every band. lg reveals Roles (w-48), pushing the fixed
-                                sum to 624px, so the table needs >=792px there. Last login isn't a
-                                column: the Keycloak admin API this page reads from doesn't expose a
-                                per-user last-login timestamp, so showing one would just be another
-                                permanently-empty field. */}
-                            <table className="w-full min-w-[760px] table-fixed text-left text-sm lg:min-w-[792px]">
-                                <caption className="sr-only">User directory</caption>
-                                <thead>
-                                    <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
-                                        <th scope="col" className="w-28 py-2 pl-4 pr-3 font-semibold">
-                                            User ID
-                                        </th>
-                                        <th scope="col" className="px-3 py-2 font-semibold">
-                                            Name
-                                        </th>
-                                        <th scope="col" className="hidden w-28 px-3 py-2 font-semibold md:table-cell">
-                                            Branch
-                                        </th>
-                                        <th scope="col" className="hidden w-48 px-3 py-2 font-semibold lg:table-cell">
-                                            Roles
-                                        </th>
-                                        <th scope="col" className="w-24 px-3 py-2 font-semibold">
-                                            Status
-                                        </th>
-                                        <th scope="col" className="w-28 py-2 pl-3 pr-4 text-right font-semibold">
-                                            Actions
-                                        </th>
+                        </select>
+                        <span className="material-icons absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-lg">expand_more</span>
+                    </div>
+
+                    {/* Create Button */}
+                    <button
+                        onClick={() => setIsCreateModalOpen(true)}
+                        className="w-full sm:w-auto flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-bold transition-colors shadow-sm shadow-blue-500/30 active:scale-95 whitespace-nowrap"
+                    >
+                        <span className="material-icons text-[18px]">person_add</span>
+                        Create New User
+                    </button>
+                </div>
+            </div>
+
+            {/* Data Table */}
+            {activeTab === "directory" && (
+                <div className="bg-white border border-slate-200 shadow-sm rounded-2xl overflow-hidden flex-1 flex flex-col">
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left border-collapse min-w-[1000px]">
+                            <thead>
+                                <tr className="border-b border-slate-200 bg-slate-50/50">
+                                    <th className="py-4 px-6 text-[11px] font-extrabold text-slate-500 uppercase tracking-widest">User ID</th>
+                                    <th className="py-4 px-6 text-[11px] font-extrabold text-slate-500 uppercase tracking-widest">User Details</th>
+                                    <th className="py-4 px-6 text-[11px] font-extrabold text-slate-500 uppercase tracking-widest">Branch</th>
+                                    <th className="py-4 px-6 text-[11px] font-extrabold text-slate-500 uppercase tracking-widest">Assigned Roles</th>
+                                    <th className="py-4 px-6 text-[11px] font-extrabold text-slate-500 uppercase tracking-widest text-center">Status</th>
+                                    <th className="py-4 px-6 text-[11px] font-extrabold text-slate-500 uppercase tracking-widest">Last Login</th>
+                                    <th className="py-4 px-6 text-[11px] font-extrabold text-slate-500 uppercase tracking-widest text-center">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                                {loading ? (
+                                    <tr>
+                                        <td colSpan={7} className="py-12 text-center">
+                                            <span className="material-icons animate-spin text-blue-600 text-3xl">sync</span>
+                                        </td>
                                     </tr>
-                                </thead>
-                                <tbody className="divide-y divide-edge whitespace-nowrap">
-                                    {visibleUsers.map((user) => {
-                                        const active = user.status === "ACTIVE";
-                                        return (
-                                            <tr key={user.id} className="transition-colors hover:bg-surface-hover">
-                                                <td className="py-2 pl-4 pr-3 font-mono text-xs text-fg-secondary" title={user.id}>
-                                                    {user.id.slice(0, 8)}
-                                                </td>
-                                                <td className="px-3 py-2">
-                                                    <div className="flex min-w-0 flex-col">
-                                                        <span className="truncate font-medium text-fg" title={user.name}>
-                                                            {user.name}
+                                ) : filteredUsers.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={7} className="py-8 text-center text-slate-500 font-medium text-[13px]">
+                                            No users found.
+                                        </td>
+                                    </tr>
+                                ) : (
+                                    filteredUsers.map((user) => (
+                                        <tr key={user.id} className="hover:bg-slate-50/80 transition-colors group">
+                                            <td className="py-4 px-6">
+                                                <span className="text-[13px] font-extrabold text-blue-600">{user.id}</span>
+                                            </td>
+                                            <td className="py-4 px-6">
+                                                <div className="flex flex-col">
+                                                    <span className="text-[14px] font-bold text-slate-900 leading-snug">{user.name}</span>
+                                                    <span className="text-[12px] font-medium text-slate-500">{user.email}</span>
+                                                    <span className="text-[11px] font-semibold text-slate-400">{user.username}</span>
+                                                    {user.phone && <span className="text-[11px] font-semibold text-slate-400">{user.phone}</span>}
+                                                </div>
+                                            </td>
+                                            <td className="py-4 px-6">
+                                                <span className="text-[13px] font-semibold text-slate-700">{user.branch}</span>
+                                            </td>
+                                            <td className="py-4 px-6">
+                                                <div className="flex flex-wrap gap-2">
+                                                    {user.roles && Array.isArray(user.roles) ? user.roles.map(role => (
+                                                        <span key={role} className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-blue-600 border border-blue-100">
+                                                            {role}
                                                         </span>
-                                                        <span className="truncate text-xs text-fg-muted" title={user.email}>
-                                                            {user.email}
-                                                        </span>
-                                                    </div>
-                                                </td>
-                                                <td className="hidden truncate px-3 py-2 text-fg-secondary md:table-cell">{user.branch}</td>
-                                                <td className="hidden px-3 py-2 lg:table-cell">
-                                                    {user.roles.length === 0 ? (
-                                                        <span className="text-fg-faint">—</span>
-                                                    ) : (
-                                                        <div className="flex flex-wrap gap-1">
-                                                            {user.roles.map((role) => (
-                                                                <StatusChip key={role} size="sm" title={role}>
-                                                                    {roleLabel(role)}
-                                                                </StatusChip>
-                                                            ))}
-                                                        </div>
+                                                    )) : (
+                                                        <span className="text-[10px] text-slate-400">No roles assigned</span>
                                                     )}
-                                                </td>
-                                                <td className="px-3 py-2">
-                                                    <StatusChip tone={toneForStatus(user.status)} dot>
-                                                        {humanizeStatus(user.status)}
-                                                    </StatusChip>
-                                                </td>
-                                                <td className="py-2 pl-3 pr-4">
-                                                    <div className="flex items-center justify-end gap-1">
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="sm"
-                                                            icon={Pencil}
-                                                            onClick={() => handleEditClick(user)}
-                                                            aria-label={`Edit ${user.name}`}
-                                                            title="Edit user"
-                                                            className="w-7 px-0"
-                                                        />
-                                                        {active ? (
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="sm"
-                                                                icon={UserX}
-                                                                onClick={() => handleToggleStatus(user.id)}
-                                                                aria-label={`Deactivate ${user.name}`}
-                                                                title="Deactivate user"
-                                                                className="w-7 px-0 hover:text-status-danger-fg"
-                                                            />
-                                                        ) : (
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="sm"
-                                                                icon={UserCheck}
-                                                                onClick={() => handleToggleStatus(user.id)}
-                                                                aria-label={`Activate ${user.name}`}
-                                                                title="Activate user"
-                                                                className="w-7 px-0 text-status-verified-fg hover:text-status-verified-fg"
-                                                            />
-                                                        )}
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
-                        </div>
-                    )}
-                </SectionCard>
+                                                </div>
+                                            </td>
+                                            <td className="py-4 px-6 text-center">
+                                                <span className={`inline-flex items-center justify-center px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${user.status === 'ACTIVE'
+                                                    ? 'bg-emerald-50 text-emerald-600 border border-emerald-100'
+                                                    : 'bg-slate-100 text-slate-500 border border-slate-200'
+                                                    }`}>
+                                                    {user.status}
+                                                </span>
+                                            </td>
+                                            <td className="py-4 px-6">
+                                                <span className="text-[12px] font-semibold text-slate-500">{user.lastLogin}</span>
+                                            </td>
+                                            <td className="py-4 px-6 text-center">
+                                                <div className="flex items-center justify-center gap-3">
+                                                    <button
+                                                        onClick={() => handleEditClick(user)}
+                                                        className="text-slate-400 hover:text-blue-600 transition-colors p-1" title="Edit User"
+                                                    >
+                                                        <span className="material-icons text-[18px]">edit</span>
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleResetPasswordClick(user)}
+                                                        className="text-slate-400 hover:text-slate-800 transition-colors p-1" title="Reset Password"
+                                                    >
+                                                        <span className="material-icons text-[18px]">history</span>
+                                                    </button>
+                                                    {user.status === 'ACTIVE' ? (
+                                                        <button
+                                                            onClick={() => handleToggleStatus(user)}
+                                                            className="text-slate-400 hover:text-red-500 transition-colors p-1" title="Deactivate User"
+                                                        >
+                                                            <span className="material-icons text-[18px]">person_off</span>
+                                                        </button>
+                                                    ) : (
+                                                        <button
+                                                            onClick={() => handleToggleStatus(user)}
+                                                            className="text-emerald-500/70 hover:text-emerald-600 bg-emerald-50 rounded transition-colors p-1" title="Activate User"
+                                                        >
+                                                            <span className="material-icons text-[18px]">person_add</span>
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    )))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             )}
 
+            {/* Empty State for Matrix Tab */}
             {activeTab === "matrix" && (
-                <SectionCard title="Global role matrix">
-                    <EmptyState
-                        icon={LayoutGrid}
-                        title="Role matrix is managed per role"
-                        description="The master matrix is configured from the role definitions page."
-                        action={
-                            <Button size="sm" href="/superadmin/roles">
-                                Open role definitions
-                            </Button>
-                        }
-                    />
-                </SectionCard>
+                <div className="bg-white border border-slate-200 shadow-sm rounded-2xl flex-1 flex flex-col items-center justify-center p-12 text-center">
+                    <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center text-blue-500 mb-4">
+                        <span className="material-icons text-3xl">grid_view</span>
+                    </div>
+                    <h2 className="text-lg font-bold text-slate-900 mb-2">Global Role Matrix Configuration</h2>
+                    <p className="text-sm font-medium text-slate-500 max-w-md">The master matrix configuration panel is accessed via the specific role definition portal.</p>
+                </div>
             )}
+
+            {/* Custom Footer */}
+            <div className="mt-6 pt-6 border-t border-slate-200 flex flex-col sm:flex-row justify-between items-center text-xs font-semibold text-slate-400 gap-4">
+                <div className="flex items-center gap-2">
+                    <span>&copy; 2023 Durdans Hospital. Global Admin Suite V 3.1.0</span>
+                    <span className="w-1 h-1 rounded-full bg-slate-300"></span>
+                    <span className="flex items-center gap-1.5">
+                        Security Status: <span className="text-emerald-500 font-bold">All Protocols Active</span>
+                    </span>
+                </div>
+                <div className="flex items-center justify-end gap-6 flex-1">
+                    <a href="#" className="hover:text-slate-600 transition-colors font-bold">Security Documentation</a>
+                    <button className="bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-lg transition-colors font-bold shadow-sm">
+                        Access Logs
+                    </button>
+                </div>
+            </div>
 
             <UserCreateModal
                 isOpen={isCreateModalOpen}
-                onClose={() => {
-                    setIsCreateModalOpen(false);
-                    load();
-                }}
+                onClose={() => setIsCreateModalOpen(false)}
             />
 
             <UserEditModal
                 isOpen={isEditModalOpen}
                 onClose={() => setIsEditModalOpen(false)}
-                onSaved={load}
                 userData={selectedUser}
+                onSave={handleUpdateUser}
+            />
+
+            <ResetPasswordModal
+                isOpen={isResetPasswordModalOpen}
+                onClose={() => setIsResetPasswordModalOpen(false)}
+                userId={selectedUser?.id || null}
+                userName={selectedUser?.name || ""}
+                onConfirm={handleConfirmResetPassword}
             />
         </div>
     );

@@ -162,13 +162,13 @@ export default function GlobalAuditTrailsPage() {
         const fetchBranches = async () => {
             try {
                 // Fetch a large number of branches to populate the dropdown
-                const branchData = await getBranchesPage(0, 100);
+                const branchData = await getBranches();
                 const map: Record<string, string> = {};
-                branchData.content.forEach(b => {
+                branchData.forEach(b => {
                     map[b.code] = b.name;
                 });
                 setBranchMap(map);
-                setBranchesList(branchData.content.map(b => ({ code: b.code, name: b.name })));
+                setBranchesList(branchData.map(b => ({ code: b.code, name: b.name })));
             } catch (err) {
                 console.error("Failed to fetch branches", err);
             }
