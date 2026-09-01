@@ -103,6 +103,14 @@ export const STATUS_TONE: Record<string, ChipTone> = {
     URGENT: "pending",
     NORMAL: "neutral",
     ROUTINE: "neutral",
+    // quality control
+    PASS: "success",
+    PASSED: "success",
+    WARN: "pending",
+    WARNING: "pending",
+    FAIL: "danger",
+    NOT_EVALUATED: "neutral",
+    NOT_LINKED: "neutral",
 };
 
 /** "IN_TRANSIT" → "In transit" (sentence case). */
