@@ -94,7 +94,7 @@ export default function BranchNavbar() {
 
     useEffect(() => {
         const targetCode = branchCode || "b6030d28-10ef-4165-9554-8887fabfddb8";
-        getBranches(0, 100).then((data) => {
+        getBranchesPage(0, 100).then((data) => {
             const branch = data.content.find((b) => b.id === targetCode || b.code.toUpperCase() === targetCode.toUpperCase());
             if (branch) {
                 setBranchName(branch.name);

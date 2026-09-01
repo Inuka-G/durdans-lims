@@ -106,8 +106,8 @@ export default function BranchEditModal({ isOpen, onClose, onSaved, branchData }
                     required
                     type="text"
                     className="sm:col-span-2"
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    value={formData.branchName}
+                    onChange={(e) => setFormData({ ...formData, branchName: e.target.value })}
                 />
 
                 <InputField

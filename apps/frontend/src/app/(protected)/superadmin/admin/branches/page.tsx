@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, Building2, Plus, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Branch, getBranches } from "@/lib/api";
+import { Branch, getBranches, getBranchesPage } from "@/lib/api";
 import Button from "@/components/ui/Button";
 import PageHeader from "@/components/ui/PageHeader";
 import SectionCard from "@/components/ui/SectionCard";
@@ -13,7 +13,7 @@ import BranchDetailsPanel from "@/components/admin/BranchDetailsPanel";
 import BranchCreateModal from "@/components/admin/BranchCreateModal";
 import BranchEditModal from "@/components/admin/BranchEditModal";
 import AssignAdminModal from "@/components/admin/AssignAdminModal";
-import { getBranches, createBranch, updateBranch, BranchResponse } from "@/lib/api";
+import { getBranchesPage, createBranchAdmin, updateBranchAdmin, BranchResponse } from "@/lib/api";
 
 // Same selector Modal.tsx traps against, so the drawer behaves like the dialog it claims to be.
 const FOCUSABLE =
@@ -34,7 +34,7 @@ export default function BranchManagementPage() {
     const fetchBranches = async () => {
         setLoading(true);
         try {
-            const data = await getBranches(0, 100); // Fetch up to 100 branches for simplicity
+            const data = await getBranchesPage(0, 100); // Fetch up to 100 branches for simplicity
             setBranches(data.content);
         } catch (error) {
             console.error("Failed to fetch branches", error);
@@ -48,7 +48,7 @@ export default function BranchManagementPage() {
         setLoading(true);
         setError(null);
         try {
-            const data = await getBranches();
+            const data = await getBranchesPage();
             setBranches(data);
         } catch {
             setError("Could not load the branch directory.");
@@ -73,7 +73,7 @@ export default function BranchManagementPage() {
     const handleCreateBranch = async (branchData: Partial<Branch>) => {
         try {
             if (!branchData.code || !branchData.name) throw new Error("Missing required fields");
-            await createBranch({ 
+            await createBranchAdmin({ 
                 code: branchData.code, 
                 name: branchData.name,
                 location: branchData.location,
@@ -93,7 +93,7 @@ export default function BranchManagementPage() {
     const handleUpdateBranch = async (id: string, branchData: Partial<Branch>) => {
         try {
             if (!branchData.name) throw new Error("Missing name");
-            await updateBranch(id, { 
+            await updateBranchAdmin(id, { 
                 name: branchData.name,
                 location: branchData.location,
                 contactEmail: branchData.contactEmail,

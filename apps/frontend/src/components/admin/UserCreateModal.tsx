@@ -2,13 +2,11 @@
 
 import { useEffect, useId, useState } from "react";
 import { AlertCircle } from "lucide-react";
-import { ASSIGNABLE_ROLES, Branch, createAdminUser, getBranches } from "@/lib/api";
+import { ASSIGNABLE_ROLES, Branch, createAdminUser, getBranches, getBranchesPage } from "@/lib/api";
 import Modal from "@/components/ui/Modal";
 import Button from "@/components/ui/Button";
 import SegmentedControl from "@/components/ui/SegmentedControl";
 import { InputField, SelectField } from "@/components/ui/Field";
-import { useAuth } from "@/hooks/useAuth";
-import { toast } from "sonner";
 
 interface UserCreateModalProps {
     isOpen: boolean;
@@ -32,7 +30,6 @@ const EMPTY_FORM = {
 };
 
 export default function UserCreateModal({ isOpen, onClose }: UserCreateModalProps) {
-    const { user: authUser } = useAuth();
     const formId = useId();
     const [formData, setFormData] = useState(EMPTY_FORM);
     const [error, setError] = useState<string | null>(null);
@@ -43,7 +40,7 @@ export default function UserCreateModal({ isOpen, onClose }: UserCreateModalProp
     useEffect(() => {
         if (!isOpen) return;
         setBranchesLoading(true);
-        getBranches()
+        getBranchesPage()
             .then((list) => {
                 setBranches(list);
                 setFormData((f) => (f.branch ? f : { ...f, branch: list[0]?.code ?? "" }));
@@ -54,20 +51,6 @@ export default function UserCreateModal({ isOpen, onClose }: UserCreateModalProp
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        
-        if (!authUser?.preferred_username) {
-            setError("Unable to identify current admin session.");
-            return;
-        }
-
-        const expectedUsername = authUser.preferred_username.trim().toLowerCase();
-        const providedUsername = adminUsername.trim().toLowerCase();
-
-        if (providedUsername !== expectedUsername) {
-            setError("Username does not match your active session.");
-            return;
-        }
-
         setSubmitting(true);
         setError(null);
         try {
@@ -76,7 +59,7 @@ export default function UserCreateModal({ isOpen, onClose }: UserCreateModalProp
             const firstName = sp === -1 ? trimmed : trimmed.slice(0, sp);
             const lastName = sp === -1 ? "" : trimmed.slice(sp + 1);
             await createAdminUser({
-                username: formData.username.trim() || formData.email.split("@")[0],
+                username: formData.email.split("@")[0] || formData.email,
                 email: formData.email,
                 firstName,
                 lastName,
@@ -87,13 +70,8 @@ export default function UserCreateModal({ isOpen, onClose }: UserCreateModalProp
             });
             setFormData(EMPTY_FORM);
             onClose();
-            toast.success(`User '${firstName} ${lastName}' created successfully!`, { position: 'top-right' });
-        } catch (err: any) {
-            if (err?.response?.data?.message?.includes("Incorrect admin password") || err?.response?.status === 401 || err?.response?.status === 400) {
-                setError("Incorrect admin password. Verification failed.");
-            } else {
-                setError(err?.response?.data?.message || err.message || "Failed to create user. Ensure the Keycloak admin module is enabled and the role/branch are valid.");
-            }
+        } catch {
+            setError("Failed to create user. Ensure the Keycloak admin module is enabled and the role/branch are valid.");
         } finally {
             setSubmitting(false);
         }
@@ -136,17 +114,6 @@ export default function UserCreateModal({ isOpen, onClose }: UserCreateModalProp
                     className="sm:col-span-2"
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                />
-
-                <InputField
-                    label="Username"
-                    required
-                    type="text"
-                    placeholder="e.g. janedoe"
-                    autoComplete="off"
-                    className="sm:col-span-2"
-                    value={formData.username}
-                    onChange={(e) => setFormData({ ...formData, username: e.target.value })}
                 />
 
                 <InputField
@@ -208,32 +175,6 @@ export default function UserCreateModal({ isOpen, onClose }: UserCreateModalProp
                         options={STATUS_OPTIONS}
                     />
                 </div>
-                
-                <hr className="sm:col-span-2 my-2 border-slate-200" />
-                
-                <div className="sm:col-span-2">
-                    <p className="text-sm font-medium text-slate-800 mb-2">
-                        Verify Your Identity
-                    </p>
-                </div>
-                
-                <InputField
-                    label="Your Superadmin Username"
-                    required
-                    type="text"
-                    autoComplete="off"
-                    value={adminUsername}
-                    onChange={(e) => setAdminUsername(e.target.value)}
-                />
-                
-                <InputField
-                    label="Your Superadmin Password"
-                    required
-                    type="password"
-                    autoComplete="new-password"
-                    value={adminPassword}
-                    onChange={(e) => setAdminPassword(e.target.value)}
-                />
             </form>
         </Modal>
     );

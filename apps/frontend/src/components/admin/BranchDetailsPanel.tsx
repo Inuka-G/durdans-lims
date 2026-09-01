@@ -11,7 +11,6 @@ interface BranchDetailsPanelProps {
     onClose: () => void;
     onEditClick?: () => void;
     onChangeAdminClick?: () => void;
-    branch?: any;
 }
 
 function formatEstablished(date: string | null): string {

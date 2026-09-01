@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import CreateTestModal from "@/components/branch/CreateTestModal";
 import EditTestModal from "@/components/branch/EditTestModal";
 import { useAuth } from "@/hooks/useAuth";
-import { getBranchTests, createBranchTest, patchBranchTest, BranchTest, getBranches } from "@/lib/api";
+import { getBranchTests, createBranchTest, patchBranchTest, BranchTest, getBranches, getBranchesPage } from "@/lib/api";
 
 const DEFAULT_BRANCH_ID = "b6030d28-10ef-4165-9554-8887fabfddb8";
 
@@ -40,7 +40,7 @@ export default function BranchTestManagementPage() {
     
     const resolveBranch = async () => {
         try {
-            const data = await getBranches(0, 100);
+            const data = await getBranchesPage(0, 100);
             const targetCode = branchCode || DEFAULT_BRANCH_ID;
             const branch = data.content.find((b) => b.id === targetCode || b.code.toUpperCase() === targetCode.toUpperCase());
             if (branch) {

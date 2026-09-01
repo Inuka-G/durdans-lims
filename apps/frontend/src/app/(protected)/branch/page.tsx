@@ -1,21 +1,156 @@
 "use client";
 
-import { PureComponent, ReactNode } from 'react';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import Link from "next/link";
+import type { LucideIcon } from "lucide-react";
+import {
+    Building2,
+    ChartColumn,
+    ChevronRight,
+    CircleAlert,
+    Download,
+    Droplet,
+    FileClock,
+    FlaskConical,
+    Package,
+    ShieldCheck,
+    UserPlus,
+    Users,
+    Wallet,
+} from "lucide-react";
+import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { useMetadata } from "@/providers/MetadataProvider";
+import { cn } from "@/lib/utils";
+import Button from "@/components/ui/Button";
+import KpiTile from "@/components/ui/KpiTile";
+import PageHeader from "@/components/ui/PageHeader";
+import SectionCard from "@/components/ui/SectionCard";
+import StatusChip, { type ChipTone } from "@/components/ui/StatusChip";
+import DemoDataBanner from "@/components/shared/DemoDataBanner";
+
+/* ------------------------------------------------------------------ */
+/*  Demo data (placeholder until the branch endpoints exist)           */
+/* ------------------------------------------------------------------ */
 
 const data = [
-    { name: 'Mon', revenue: 4000 },
-    { name: 'Tue', revenue: 8000 },
-    { name: 'Wed', revenue: 5000 },
-    { name: 'Thu', revenue: 7000 },
-    { name: 'Fri', revenue: 15000 },
-    { name: 'Sat', revenue: 22000 },
-    { name: 'Sun', revenue: 19000 },
+    { name: "Mon", revenue: 4000 },
+    { name: "Tue", revenue: 8000 },
+    { name: "Wed", revenue: 5000 },
+    { name: "Thu", revenue: 7000 },
+    { name: "Fri", revenue: 15000 },
+    { name: "Sat", revenue: 22000 },
+    { name: "Sun", revenue: 19000 },
 ];
 
+const TEST_VOLUME: { label: string; percent: number }[] = [
+    { label: "Blood", percent: 60 },
+    { label: "Urine", percent: 35 },
+    { label: "Biopsy", percent: 75 },
+    { label: "PCR", percent: 45 },
+];
+
+type Alert = {
+    id: string;
+    icon: LucideIcon;
+    tone: ChipTone;
+    title: string;
+    body: string;
+    action?: string;
+};
+
+const ALERTS: Alert[] = [
+    {
+        id: "verification",
+        icon: ShieldCheck,
+        tone: "pending",
+        title: "Pending verification",
+        body: "5 blood reports require senior pathologist verification for Colombo-03.",
+        action: "Resolve now",
+    },
+    {
+        id: "delivery",
+        icon: CircleAlert,
+        tone: "danger",
+        title: "Failed delivery",
+        body: "System failed to email results for order #ORD-8821 due to an invalid email.",
+        action: "Edit email",
+    },
+    {
+        id: "stock",
+        icon: Package,
+        tone: "info",
+        title: "Stock alert",
+        body: "Reagent level for HbA1c testing is below the 15% threshold.",
+    },
+];
+
+const ALERT_ICON_TONE: Record<ChipTone, string> = {
+    neutral: "text-fg-muted",
+    pending: "text-status-pending-fg",
+    success: "text-status-verified-fg",
+    danger: "text-status-danger-fg",
+    info: "text-primary-strong",
+};
+
+type HaematologyTest = {
+    abbr: string;
+    name: string;
+    code: string;
+    mode: string;
+    modeTone: ChipTone;
+    ordersToday: string;
+    status: string;
+    statusTone: ChipTone;
+};
+
+const HAEMATOLOGY_TESTS: HaematologyTest[] = [
+    { abbr: "FBC", name: "Full blood count (FBC)", code: "420-1", mode: "Auto-analyzed", modeTone: "success", ordersToday: "1,245", status: "42 pending", statusTone: "pending" },
+    { abbr: "ESR", name: "Erythrocyte sedimentation rate", code: "421-2", mode: "Manual entry needed", modeTone: "pending", ordersToday: "452", status: "8 processing", statusTone: "info" },
+    { abbr: "WBC", name: "White blood cells count", code: "422-3", mode: "Auto-analyzed", modeTone: "success", ordersToday: "890", status: "All clear", statusTone: "success" },
+    { abbr: "RBC", name: "Red blood cells count", code: "423-4", mode: "Auto-analyzed", modeTone: "success", ordersToday: "850", status: "12 pending", statusTone: "pending" },
+    { abbr: "Hb", name: "Haemoglobin", code: "424-5", mode: "Auto-analyzed", modeTone: "success", ordersToday: "1,102", status: "5 abnormal", statusTone: "danger" },
+    { abbr: "PLT", name: "Platelet count", code: "425-6", mode: "Auto-analyzed", modeTone: "success", ordersToday: "940", status: "All clear", statusTone: "success" },
+    { abbr: "Hct", name: "Hematocrit", code: "426-7", mode: "Supervisor review needed", modeTone: "pending", ordersToday: "650", status: "4 quality check", statusTone: "info" },
+    { abbr: "N/L", name: "Neutrophils & lymphocytes", code: "427-8", mode: "Auto-analyzed", modeTone: "success", ordersToday: "1,020", status: "14 pending", statusTone: "pending" },
+];
+
+const QUICK_LINKS: { label: string; href: string; icon: LucideIcon }[] = [
+    { label: "Add user", href: "/branch/users", icon: UserPlus },
+    { label: "Pull report", href: "/branch/reports", icon: ChartColumn },
+];
+
+const formatLkr = (value: number) => `LKR ${value.toLocaleString("en-US")}`;
+
+const LINK_CLASS =
+    "inline-flex items-center gap-0.5 rounded text-xs font-medium text-primary-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary";
+
+/* ------------------------------------------------------------------ */
+/*  Page                                                               */
+/* ------------------------------------------------------------------ */
+
 export default function BranchDashboard() {
+    const { metadata, loading: metadataLoading } = useMetadata();
+    const branchName = metadata?.currentBranchName;
+
+    const todayLabel = new Date().toLocaleDateString("en-GB", {
+        weekday: "short",
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+    });
+
     return (
-        <div className="w-full bg-[#f8fafc] min-h-[calc(100vh-76px)] p-6 font-sans">
+        <div className="mx-auto max-w-[1400px]">
+            <PageHeader
+                title="Branch overview"
+                meta={
+                    <>
+                        <Building2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                        <span>{branchName ?? (metadataLoading ? "Loading branch…" : "No branch")}</span>
+                        <span aria-hidden="true">·</span>
+                        <span className="whitespace-nowrap">{todayLabel}</span>
+                    </>
+                }
+            />
 
             <DemoDataBanner />
 
@@ -146,60 +281,29 @@ export default function BranchDashboard() {
                                 <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
                             </Link>
                         </div>
-                        <span className="text-xs font-bold text-emerald-500 bg-emerald-50 px-2 py-0.5 rounded-full flex items-center gap-0.5">
-                            <span className="material-icons text-[12px]">trending_up</span> 12%
-                        </span>
-                    </div>
-                    <div>
-                        <h3 className="text-[11px] font-extrabold text-[#94a3b8] uppercase tracking-widest mb-1.5">TOTAL PATIENTS</h3>
-                        <p className="text-3xl font-extrabold text-[#0f172a] tracking-tight">2,482</p>
-                    </div>
-                </div>
+                    </SectionCard>
 
-                {/* Test Orders */}
-                <div className="bg-white rounded-2xl p-6 border border-[#ecf0f6] shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow">
-                    <div className="flex justify-between items-start mb-4">
-                        <div className="w-10 h-10 rounded-xl bg-purple-50 flex items-center justify-center text-purple-500">
-                            <span className="material-icons text-[20px]">science</span>
-                        </div>
-                        <span className="text-xs font-bold text-emerald-500 bg-emerald-50 px-2 py-0.5 rounded-full flex items-center gap-0.5">
-                            <span className="material-icons text-[12px]">trending_up</span> 5.4%
-                        </span>
-                    </div>
-                    <div>
-                        <h3 className="text-[11px] font-extrabold text-[#94a3b8] uppercase tracking-widest mb-1.5">TEST ORDERS</h3>
-                        <p className="text-3xl font-extrabold text-[#0f172a] tracking-tight">842</p>
-                    </div>
-                </div>
-
-                {/* Revenue */}
-                <div className="bg-white rounded-2xl p-6 border border-[#ecf0f6] shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow">
-                    <div className="flex justify-between items-start mb-4">
-                        <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-500">
-                            <span className="material-icons text-[20px]">payments</span>
-                        </div>
-                        <span className="text-xs font-bold text-red-500 bg-red-50 px-2 py-0.5 rounded-full flex items-center gap-0.5">
-                            <span className="material-icons text-[12px]">trending_down</span> 2.1%
-                        </span>
-                    </div>
-                    <div>
-                        <h3 className="text-[11px] font-extrabold text-[#94a3b8] uppercase tracking-widest mb-1.5">REVENUE</h3>
-                        <p className="text-3xl font-extrabold text-[#0f172a] tracking-tight">LKR 1.2M</p>
-                    </div>
-                </div>
-
-                {/* Pending Reports */}
-                <div className="bg-white rounded-2xl p-6 border border-[#ecf0f6] shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow">
-                    <div className="flex justify-between items-start mb-4">
-                        <div className="w-10 h-10 rounded-xl bg-orange-50 flex items-center justify-center text-orange-500">
-                            <span className="material-icons text-[20px]">assignment_late</span>
-                        </div>
-                        {/* No trend for pending */}
-                    </div>
-                    <div>
-                        <h3 className="text-[11px] font-extrabold text-[#94a3b8] uppercase tracking-widest mb-1.5">PENDING REPORTS</h3>
-                        <p className="text-3xl font-extrabold text-[#0f172a] tracking-tight">47</p>
-                    </div>
+                    <SectionCard title="Quick links">
+                        <ul className="grid grid-cols-2 gap-3">
+                            {QUICK_LINKS.map((link) => {
+                                const Icon = link.icon;
+                                return (
+                                    <li key={link.href}>
+                                        <Link
+                                            href={link.href}
+                                            className={cn(
+                                                "flex flex-col items-center justify-center gap-2 rounded-lg border border-edge bg-surface-muted px-3 py-4 text-xs font-medium text-fg-secondary transition-colors",
+                                                "hover:border-edge-strong hover:bg-surface-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-surface"
+                                            )}
+                                        >
+                                            <Icon className="h-5 w-5 text-fg-muted" aria-hidden="true" />
+                                            {link.label}
+                                        </Link>
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                    </SectionCard>
                 </div>
             </div>
 
@@ -269,10 +373,7 @@ export default function BranchDashboard() {
                         </tbody>
                     </table>
                 </div>
-            </div>
-
-
-
+            </SectionCard>
         </div>
     );
 }

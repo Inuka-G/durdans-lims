@@ -14,7 +14,7 @@ import StatusChip, { humanizeStatus, toneForStatus, type ChipTone } from "@/comp
 import Pagination from "@/components/ui/Pagination";
 import Modal from "@/components/ui/Modal";
 import { formatAuditTime } from "@/components/patient-dashboard/dashboard-data";
-import { getAuditLogs, getBranches, AuditLog } from "@/lib/api";
+import { getAuditLogs, getBranches, getBranchesPage, AuditLog } from "@/lib/api";
 
 const PAGE_SIZE = 10;
 
@@ -162,7 +162,7 @@ export default function GlobalAuditTrailsPage() {
         const fetchBranches = async () => {
             try {
                 // Fetch a large number of branches to populate the dropdown
-                const branchData = await getBranches(0, 100);
+                const branchData = await getBranchesPage(0, 100);
                 const map: Record<string, string> = {};
                 branchData.content.forEach(b => {
                     map[b.code] = b.name;

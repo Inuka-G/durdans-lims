@@ -2,7 +2,7 @@
 
 import { useId, useState } from "react";
 import { AlertCircle } from "lucide-react";
-import { createBranch } from "@/lib/api";
+import { createBranchAdmin } from "@/lib/api";
 import Modal from "@/components/ui/Modal";
 import Button from "@/components/ui/Button";
 import { InputField, SelectField } from "@/components/ui/Field";
@@ -34,7 +34,7 @@ export default function BranchCreateModal({ isOpen, onClose, onCreated }: Branch
         setSubmitting(true);
         setError(null);
         try {
-            await createBranch({
+            await createBranchAdmin({
                 code: formData.code.trim().toUpperCase(),
                 name: formData.branchName,
                 location: formData.location || undefined,
@@ -94,23 +94,13 @@ export default function BranchCreateModal({ isOpen, onClose, onCreated }: Branch
                 />
 
                 <InputField
-                    label="Branch Code"
-                    required
-                    type="text"
-                    placeholder="e.g. BR-01"
-                    className="sm:col-span-2"
-                    value={formData.code}
-                    onChange={(e) => setFormData({ ...formData, code: e.target.value })}
-                />
-
-                <InputField
                     label="Branch name"
                     required
                     type="text"
                     placeholder="e.g. Colombo 16 Branch"
                     className="sm:col-span-2"
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    value={formData.branchName}
+                    onChange={(e) => setFormData({ ...formData, branchName: e.target.value })}
                 />
 
                 <InputField

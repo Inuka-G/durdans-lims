@@ -2,24 +2,19 @@
 
 import { useEffect, useId, useState } from "react";
 import { AlertCircle } from "lucide-react";
-import { ASSIGNABLE_ROLES, Branch, getBranches, updateAdminUser } from "@/lib/api";
+import { ASSIGNABLE_ROLES, Branch, getBranches, getBranchesPage, updateAdminUser } from "@/lib/api";
 import Modal from "@/components/ui/Modal";
 import Button from "@/components/ui/Button";
 import { InputField, SelectField } from "@/components/ui/Field";
 
 interface UserRecord {
     id: string;
-    username: string;
     name: string;
     email: string;
-    phone?: string;
-    branchId: string;
     branch: string;
     roles: string[];
     status: "ACTIVE" | "INACTIVE";
 }
-
-import { getBranches, getSuperadminRoles, BranchResponse } from "@/lib/api";
 
 interface UserEditModalProps {
     isOpen: boolean;
@@ -27,13 +22,11 @@ interface UserEditModalProps {
     /** Called after a successful save so the caller can refresh its list. */
     onSaved?: () => void;
     userData: UserRecord | null;
-    onSave: (id: string, data: Partial<UserRecord>) => Promise<void>;
 }
 
 export default function UserEditModal({ isOpen, onClose, onSaved, userData }: UserEditModalProps) {
     const formId = useId();
     const [formData, setFormData] = useState({
-        username: "",
         name: "",
         email: "",
         branch: "",
@@ -47,27 +40,15 @@ export default function UserEditModal({ isOpen, onClose, onSaved, userData }: Us
     useEffect(() => {
         if (!isOpen) return;
         setBranchesLoading(true);
-        getBranches()
+        getBranchesPage()
             .then(setBranches)
             .catch(() => setBranches([]))
             .finally(() => setBranchesLoading(false));
     }, [isOpen]);
 
-    const [branches, setBranches] = useState<BranchResponse[]>([]);
-    const [roles, setRoles] = useState<string[]>([]);
-    const [isSaving, setIsSaving] = useState(false);
-
-    useEffect(() => {
-        if (isOpen) {
-            getBranches().then(res => setBranches(res.content)).catch(console.error);
-            getSuperadminRoles().then(res => setRoles(res)).catch(console.error);
-        }
-    }, [isOpen]);
-
     useEffect(() => {
         if (userData) {
             setFormData({
-                username: userData.username,
                 name: userData.name,
                 email: userData.email,
                 branch: userData.branch,
@@ -132,15 +113,7 @@ export default function UserEditModal({ isOpen, onClose, onSaved, userData }: Us
                 )}
 
                 <InputField
-                    label="Username"
-                    type="text"
-                    required
-                    value={formData.username}
-                    disabled
-                    onChange={() => {}} // Read-only
-                />
-                <InputField
-                    label="Full Name"
+                    label="Full name"
                     required
                     type="text"
                     autoComplete="off"
@@ -157,15 +130,6 @@ export default function UserEditModal({ isOpen, onClose, onSaved, userData }: Us
                     className="sm:col-span-2"
                     value={formData.email}
                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                />
-
-                <InputField
-                    label="Phone number"
-                    type="tel"
-                    className="sm:col-span-2"
-                    value={formData.phone}
-                    onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))}
-                    placeholder="+1 (555) 000-0000"
                 />
 
                 <SelectField

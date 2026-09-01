@@ -1745,17 +1745,17 @@ export interface PageResponseBranch {
     last: boolean;
 }
 
-export const getBranches = async (page = 0, size = 10) => {
+export const getBranchesPage = async (page = 0, size = 10) => {
     const response = await axiosInstance.get('/api/v1/branches', { params: { page, size } });
     return response.data as PageResponseBranch;
 };
 
-export const createBranch = async (payload: { code: string; name: string; location?: string; contactEmail?: string; contactPhone?: string; status?: string }) => {
+export const createBranchAdmin = async (payload: { code: string; name: string; location?: string; contactEmail?: string; contactPhone?: string; status?: string }) => {
     const response = await axiosInstance.post('/api/v1/branches', payload);
     return response.data as BranchResponse;
 };
 
-export const updateBranch = async (id: string, payload: { name: string; location?: string; contactEmail?: string; contactPhone?: string; status?: string }) => {
+export const updateBranchAdmin = async (id: string, payload: { name: string; location?: string; contactEmail?: string; contactPhone?: string; status?: string }) => {
     const response = await axiosInstance.put(`/api/v1/branches/${id}`, payload);
     return response.data as BranchResponse;
 };
