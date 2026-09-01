@@ -377,85 +377,20 @@ export default function BranchUserManagementPage() {
                                         <span className="sr-only">Audit</span>
                                     </th>
                                 </tr>
-                            </thead>
-                            <tbody className="divide-y divide-edge whitespace-nowrap">
-                                {filteredUsers.map((user) => {
-                                    const fullTime = formatFullTimestamp(user.rawLastActivity);
-                                    return (
-                                        <tr key={user.id} className="transition-colors hover:bg-surface-hover">
-                                            {/* Actor */}
-                                            <td className="py-2 pl-4 pr-3">
-                                                <div className="flex min-w-0 items-center gap-3">
-                                                    <span
-                                                        aria-hidden="true"
-                                                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-muted text-[12px] font-semibold text-fg-secondary ring-1 ring-inset ring-edge"
-                                                    >
-                                                        {user.initials}
-                                                    </span>
-                                                    <div className="min-w-0">
-                                                        <span className="block truncate font-medium text-fg" title={user.displayName}>
-                                                            {user.displayName}
-                                                        </span>
-                                                        <span className="block truncate text-xs text-fg-muted" title={user.username}>
-                                                            {user.username}
-                                                        </span>
-                                                    </div>
-                                                </div>
-                                            </td>
-                                            {/* Observed roles */}
-                                            <td className="whitespace-normal px-3 py-2">
-                                                <div className="flex flex-wrap gap-1">
-                                                    {user.roles.map((role) => (
-                                                        <StatusChip key={role} tone="neutral" size="sm" title={role}>
-                                                            {role}
-                                                        </StatusChip>
-                                                    ))}
-                                                </div>
-                                            </td>
-                                            {/* Branch */}
-                                            <td className="hidden truncate px-3 py-2 text-fg-secondary md:table-cell" title={user.branchCode}>
-                                                {user.branchCode}
-                                            </td>
-                                            {/* Actions logged */}
-                                            <td className="px-3 py-2 text-right font-medium tabular-nums text-fg">
-                                                {user.actionCount.toLocaleString()}
-                                            </td>
-                                            {/* Last activity */}
-                                            <td className="px-3 py-2">
-                                                <div className="flex flex-col items-start gap-1">
-                                                    <time dateTime={user.rawLastActivity || undefined} title={fullTime} className="tabular-nums text-fg-secondary">
-                                                        {user.rawLastActivity ? formatAuditTime(user.rawLastActivity) : "—"}
-                                                    </time>
-                                                    <StatusChip
-                                                        tone={user.activityStatus === "RECENT" ? "success" : "neutral"}
-                                                        size="sm"
-                                                        dot
-                                                        title={user.activityStatus === "RECENT" ? "Active in the last 30 days" : "No activity in the last 30 days"}
-                                                    >
-                                                        {user.activityStatus === "RECENT" ? "Recent" : "Older"}
-                                                    </StatusChip>
-                                                </div>
-                                            </td>
-                                            {/* Last IP */}
-                                            <td className="hidden truncate px-3 py-2 font-mono text-xs text-fg-muted lg:table-cell" title={user.lastIpAddress}>
-                                                {user.lastIpAddress}
-                                            </td>
-                                            {/* Audit */}
-                                            <td className="py-2 pl-2 pr-3 text-right">
-                                                <Button
-                                                    href="/branch/activity-logs"
-                                                    variant="ghost"
-                                                    size="sm"
-                                                    icon={History}
-                                                    aria-label={`View audit trail for ${user.displayName}`}
-                                                    className="w-7 px-0 text-fg-faint hover:text-fg-secondary"
-                                                />
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+
+                {/* Pagination */}
+                <div className="p-4 border-t border-[#ecf0f6] flex items-center justify-between text-[13px]">
+                    <span className="text-[#64748b] font-medium">Showin {filteredUsers.length > 0 ? 1 : 0} to {filteredUsers.length} of {users.length} results</span>
+                    <div className="flex items-center gap-1 font-bold">
+                        <button className="px-3 py-1.5 text-[#94a3b8] hover:text-[#0f172a] transition-colors disabled:opacity-50">Previous</button>
+                        <button className="w-8 h-8 flex items-center justify-center bg-[#1277E1] text-white rounded-lg">1</button>
+                        <button className="w-8 h-8 flex items-center justify-center text-[#475569] hover:bg-[#f8fafc] rounded-lg transition-colors">2</button>
+                        <button className="w-8 h-8 flex items-center justify-center text-[#475569] hover:bg-[#f8fafc] rounded-lg transition-colors">3</button>
+                        <button className="px-3 py-1.5 text-[#475569] hover:text-[#0f172a] transition-colors">Next</button>
                     </div>
                 )}
 
