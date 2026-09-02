@@ -742,12 +742,7 @@ public class PatientService {
                                 .emailVerified(patient.isEmailVerified())
                                 .createdAt(toLocalDateTime(patient.getCreatedAt()))
                                 .updatedAt(toLocalDateTime(patient.getLastModifiedAt()))
-                                .profilePhotoUrl(patient.getProfilePhotoPath() != null
-                                                && !patient.getProfilePhotoPath().isBlank()
-                                                                ? storageService.generatePresignedUrl(
-                                                                                patient.getProfilePhotoPath(),
-                                                                                java.time.Duration.ofMinutes(10))
-                                                                : null)
+                                .profilePhotoUrl(resolveProfilePhotoUrl(patient))
                                 .address(patient.getAddress())
                                 .dob(patient.getDob())
                                 .gender(patient.getGender())
@@ -761,6 +756,26 @@ public class PatientService {
                                 .contactPersonName(patient.getContactPersonName())
                                 .contactPersonPhone(patient.getContactPersonPhone())
                                 .build();
+        }
+
+        /**
+         * A presigned photo URL is a nicety; the patient record is not. When document
+         * storage is down (S3 circuit open, presigner misconfigured) every patient list
+         * and the reception dashboard used to 500 because this call threw inside the
+         * response mapper. Degrade to no photo instead and keep the list serving.
+         */
+        private String resolveProfilePhotoUrl(PatientEntity patient) {
+                if (patient.getProfilePhotoPath() == null || patient.getProfilePhotoPath().isBlank()) {
+                        return null;
+                }
+                try {
+                        return storageService.generatePresignedUrl(
+                                        patient.getProfilePhotoPath(), java.time.Duration.ofMinutes(10));
+                } catch (RuntimeException ex) {
+                        log.warn("Profile photo URL unavailable for {} — serving record without photo: {}",
+                                        patient.getPatientCode(), ex.getMessage());
+                        return null;
+                }
         }
 
         private static LocalDateTime toLocalDateTime(Instant instant) {
