@@ -249,34 +249,6 @@ export default function SuperAdminDashboardPage() {
                     </div>
                 </div>
 
-                {/* Critical Alerts */}
-                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 flex-1 min-h-[300px]">
-                    <h2 className="text-lg font-extrabold text-slate-800 mb-6 mt-1">Critical Alerts</h2>
-
-                    <div className="space-y-4">
-                        {/* Alert 1 */}
-                        <div className="bg-red-50/50 border border-red-100/60 rounded-xl p-4">
-                            <div className="flex items-center gap-2 text-red-600 mb-1.5">
-                                <span className="material-icons text-sm">error_outline</span>
-                                <span className="text-sm font-bold">Branch Offline</span>
-                            </div>
-                            <p className="text-xs text-red-500/90 font-medium leading-relaxed">
-                                Jaffna Regional Hub connection lost at 08:42 AM.
-                            </p>
-                        </div>
-
-                        {/* Alert 2 */}
-                        <div className="bg-amber-50/50 border border-amber-100/60 rounded-xl p-4">
-                            <div className="flex items-center gap-2 text-amber-600 mb-1.5">
-                                <span className="material-icons text-sm">security</span>
-                                <span className="text-sm font-bold">Security Alert</span>
-                            </div>
-                            <p className="text-xs text-amber-600/90 font-medium leading-relaxed">
-                                Multiple failed login attempts detected from IP 192.168.1.1
-                            </p>
-                        </div>
-                    </div>
-                </div>
 
             </div>
 
