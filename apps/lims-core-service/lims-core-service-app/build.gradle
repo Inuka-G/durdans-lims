@@ -30,7 +30,12 @@ dependencies {
     implementation 'software.amazon.awssdk:cloudwatch'
     implementation 'software.amazon.awssdk:cloudwatchlogs'
     implementation 'software.amazon.awssdk:auth'
-    implementation platform("software.amazon.awssdk:bom:2.25.20")
+    // enforcedPlatform, not platform: micrometer-registry-cloudwatch2 transitively
+    // pulls a newer sdk-core, and with a plain platform Gradle upgrades core past
+    // the s3/presigner modules. That split produced the production NPE
+    // ("ClientEndpointProvider ... ep is null") on every S3 presign the moment no
+    // endpoint override was set (i.e. real AWS instead of LocalStack).
+    implementation enforcedPlatform("software.amazon.awssdk:bom:2.31.21")
     implementation 'io.micrometer:micrometer-registry-cloudwatch2'
     implementation 'org.springframework.boot:spring-boot-starter-cache'
     implementation 'com.github.ben-manes.caffeine:caffeine'
