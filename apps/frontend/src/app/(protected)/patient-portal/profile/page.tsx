@@ -46,7 +46,7 @@ export default function PatientProfilePage() {
                         firstName: "Test",
                         lastName: "User",
                         fullName: "Test User",
-                        dateOfBirth: "1990-01-01",
+                        dob: "1990-01-01",
                         gender: "MALE",
                         bloodGroup: "O+",
                         phone: "0771234567",
@@ -180,7 +180,7 @@ export default function PatientProfilePage() {
                                 <Calendar className="h-3.5 w-3.5" />
                                 Date of Birth
                             </dt>
-                            <dd className="text-sm">{patient.dateOfBirth || "N/A"}</dd>
+                            <dd className="text-sm">{patient.dob || "N/A"}</dd>
                         </div>
                         
                         <div>

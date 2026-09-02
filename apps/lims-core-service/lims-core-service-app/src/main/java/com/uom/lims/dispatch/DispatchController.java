@@ -68,9 +68,14 @@ public class DispatchController implements DispatchApi {
         String effectiveKeyword = keyword;
         if (com.uom.lims.security.SecurityUtils.hasRole("PATIENT")) {
             org.springframework.security.core.Authentication authentication = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+            String ownCode = null;
             if (authentication != null && authentication.getPrincipal() instanceof org.springframework.security.oauth2.jwt.Jwt jwt) {
-                effectiveKeyword = jwt.getClaimAsString("preferred_username");
+                ownCode = jwt.getClaimAsString("preferred_username");
             }
+            if (ownCode == null || ownCode.isBlank()) {
+                throw new org.springframework.security.access.AccessDeniedException("Access Denied");
+            }
+            effectiveKeyword = ownCode;
         }
                 
         return dispatchService.listDispatchReports(status, branchCode, effectiveKeyword, page, size, sort);
@@ -82,11 +87,12 @@ public class DispatchController implements DispatchApi {
         DispatchItemResponse response = dispatchService.getDispatchReport(reportReference, branchCode);
         if (com.uom.lims.security.SecurityUtils.hasRole("PATIENT")) {
             org.springframework.security.core.Authentication authentication = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+            String patientCode = null;
             if (authentication != null && authentication.getPrincipal() instanceof org.springframework.security.oauth2.jwt.Jwt jwt) {
-                String patientCode = jwt.getClaimAsString("preferred_username");
-                if (patientCode != null && !patientCode.equals(response.getPatientCode())) {
-                    throw new org.springframework.security.access.AccessDeniedException("Access Denied");
-                }
+                patientCode = jwt.getClaimAsString("preferred_username");
+            }
+            if (patientCode == null || !patientCode.equals(response.getPatientCode())) {
+                throw new org.springframework.security.access.AccessDeniedException("Access Denied");
             }
         }
         return response;

@@ -142,6 +142,12 @@ app:
   verification:
     base-url: ${APP_VERIFICATION_BASE_URL:http://localhost:11000}
 
+  reports:
+    # Where a dispatched report notification points the patient. Must be a page
+    # this system actually serves — the earlier default linked a per-report URL on
+    # reports.durdans.com, a domain the project does not own, so the link was dead.
+    portal-url: ${APP_REPORTS_PORTAL_URL:http://localhost:3000/patient-portal/orders}
+
   # Use `mock` for local/test runs. Set SMS_PROVIDER=ozonedesk and supply the
   # remaining values to send report-ready notifications and patient OTPs.
   sms:
@@ -182,7 +188,13 @@ app:
     server-url: ${KEYCLOAK_URL:http://localhost:8081}
     realm: ${KEYCLOAK_REALM:lims-realm}
     client-id: ${KEYCLOAK_ADMIN_CLIENT_ID:lims-admin-cli}
-    client-secret: ${KEYCLOAK_ADMIN_CLIENT_SECRET:e8JxGBiBhK0TCtjQaJ6mkDsHDv6siRJ0tIMUTmYnaihuRFgc0GMXZMuXIG6VVBhaAGCxvSvxjmy88CsIoP0agh}
+    client-secret: ${KEYCLOAK_ADMIN_CLIENT_SECRET:}
+
+  # CloudWatch metrics/log viewer used by Super Admin → Monitoring. Off by
+  # default so local and CI contexts do not need AWS credentials to start.
+  monitoring:
+    cloudwatch:
+      enabled: ${APP_MONITORING_CLOUDWATCH_ENABLED:false}
 
 # Observability: liveness/readiness probes + Prometheus metrics.
 # Management runs on a SEPARATE port (11001) so metrics/health are served on an

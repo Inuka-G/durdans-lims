@@ -33,6 +33,9 @@ public class EmailService {
     @Value("${app.verification.base-url}")
     private String baseUrl;
 
+    @Value("${app.reports.portal-url:http://localhost:3000/patient-portal/orders}")
+    private String reportsPortalUrl = "http://localhost:3000/patient-portal/orders";
+
     @Retry(name = "smtp", fallbackMethod = "sendVerificationEmailFallback")
     @CircuitBreaker(name = "smtp")
     public void sendVerificationEmail(String toEmail, String patientName, String rawToken) {
@@ -183,70 +186,96 @@ public class EmailService {
     private String generateLabReportEmailHtml(LabReportData report) {
         StringBuilder rows = new StringBuilder();
         for (LabReportData.ResultRow row : report.results()) {
-            String background = row.abnormal() ? "#fff1f2" : "#ffffff";
-            String flagColor = row.abnormal() ? "#b42318" : "#18794e";
+            String flagColor = row.abnormal() ? "#8a1f1f" : "#3d5a45";
+            String flagWeight = row.abnormal() ? "bold" : "normal";
             rows.append("""
-                    <tr style="background:%s">
-                      <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb">%s</td>
-                      <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;font-weight:700;color:#0b1f3a">%s</td>
-                      <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb">%s</td>
-                      <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb">%s</td>
-                      <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;font-weight:700;color:%s">%s</td>
+                    <tr>
+                      <td style="padding:9px 12px;border-bottom:1px solid #dde3ea">%s</td>
+                      <td style="padding:9px 12px;border-bottom:1px solid #dde3ea">%s</td>
+                      <td style="padding:9px 12px;border-bottom:1px solid #dde3ea;color:#5b6672">%s</td>
+                      <td style="padding:9px 12px;border-bottom:1px solid #dde3ea;color:#5b6672">%s</td>
+                      <td style="padding:9px 12px;border-bottom:1px solid #dde3ea;color:%s;font-weight:%s">%s</td>
                     </tr>
                     """.formatted(
-                    background, html(row.parameter()), html(row.value()), html(row.unit()),
-                    html(row.referenceRange()), flagColor, html(label(row.flag()))));
+                    html(row.parameter()), html(row.value()), html(row.unit()),
+                    html(row.referenceRange()), flagColor, flagWeight, html(label(row.flag()))));
         }
         if (rows.isEmpty()) {
-            rows.append("<tr><td colspan=\"5\" style=\"padding:16px;color:#64748b\">"
-                    + "The detailed result is included in the attached PDF.</td></tr>");
+            rows.append("<tr><td colspan=\"5\" style=\"padding:14px 12px;color:#5b6672\">"
+                    + "The detailed results are provided in the attached PDF report.</td></tr>");
         }
 
         String clinicalNote = report.clinicalNote() == null || report.clinicalNote().isBlank()
                 ? ""
-                : "<div style=\"margin-top:20px;padding:14px 16px;background:#f8fafc;border-left:4px solid #137fec\">"
-                + "<strong>Clinical note</strong><br>" + html(report.clinicalNote()) + "</div>";
+                : "<p style=\"margin:18px 0 0;font-size:14px;line-height:1.6;color:#333e4c\">"
+                + "<span style=\"color:#5b6672\">Clinical note:</span> " + html(report.clinicalNote()) + "</p>";
 
         return """
                 <!doctype html>
-                <html><body style="margin:0;background:#f1f5f9;font-family:Arial,sans-serif;color:#334155">
-                  <div style="padding:28px 12px">
-                    <div style="max-width:760px;margin:auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 18px rgba(15,23,42,.08)">
-                      <div style="background:#0b1f3a;padding:24px 30px;color:#fff">
-                        <div style="font-size:22px;font-weight:800;letter-spacing:.5px">DURDANS HOSPITAL</div>
-                        <div style="color:#7dd3fc;margin-top:4px">Laboratory Services</div>
+                <html><body style="margin:0;padding:0;background:#eef1f4;font-family:Georgia,'Times New Roman',serif;color:#26303b">
+                  <div style="padding:24px 12px">
+                    <div style="max-width:680px;margin:auto;background:#ffffff;border:1px solid #d6dde4">
+                      <div style="padding:26px 36px 20px;border-bottom:3px solid #1f3a5f">
+                        <div style="font-size:19px;letter-spacing:2px;color:#1f3a5f">DURDANS HOSPITAL</div>
+                        <div style="font-size:12px;letter-spacing:1px;color:#5b6672;margin-top:2px">LABORATORY SERVICES</div>
                       </div>
-                      <div style="padding:28px 30px">
-                        <div style="display:inline-block;padding:6px 10px;border-radius:20px;background:#e8f5ee;color:#18794e;font-size:12px;font-weight:700">CLINICALLY AUTHORIZED</div>
-                        <h1 style="margin:16px 0 8px;color:#0b1f3a;font-size:23px">Your laboratory report is ready</h1>
-                        <p style="font-size:15px;line-height:1.6">Dear %s,</p>
-                        <p style="font-size:15px;line-height:1.6">Your <strong>%s</strong> report has been clinically reviewed and authorized. A complete PDF report is attached to this email.</p>
+                      <div style="padding:28px 36px">
+                        <p style="margin:0 0 18px;font-size:15px;line-height:1.7">Dear %s,</p>
+                        <p style="margin:0 0 18px;font-size:15px;line-height:1.7">
+                          Your laboratory report for <strong>%s</strong> has been reviewed and clinically
+                          authorized. The complete report is attached to this email as a PDF document.
+                        </p>
 
-                        <table role="presentation" style="width:100%%;margin:20px 0;border-collapse:collapse;background:#f8fafc;border-radius:8px">
-                          <tr><td style="padding:10px 12px;color:#64748b">Patient ID</td><td style="padding:10px 12px;font-weight:700">%s</td><td style="padding:10px 12px;color:#64748b">Sample</td><td style="padding:10px 12px;font-weight:700">%s</td></tr>
-                          <tr><td style="padding:10px 12px;color:#64748b">Report ID</td><td style="padding:10px 12px;font-weight:700">%s</td><td style="padding:10px 12px;color:#64748b">Authorized</td><td style="padding:10px 12px;font-weight:700">%s</td></tr>
+                        <table role="presentation" style="width:100%%;margin:6px 0 22px;border-collapse:collapse;font-size:13px;font-family:Arial,Helvetica,sans-serif">
+                          <tr>
+                            <td style="padding:7px 0;color:#5b6672;width:130px;border-bottom:1px solid #e6ebf0">Patient ID</td>
+                            <td style="padding:7px 0;border-bottom:1px solid #e6ebf0">%s</td>
+                            <td style="padding:7px 0;color:#5b6672;width:110px;border-bottom:1px solid #e6ebf0">Sample</td>
+                            <td style="padding:7px 0;border-bottom:1px solid #e6ebf0">%s</td>
+                          </tr>
+                          <tr>
+                            <td style="padding:7px 0;color:#5b6672;border-bottom:1px solid #e6ebf0">Report ID</td>
+                            <td style="padding:7px 0;border-bottom:1px solid #e6ebf0">%s</td>
+                            <td style="padding:7px 0;color:#5b6672;border-bottom:1px solid #e6ebf0">Authorized</td>
+                            <td style="padding:7px 0;border-bottom:1px solid #e6ebf0">%s</td>
+                          </tr>
                         </table>
 
-                        <h2 style="font-size:16px;color:#0b1f3a;margin:22px 0 10px">Result summary</h2>
-                        <div style="overflow-x:auto"><table style="width:100%%;border-collapse:collapse;font-size:13px;border:1px solid #e5e7eb">
-                          <thead><tr style="background:#0b1f3a;color:#fff;text-align:left">
-                            <th style="padding:10px 12px">Parameter</th><th style="padding:10px 12px">Result</th><th style="padding:10px 12px">Unit</th><th style="padding:10px 12px">Reference</th><th style="padding:10px 12px">Flag</th>
+                        <div style="font-size:12px;letter-spacing:1px;color:#1f3a5f;margin:0 0 8px;font-family:Arial,Helvetica,sans-serif"><strong>LABORATORY RESULTS</strong></div>
+                        <table style="width:100%%;border-collapse:collapse;font-size:13px;font-family:Arial,Helvetica,sans-serif;border:1px solid #dde3ea">
+                          <thead><tr style="background:#f4f6f8;text-align:left;color:#1f3a5f">
+                            <th style="padding:9px 12px;font-weight:bold;border-bottom:1px solid #c9d2db">Parameter</th>
+                            <th style="padding:9px 12px;font-weight:bold;border-bottom:1px solid #c9d2db">Result</th>
+                            <th style="padding:9px 12px;font-weight:bold;border-bottom:1px solid #c9d2db">Unit</th>
+                            <th style="padding:9px 12px;font-weight:bold;border-bottom:1px solid #c9d2db">Reference range</th>
+                            <th style="padding:9px 12px;font-weight:bold;border-bottom:1px solid #c9d2db">Flag</th>
                           </tr></thead><tbody>%s</tbody>
-                        </table></div>
+                        </table>
                         %s
-                        <div style="margin-top:22px;padding:14px 16px;background:#eff6ff;border-radius:8px;color:#1e3a5f;font-size:13px;line-height:1.5">
-                          <strong>Attached:</strong> Complete authorized laboratory report (PDF). Please consult your doctor for clinical interpretation.
-                        </div>
-                        <p style="margin-top:24px;font-size:13px;color:#64748b">Electronically authorized by <strong>%s</strong>.</p>
+                        <p style="margin:22px 0 0;font-size:14px;line-height:1.7">
+                          You can also view your reports at any time in the
+                          <a href="%s" style="color:#1f3a5f">Durdans patient portal</a>.
+                          Please consult your doctor for the clinical interpretation of these results.
+                        </p>
+                        <p style="margin:26px 0 0;font-size:14px;line-height:1.6">
+                          Yours sincerely,<br>
+                          <strong>%s</strong><br>
+                          <span style="font-size:12px;color:#5b6672">Consultant, Laboratory Services &mdash; electronically authorized, %s</span>
+                        </p>
                       </div>
-                      <div style="padding:18px 30px;background:#f8fafc;color:#94a3b8;font-size:11px;line-height:1.5">This confidential email contains personal health information intended only for the named recipient. Please do not reply to this automated message.</div>
+                      <div style="padding:16px 36px;border-top:1px solid #d6dde4;color:#7b8590;font-size:11px;line-height:1.6;font-family:Arial,Helvetica,sans-serif">
+                        This message and its attachment are confidential and intended solely for the named recipient.
+                        If you have received it in error, please delete it and notify the laboratory.
+                        This is an automated message; please do not reply.
+                      </div>
                     </div>
                   </div>
                 </body></html>
                 """.formatted(
                 html(report.patientName()), html(report.testPanel()), html(report.patientCode()),
                 html(report.sampleBarcode()), html(report.reportReference()), format(report.authorizedAt()),
-                rows, clinicalNote, html(report.authorizedBy()));
+                rows, clinicalNote, HtmlUtils.htmlEscape(reportsPortalUrl),
+                html(report.authorizedBy()), format(report.authorizedAt()));
     }
 
     private static String reportFilename(LabReportData report) {

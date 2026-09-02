@@ -150,7 +150,7 @@ export default function PatientOrdersPage() {
             )}
 
             {!error && orders.length === 0 && (
-                <SectionCard>
+                <SectionCard title="Orders">
                     <div className="py-12 text-center text-fg-muted">
                         <p>You do not have any test orders.</p>
                     </div>

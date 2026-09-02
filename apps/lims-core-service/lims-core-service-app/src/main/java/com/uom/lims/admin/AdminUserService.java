@@ -108,7 +108,9 @@ public class AdminUserService {
                 ? null
                 : assertRoleGrantable(request.role());
 
-        BranchEntity branchEntity = branchRepository.findByCode(branch)
+        // Case-insensitive to match BranchService: `branch` may be a JWT claim
+        // whose casing does not match the stored code.
+        BranchEntity branchEntity = branchRepository.findByCodeIgnoreCase(branch)
                 .orElseThrow(() -> new BusinessRuleException("Branch not found: " + branch));
         if (!"Active".equalsIgnoreCase(branchEntity.getStatus())) {
             throw new BusinessRuleException("Users can only be created or assigned to active branches.");

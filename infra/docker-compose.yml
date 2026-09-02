@@ -153,6 +153,10 @@ services:
     ports:
       - "11000:11000"   # API only — 11001 (management) stays on the private network
     environment:
+      # Lab-local timezone: server-side time formatting and "today" boundaries
+      # (QC dashboard, lab operations) use ZoneId.systemDefault(), which reads
+      # this. Without it the JVM runs in UTC and every formatted time is 5:30 off.
+      TZ: Asia/Colombo
       SPRING_PROFILES_ACTIVE: docker
       DB_USERNAME: ${LIMS_DB_USERNAME:-postgres}
       DB_PASSWORD: ${LIMS_DB_PASSWORD:-postgres}
@@ -173,6 +177,10 @@ services:
       # Mail is disabled unless supplied (see .env.example)
       MAIL_USERNAME: ${MAIL_USERNAME:-}
       MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      # Where dispatched report SMS/emails point the patient. The localhost default
+      # is for this local stack ONLY — a deployed environment must set this to the
+      # public patient-portal URL or patients get links their phones cannot open.
+      APP_REPORTS_PORTAL_URL: ${APP_REPORTS_PORTAL_URL:-http://localhost:3000/patient-portal/orders}
       # SMS is mock by default; set these in infra/.env for OzoneDesk delivery.
       SMS_PROVIDER: ${SMS_PROVIDER:-mock}
       SMS_API_URL: ${SMS_API_URL:-http://sms.ozonedesk.com/api/v1/send.php}

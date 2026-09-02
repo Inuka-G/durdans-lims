@@ -57,7 +57,7 @@ public class OzoneDeskSmsService implements SmsService {
         form.add("api_key", properties.getApiKey());
         form.add("sender_id", properties.getSenderId());
         form.add("to", normalizeSriLankanPhone(phoneNumber));
-        form.add("message", GsmText.sanitize(message));
+        form.add("message", flattenLines(GsmText.sanitize(message)));
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
@@ -80,6 +80,17 @@ public class OzoneDeskSmsService implements SmsService {
             // Never include the request here: the form body carries the API key and the message.
             throw new SmsDeliveryException("SMS gateway request failed", ex);
         }
+    }
+
+    /**
+     * OzoneDesk drops everything after the first line break, even when the message
+     * travels correctly %0A-encoded in a form body — a dispatched report SMS arrived
+     * as "Durdans Hospital Laboratory" alone. Until the gateway handles multi-line
+     * text, every line break becomes a " | " separator here, at the adapter, so the
+     * templates (and the mock provider that echoes them in dev) keep their layout.
+     */
+    static String flattenLines(String message) {
+        return message.replaceAll("\\s*\\n+\\s*", " | ").trim();
     }
 
     /**
