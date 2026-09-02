@@ -25,6 +25,7 @@ import java.util.List;
 public class BranchUserService {
 
     private final BranchUserRepository repository;
+    private final com.uom.lims.metadata.BranchRepository branchRepository;
     private final ObjectProvider<KeycloakAdminService> keycloakAdminServiceProvider;
     private final AuditService auditService;
 
@@ -81,63 +82,87 @@ public class BranchUserService {
 
     @Transactional(readOnly = true)
     public Page<BranchUserResponse> searchBranchUsers(String branchId, String keyword, Boolean isActive, Pageable pageable) {
-        if (!SecurityUtils.hasRole("SUPER_ADMIN")) {
-            branchId = SecurityUtils.getCurrentBranchId(); // Enforce branch context
-        }
-
-        final String finalBranchId = branchId;
-        List<BranchUserResponse> responses = new java.util.ArrayList<>();
-        
-        // Pre-fetch local phone numbers as a fallback since old users might not have phone saved in Keycloak
-        java.util.List<BranchUserEntity> localUsers = repository.findByBranchId(finalBranchId);
-        java.util.Map<String, String> localPhoneMap = localUsers.stream()
-            .filter(u -> u.getKeycloakId() != null && u.getPhone() != null)
-            .collect(java.util.stream.Collectors.toMap(BranchUserEntity::getKeycloakId, BranchUserEntity::getPhone, (p1, p2) -> p1));
-
-        keycloakAdminServiceProvider.ifAvailable(service -> {
-            List<org.keycloak.representations.idm.UserRepresentation> kcUsers = service.getUsersByBranch(finalBranchId);
-            
-            for (org.keycloak.representations.idm.UserRepresentation user : kcUsers) {
-                // Filter by keyword
-                if (keyword != null && !keyword.trim().isEmpty()) {
-                    String lowerKeyword = keyword.toLowerCase();
-                    boolean matches = false;
-                    if (user.getFirstName() != null && user.getFirstName().toLowerCase().contains(lowerKeyword)) matches = true;
-                    if (user.getLastName() != null && user.getLastName().toLowerCase().contains(lowerKeyword)) matches = true;
-                    if (user.getEmail() != null && user.getEmail().toLowerCase().contains(lowerKeyword)) matches = true;
-                    if (user.getUsername() != null && user.getUsername().toLowerCase().contains(lowerKeyword)) matches = true;
-                    if (!matches) continue;
-                }
-                
-                // Filter by isActive
-                if (isActive != null) {
-                    boolean userActive = Boolean.TRUE.equals(user.isEnabled());
-                    if (userActive != isActive) continue;
-                }
-                
-                // Fetch roles and filter out BRANCH_ADMIN
-                List<String> roles = service.getUserRoles(user.getId());
-                if (roles.contains("BRANCH_ADMIN") || roles.contains("ROLE_BRANCH_ADMIN")) {
-                    continue;
-                }
-                
-                BranchUserResponse mappedResponse = mapToResponse(user, finalBranchId, roles);
-                if (mappedResponse.getPhone() == null || mappedResponse.getPhone().isEmpty()) {
-                    mappedResponse.setPhone(localPhoneMap.get(user.getId()));
-                }
-                responses.add(mappedResponse);
+        try {
+            if (!SecurityUtils.hasRole("SUPER_ADMIN")) {
+                branchId = SecurityUtils.getCurrentBranchId(); // Enforce branch context
             }
-        });
 
-        // In-memory pagination
-        int start = (int) pageable.getOffset();
-        int end = Math.min((start + pageable.getPageSize()), responses.size());
-        List<BranchUserResponse> pageContent = new java.util.ArrayList<>();
-        if (start <= end) {
-            pageContent = responses.subList(start, end);
+            final String finalBranchId = branchId;
+            java.util.Set<String> searchIdentifiers = new java.util.HashSet<>();
+            if (finalBranchId != null) {
+                searchIdentifiers.add(finalBranchId);
+                try {
+                    java.util.UUID uuid = java.util.UUID.fromString(finalBranchId);
+                    branchRepository.findById(uuid).ifPresent(b -> {
+                        if (b.getId() != null) searchIdentifiers.add(b.getId().toString());
+                        if (b.getCode() != null) searchIdentifiers.add(b.getCode());
+                    });
+                } catch (Exception ignored) {
+                    branchRepository.findByCodeIgnoreCase(finalBranchId).ifPresent(b -> {
+                        if (b.getId() != null) searchIdentifiers.add(b.getId().toString());
+                        if (b.getCode() != null) searchIdentifiers.add(b.getCode());
+                    });
+                }
+            }
+
+            List<BranchUserResponse> responses = new java.util.ArrayList<>();
+            
+            // Pre-fetch local phone numbers as a fallback since old users might not have phone saved in Keycloak
+            java.util.List<BranchUserEntity> localUsers = repository.findByBranchId(finalBranchId);
+            java.util.Map<String, String> localPhoneMap = localUsers.stream()
+                .filter(u -> u.getKeycloakId() != null && u.getPhone() != null)
+                .collect(java.util.stream.Collectors.toMap(BranchUserEntity::getKeycloakId, BranchUserEntity::getPhone, (p1, p2) -> p1));
+
+            keycloakAdminServiceProvider.ifAvailable(service -> {
+                List<org.keycloak.representations.idm.UserRepresentation> kcUsers = service.getUsersByBranch(searchIdentifiers);
+                
+                for (org.keycloak.representations.idm.UserRepresentation user : kcUsers) {
+                    // Filter by keyword
+                    if (keyword != null && !keyword.trim().isEmpty()) {
+                        String lowerKeyword = keyword.toLowerCase();
+                        boolean matches = false;
+                        if (user.getFirstName() != null && user.getFirstName().toLowerCase().contains(lowerKeyword)) matches = true;
+                        if (user.getLastName() != null && user.getLastName().toLowerCase().contains(lowerKeyword)) matches = true;
+                        if (user.getEmail() != null && user.getEmail().toLowerCase().contains(lowerKeyword)) matches = true;
+                        if (user.getUsername() != null && user.getUsername().toLowerCase().contains(lowerKeyword)) matches = true;
+                        if (!matches) continue;
+                    }
+                    
+                    // Filter by isActive
+                    if (isActive != null) {
+                        boolean userActive = Boolean.TRUE.equals(user.isEnabled());
+                        if (userActive != isActive) continue;
+                    }
+                    
+                    // Fetch roles and filter out BRANCH_ADMIN
+                    List<String> roles = service.getUserRoles(user.getId());
+                    if (roles.contains("BRANCH_ADMIN") || roles.contains("ROLE_BRANCH_ADMIN")) {
+                        continue;
+                    }
+                    
+                    BranchUserResponse mappedResponse = mapToResponse(user, finalBranchId, roles);
+                    if (mappedResponse.getPhone() == null || mappedResponse.getPhone().isEmpty()) {
+                        mappedResponse.setPhone(localPhoneMap.get(user.getId()));
+                    }
+                    responses.add(mappedResponse);
+                }
+            });
+
+            // In-memory pagination
+            int start = (int) pageable.getOffset();
+            int end = Math.min((start + pageable.getPageSize()), responses.size());
+            List<BranchUserResponse> pageContent = new java.util.ArrayList<>();
+            if (start <= end) {
+                pageContent = responses.subList(start, end);
+            }
+
+            return new org.springframework.data.domain.PageImpl<>(pageContent, pageable, responses.size());
+        } catch (Exception e) {
+            try {
+                java.nio.file.Files.writeString(java.nio.file.Paths.get("error2.log"), e.toString() + "\n" + java.util.Arrays.toString(e.getStackTrace()));
+            } catch (Exception ignored) {}
+            throw e;
         }
-
-        return new org.springframework.data.domain.PageImpl<>(pageContent, pageable, responses.size());
     }
 
     public BranchUserResponse updateBranchUser(String id, BranchUserUpdateRequest request) {
@@ -163,12 +188,20 @@ public class BranchUserService {
         
         validateBranchAccess(entity.getBranchId());
 
-        if (repository.existsByEmailAndIdNot(request.getEmail(), entity.getId())) {
-            throw new InvalidRequestException("User with this email already exists");
-        }
-
-        if (request.getUsername() != null && repository.existsByUsernameAndIdNot(request.getUsername(), entity.getId())) {
-            throw new InvalidRequestException("User with this username already exists");
+        if (entity.getId() != null) {
+            if (repository.existsByEmailAndIdNot(request.getEmail(), entity.getId())) {
+                throw new InvalidRequestException("User with this email already exists");
+            }
+            if (request.getUsername() != null && repository.existsByUsernameAndIdNot(request.getUsername(), entity.getId())) {
+                throw new InvalidRequestException("User with this username already exists");
+            }
+        } else {
+            if (repository.existsByEmail(request.getEmail())) {
+                throw new InvalidRequestException("User with this email already exists");
+            }
+            if (request.getUsername() != null && repository.existsByUsername(request.getUsername())) {
+                throw new InvalidRequestException("User with this username already exists");
+            }
         }
 
         String oldEmail = entity.getEmail() != null ? entity.getEmail() : "";
@@ -241,8 +274,29 @@ public class BranchUserService {
     }
 
     private void validateBranchAccess(String entityBranchId) {
-        if (!SecurityUtils.hasRole("SUPER_ADMIN") && !entityBranchId.equalsIgnoreCase(SecurityUtils.getCurrentBranchId())) {
-            throw new InvalidRequestException("You do not have access to this branch user");
+        if (!SecurityUtils.hasRole("SUPER_ADMIN")) {
+            String currentBranch = SecurityUtils.getCurrentBranchId();
+            if (currentBranch != null && entityBranchId != null) {
+                if (entityBranchId.equalsIgnoreCase(currentBranch)) {
+                    return;
+                }
+                boolean matches = false;
+                try {
+                    java.util.UUID uuid = java.util.UUID.fromString(currentBranch);
+                    var b = branchRepository.findById(uuid).orElse(null);
+                    if (b != null && (entityBranchId.equalsIgnoreCase(b.getCode()) || (b.getId() != null && entityBranchId.equalsIgnoreCase(b.getId().toString())))) {
+                        matches = true;
+                    }
+                } catch (Exception ignored) {
+                    var b = branchRepository.findByCodeIgnoreCase(currentBranch).orElse(null);
+                    if (b != null && (entityBranchId.equalsIgnoreCase(b.getCode()) || (b.getId() != null && entityBranchId.equalsIgnoreCase(b.getId().toString())))) {
+                        matches = true;
+                    }
+                }
+                if (!matches) {
+                    throw new InvalidRequestException("You do not have access to this branch user");
+                }
+            }
         }
     }
 

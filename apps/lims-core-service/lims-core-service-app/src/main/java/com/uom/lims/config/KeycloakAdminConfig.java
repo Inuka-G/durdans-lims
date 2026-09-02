@@ -15,7 +15,7 @@ import org.springframework.context.annotation.Configuration;
  * credentials in environments that don't need it.
  */
 @Configuration
-@ConditionalOnProperty(name = "app.keycloak-admin.enabled", havingValue = "true")
+@ConditionalOnProperty(name = "app.keycloak-admin.enabled", havingValue = "true", matchIfMissing = true)
 public class KeycloakAdminConfig {
 
     @Value("${app.keycloak-admin.server-url:http://localhost:8081}")
@@ -30,14 +30,31 @@ public class KeycloakAdminConfig {
     @Value("${app.keycloak-admin.client-secret:}")
     private String clientSecret;
 
+    @Value("${app.keycloak-admin.admin-username:admin}")
+    private String adminUsername;
+
+    @Value("${app.keycloak-admin.admin-password:admin}")
+    private String adminPassword;
+
     @Bean
     public Keycloak adminKeycloak() {
-        return KeycloakBuilder.builder()
-                .serverUrl(serverUrl)
-                .realm(realm)
-                .grantType(OAuth2Constants.CLIENT_CREDENTIALS)
-                .clientId(clientId)
-                .clientSecret(clientSecret)
-                .build();
+        if (clientSecret != null && !clientSecret.trim().isEmpty()) {
+            return KeycloakBuilder.builder()
+                    .serverUrl(serverUrl)
+                    .realm(realm)
+                    .grantType(OAuth2Constants.CLIENT_CREDENTIALS)
+                    .clientId(clientId)
+                    .clientSecret(clientSecret)
+                    .build();
+        } else {
+            return KeycloakBuilder.builder()
+                    .serverUrl(serverUrl)
+                    .realm("master")
+                    .grantType(OAuth2Constants.PASSWORD)
+                    .clientId("admin-cli")
+                    .username(adminUsername)
+                    .password(adminPassword)
+                    .build();
+        }
     }
 }

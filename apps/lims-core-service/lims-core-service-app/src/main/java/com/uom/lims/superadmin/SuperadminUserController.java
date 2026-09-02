@@ -30,7 +30,7 @@ import com.uom.lims.entity.BranchEntity;
 @RestController
 @RequiredArgsConstructor
 @PreAuthorize("hasRole('SUPER_ADMIN')")
-@ConditionalOnProperty(name = "app.keycloak-admin.enabled", havingValue = "true")
+@ConditionalOnProperty(name = "app.keycloak-admin.enabled", havingValue = "true", matchIfMissing = true)
 public class SuperadminUserController implements SuperadminUserApi {
 
     private final KeycloakAdminService keycloakAdminService;

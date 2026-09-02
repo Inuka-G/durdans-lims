@@ -216,7 +216,7 @@ public class GlobalExceptionHandler {
                 if (correlationId == null || correlationId.isBlank()) {
                         correlationId = java.util.UUID.randomUUID().toString();
                 }
-                log.error("Unexpected error [{}]", correlationId, ex);
+                log.error("Unexpected error [{}]", correlationId, ex); try { java.nio.file.Files.writeString(java.nio.file.Paths.get("error.log"), ex.toString() + "\n" + java.util.Arrays.toString(ex.getStackTrace())); } catch (Exception ignore) {}
 
                 // The trace stays in the log above, keyed by correlationId. Putting it
                 // in the response body hands every caller our class names, file paths

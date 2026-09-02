@@ -44,11 +44,22 @@ public final class SecurityUtils {
         if (jwt == null) {
             return null;
         }
-        String branchId = firstNonBlank(
-                jwt.getClaimAsString("branch_id"),
-                jwt.getClaimAsString("branch_code"),
-                jwt.getClaimAsString("branch"),
-                jwt.getClaimAsString("branchCode"));
+
+        String branchId = null;
+        for (String claimName : new String[]{"branch_id", "branch_code", "branch", "branchCode"}) {
+            Object claimValue = jwt.getClaim(claimName);
+            if (claimValue != null) {
+                if (claimValue instanceof java.util.Collection<?> col && !col.isEmpty()) {
+                    branchId = col.iterator().next().toString();
+                } else if (claimValue instanceof String str && !str.isBlank()) {
+                    branchId = str;
+                }
+                if (branchId != null && !branchId.isBlank()) {
+                    break;
+                }
+            }
+        }
+
         if (branchId == null) {
             log.warn("Branch claim missing from JWT for user '{}'", safeUser(jwt));
             return null;

@@ -32,7 +32,7 @@ import com.uom.lims.entity.BranchEntity;
  */
 @Service
 @RequiredArgsConstructor
-@ConditionalOnProperty(name = "app.keycloak-admin.enabled", havingValue = "true")
+@ConditionalOnProperty(name = "app.keycloak-admin.enabled", havingValue = "true", matchIfMissing = true)
 public class AdminUserService {
 
     private static final String BRANCH_ATTR = "branch_id";

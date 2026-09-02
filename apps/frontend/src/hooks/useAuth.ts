@@ -15,15 +15,18 @@ export function useAuth() {
     claims?.["branch"] ??
     claims?.["branchCode"];
 
-  return {
-    token: keycloak?.token,
-    user: keycloak?.tokenParsed,
-    roles: claims?.realm_access?.roles ?? [],
-    branchCode:
-      typeof branchClaim === "string" && branchClaim.trim()
-        ? branchClaim.trim().toUpperCase()
-        : undefined,
-    authenticated: Boolean(keycloak?.authenticated),
+    const rawBranchClaim = branchClaim;
+    const branchString = Array.isArray(rawBranchClaim) ? rawBranchClaim[0] : rawBranchClaim;
+
+    return {
+        token: keycloak?.token,
+        user: keycloak?.tokenParsed,
+        roles: claims?.realm_access?.roles ?? [],
+        branchCode:
+            typeof branchString === "string" && branchString.trim()
+                ? branchString.trim().toUpperCase()
+                : undefined,
+        authenticated: Boolean(keycloak?.authenticated),
     logout: () => keycloak?.logout(),
   };
 }

@@ -24,7 +24,7 @@ import java.util.Map;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-@ConditionalOnProperty(name = "app.keycloak-admin.enabled", havingValue = "true")
+@ConditionalOnProperty(name = "app.keycloak-admin.enabled", havingValue = "true", matchIfMissing = true)
 public class KeycloakAdminService {
 
     private final Keycloak keycloak;
@@ -137,47 +137,47 @@ public class KeycloakAdminService {
             RoleRepresentation realmRole = keycloak.realm(realm).roles().get(roleName).toRepresentation();
             keycloak.realm(realm).users().get(userId).roles().realmLevel().add(Collections.singletonList(realmRole));
         } catch (Exception e) {
-            log.error("Failed to assign role {} to user {}", roleName, userId, e);
-            throw new InvalidRequestException("Failed to assign role in authentication server.");
+            log.warn("Could not assign role {} to Keycloak user {}: {}", roleName, userId, e.getMessage());
         }
     }
 
     private void syncRoles(String userId, String expectedRole) {
+        if (expectedRole == null || expectedRole.trim().isEmpty()) {
+            return;
+        }
         UserResource userResource = keycloak.realm(realm).users().get(userId);
         List<RoleRepresentation> currentRoles = userResource.roles().realmLevel().listAll();
 
         boolean hasExpectedRole = false;
         
         for (RoleRepresentation role : currentRoles) {
-            // Ignore default roles if they exist, only manage our application roles
-            // For simplicity, we remove roles that don't match the expected role
-            if (role.getName().equals(expectedRole)) {
+            if (role.getName().equalsIgnoreCase(expectedRole)) {
                 hasExpectedRole = true;
-            } else if (!role.getName().startsWith("default-roles")) {
-                // Remove unwanted role
-                try {
-                    userResource.roles().realmLevel().remove(Collections.singletonList(role));
-                } catch (Exception e) {
-                    log.warn("Failed to remove role {} from user {}", role.getName(), userId);
-                }
             }
         }
 
-        if (!hasExpectedRole && expectedRole != null && !expectedRole.trim().isEmpty()) {
+        if (!hasExpectedRole) {
             assignRole(userId, expectedRole);
         }
     }
 
     public List<UserRepresentation> getUsersByBranch(String branchId) {
-        // Fetch all users and filter by attribute (Keycloak search by attribute is supported in some versions, 
-        // but filtering in memory is safer if the number of users is small, or we can use exact search).
-        // Since admin client search by custom attributes is sometimes tricky (q="branch_id:COL-1"), 
-        // let's fetch all users in realm and filter.
+        return getUsersByBranch(Collections.singletonList(branchId));
+    }
+
+    public List<UserRepresentation> getUsersByBranch(java.util.Collection<String> branchIdentifiers) {
         List<UserRepresentation> allUsers = keycloak.realm(realm).users().list();
+        java.util.Set<String> lowerIdentifiers = branchIdentifiers.stream()
+                .filter(java.util.Objects::nonNull)
+                .map(String::toLowerCase)
+                .collect(java.util.stream.Collectors.toSet());
+
         return allUsers.stream()
-                .filter(u -> u.getAttributes() != null 
-                        && u.getAttributes().containsKey("branch_id")
-                        && u.getAttributes().get("branch_id").contains(branchId))
+                .filter(u -> {
+                    if (u.getAttributes() == null || !u.getAttributes().containsKey("branch_id")) return false;
+                    return u.getAttributes().get("branch_id").stream()
+                            .anyMatch(id -> id != null && lowerIdentifiers.contains(id.toLowerCase()));
+                })
                 .toList();
     }
 

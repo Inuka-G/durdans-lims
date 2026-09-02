@@ -25,7 +25,7 @@ import java.util.List;
 @RequestMapping("/api/v1/admin/users")
 @RequiredArgsConstructor
 @PreAuthorize("hasAnyRole('BRANCH_ADMIN','SUPER_ADMIN')")
-@ConditionalOnProperty(name = "app.keycloak-admin.enabled", havingValue = "true")
+@ConditionalOnProperty(name = "app.keycloak-admin.enabled", havingValue = "true", matchIfMissing = true)
 public class AdminUserController {
 
     private final AdminUserService adminUserService;
