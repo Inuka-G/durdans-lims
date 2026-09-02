@@ -120,7 +120,7 @@ public class BranchReportService {
 
     private String formatRevenue(BigDecimal revenue) {
         if (revenue == null) return "0.0";
-        return revenue.divide(new BigDecimal("1000"), 1, RoundingMode.HALF_UP).toString();
+        return revenue.toString();
     }
 
     private String getColorForCategory(String category) {

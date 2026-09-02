@@ -29,6 +29,8 @@ import { InputField, SelectField } from '@/components/ui/Field';
 import SectionCard from '@/components/ui/SectionCard';
 import KpiTile from '@/components/ui/KpiTile';
 import DemoDataBanner from '@/components/shared/DemoDataBanner';
+import { getBranches, getBranchDashboardReport, type BranchReportTestPerformance } from '@/lib/api';
+
 
 const initialBarData = [
     { name: '01 OCT', revenue: 14000 },
@@ -139,12 +141,7 @@ const MODULE_PANELS: ModulePanel[] = [
  * Branch filter options. `value` is the stored filter key (also feeds the demo
  * noise maths) and must not change; `label` is the sentence-case display copy.
  */
-const BRANCHES = [
-    { value: 'All Branches', label: 'All branches' },
-    { value: 'Colombo Main', label: 'Colombo main branch' },
-    { value: 'Kandy Regional', label: 'Kandy regional centre' },
-    { value: 'Galle Outpost', label: 'Galle outpost' },
-];
+
 
 /** Parse a yyyy-mm-dd input value as a local date (avoids UTC day shifts). */
 function parseInputDate(value: string): Date | null {
@@ -171,12 +168,26 @@ function MetricDelta({ delta }: { delta: string }) {
 }
 
 export default function SuperadminReportsPage() {
-    const [startDate, setStartDate] = useState("2023-10-01");
-    const [endDate, setEndDate] = useState("2023-10-31");
-    const [selectedBranch, setSelectedBranch] = useState("All Branches");
+    const today = new Date();
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(today.getDate() - 30);
+    const [startDate, setStartDate] = useState(thirtyDaysAgo.toISOString().split('T')[0]);
+    const [endDate, setEndDate] = useState(today.toISOString().split('T')[0]);
+    const [selectedBranch, setSelectedBranch] = useState("ALL");
+    const [branches, setBranches] = useState<{value: string, label: string}[]>([{ value: "ALL", label: "All branches" }]);
+
+
+    useEffect(() => {
+        getBranches().then(res => {
+            const mapped = res.map(b => ({ value: b.code, label: b.name }));
+            setBranches([{ value: "ALL", label: "All branches" }, ...mapped]);
+        }).catch(err => console.error("Failed to load branches", err));
+    }, []);
 
     const [barData, setBarData] = useState(initialBarData);
     const [pieData, setPieData] = useState(initialPieData);
+    const [topTests, setTopTests] = useState<BranchReportTestPerformance[]>([]);
+    const [leastTests, setLeastTests] = useState<BranchReportTestPerformance[]>([]);
     const [kpis, setKpis] = useState({
         patients: '8,452', pChange: 14.5,
         orders: '21,120', oChange: 11.4,
@@ -190,37 +201,52 @@ export default function SuperadminReportsPage() {
     // Simulate fetching new dynamic data when date range or branch changes
     useEffect(() => {
         if (startDate && endDate) {
-            const sTime = new Date(startDate).getTime();
-            const eTime = new Date(endDate).getTime();
+            const backendBranch = selectedBranch;
 
-            // Pseudo-random noise factor based on date diff and branch selection
-            const diffDays = Math.abs((eTime - sTime) / (1000 * 60 * 60 * 24));
-            const branchNoise = selectedBranch === "All Branches" ? 1.0 : (selectedBranch.length % 5) * 0.2 + 0.3;
-            const noise = ((diffDays % 30) / 30) * branchNoise;
+            getBranchDashboardReport(backendBranch, startDate, endDate)
+                .then((report) => {
+                    setKpis({
+                        patients: report.kpis.totalPatients,
+                        pChange: report.kpis.patientsChange,
+                        orders: report.kpis.totalOrders,
+                        oChange: report.kpis.ordersChange,
+                        revenue: report.kpis.totalRevenue,
+                        rChange: report.kpis.revenueChange,
+                        pending: parseInt(report.kpis.pendingReports, 10),
+                        peChange: report.kpis.pendingReportsChange
+                    });
 
-            if (isNaN(noise)) return;
+                    if (report.revenueTrend && report.revenueTrend.length > 0) {
+                        const mappedBarData = report.revenueTrend.map((item: any) => ({
+                            name: item.date,
+                            revenue: item.revenue
+                        }));
+                        setBarData(mappedBarData);
+                    } else {
+                        setBarData([]);
+                    }
 
-            setKpis({
-                patients: Math.floor((5000 * branchNoise) + noise * 6000).toLocaleString(),
-                pChange: Number((8 + noise * 10).toFixed(1)),
-                orders: Math.floor((12000 * branchNoise) + noise * 14000).toLocaleString(),
-                oChange: Number((-1 + noise * 15).toFixed(1)),
-                revenue: (15 * branchNoise + noise * 20).toFixed(1),
-                rChange: Number((12 + noise * 10).toFixed(1)),
-                pending: Math.floor((200 * branchNoise) + noise * 400),
-                peChange: Number((-15 + noise * 25).toFixed(1))
-            });
+                    if (report.revenueByCategory && report.revenueByCategory.length > 0) {
+                        setPieData(report.revenueByCategory);
+                    } else {
+                        setPieData([]);
+                    }
 
-            setBarData(initialBarData.map(d => ({
-                ...d,
-                revenue: Math.floor(d.revenue * branchNoise * (0.8 + noise * 0.5))
-            })));
+                    if (report.topPerformingTests) {
+                        setTopTests(report.topPerformingTests);
+                    } else {
+                        setTopTests([]);
+                    }
 
-            setPieData([
-                { name: 'Pathology', value: Math.floor(45 + noise * 20), color: 'var(--color-primary)' },
-                { name: 'Radiology', value: Math.floor(25 + noise * 10), color: '#a855f7' },
-                { name: 'General', value: Math.floor(15 + noise * 15), color: '#f59e0b' },
-            ]);
+                    if (report.leastPerformingTests) {
+                        setLeastTests(report.leastPerformingTests);
+                    } else {
+                        setLeastTests([]);
+                    }
+                })
+                .catch((err) => {
+                    console.error("Failed to load dashboard report", err);
+                });
         }
     }, [startDate, endDate, selectedBranch]);
 
@@ -309,7 +335,7 @@ export default function SuperadminReportsPage() {
             ["Metric", "Value", "Change %"],
             ["Total Patients", kpis.patients.replace(/,/g, ''), kpis.pChange],
             ["Test Orders", kpis.orders.replace(/,/g, ''), kpis.oChange],
-            ["Revenue (LKR M)", kpis.revenue, kpis.rChange],
+            ["Revenue (LKR K)", kpis.revenue, kpis.rChange],
             ["Pending Reports", kpis.pending, kpis.peChange],
         ]);
 
@@ -335,10 +361,10 @@ export default function SuperadminReportsPage() {
     };
 
     const periodLabel = `${formatDay(parseInputDate(startDate))} – ${formatDay(parseInputDate(endDate))}`;
-    const branchLabel = BRANCHES.find((b) => b.value === selectedBranch)?.label ?? selectedBranch;
+    const branchLabel = branches.find((b) => b.value === selectedBranch)?.label ?? selectedBranch;
     const pieTotal = pieData.reduce((acc, curr) => acc + curr.value, 0);
-    const barTotal = barData.reduce((acc, curr) => acc + curr.revenue, 0);
-    const barPeak = barData.reduce((best, curr) => (curr.revenue > best.revenue ? curr : best), barData[0]);
+    const barTotal = barData.length > 0 ? barData.reduce((acc, curr) => acc + (curr.revenue || 0), 0) : 0;
+    const barPeak = barData.length > 0 ? barData.reduce((best, curr) => ((curr.revenue || 0) > (best.revenue || 0) ? curr : best), barData[0]) : null;
 
     return (
         <div className="mx-auto w-full max-w-[1400px]">
@@ -386,7 +412,7 @@ export default function SuperadminReportsPage() {
                         onChange={(e) => setSelectedBranch(e.target.value)}
                         className="w-full sm:w-52"
                     >
-                        {BRANCHES.map((b) => (
+                        {branches.map((b) => (
                             <option key={b.value} value={b.value}>
                                 {b.label}
                             </option>
@@ -434,7 +460,7 @@ export default function SuperadminReportsPage() {
                     />
                     <KpiTile
                         label="Revenue"
-                        value={`LKR ${kpis.revenue}M`}
+                        value={`LKR ${Number(kpis.revenue).toLocaleString()}`}
                         icon={Banknote}
                         delta={{ value: kpis.rChange, label: 'vs previous period · net collection' }}
                     />
@@ -458,8 +484,8 @@ export default function SuperadminReportsPage() {
                         <figure className="m-0">
                             <figcaption className="sr-only">
                                 {`Revenue trend for ${branchLabel}, ${periodLabel}: LKR ${barTotal.toLocaleString()} in total, peak ${
-                                    barPeak.name || 'mid-period'
-                                } with LKR ${barPeak.revenue.toLocaleString()}.`}
+                                    barPeak?.name || 'mid-period'
+                                } with LKR ${barPeak?.revenue?.toLocaleString() || '0'}.`}
                             </figcaption>
                             <div className="h-72" aria-hidden="true">
                                 <ResponsiveContainer width="100%" height="100%">
@@ -555,35 +581,65 @@ export default function SuperadminReportsPage() {
                 <section aria-labelledby="module-performance-heading">
                     <div className="mb-3">
                         <h2 id="module-performance-heading" className="text-base font-semibold tracking-tight text-fg">
-                            Module performance
+                            Test performance
                         </h2>
-                        <p className="mt-0.5 text-xs text-fg-muted">Tracking across the complete laboratory execution lifecycle.</p>
+                        <p className="mt-0.5 text-xs text-fg-muted">Most and least frequently ordered lab tests across selected branches.</p>
                     </div>
 
                     <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-                        {MODULE_PANELS.map((panel) => {
-                            const Icon = panel.icon;
-                            return (
-                                <SectionCard
-                                    key={panel.title}
-                                    title={panel.title}
-                                    actions={<Icon className="h-5 w-5 text-fg-faint" aria-hidden="true" />}
-                                >
-                                    <p className="mb-3 text-xs text-fg-muted">{panel.description}</p>
-                                    <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
-                                        {panel.metrics.map((m) => (
-                                            <div key={m.label} className="min-w-0">
-                                                <dt className="text-xs leading-tight text-fg-muted">{m.label}</dt>
-                                                <dd className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5">
-                                                    <span className="text-lg font-semibold leading-none tabular-nums text-fg">{m.value}</span>
-                                                    {m.delta && <MetricDelta delta={m.delta} />}
-                                                </dd>
-                                            </div>
-                                        ))}
-                                    </dl>
-                                </SectionCard>
-                            );
-                        })}
+                        <SectionCard title="Top 5 Performing Tests">
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left text-sm">
+                                    <thead>
+                                        <tr className="border-b border-edge">
+                                            <th className="pb-3 text-fg-muted font-bold">Test Name</th>
+                                            <th className="pb-3 text-fg-muted font-bold text-right">Orders</th>
+                                            <th className="pb-3 text-fg-muted font-bold text-right">Revenue</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {topTests.length > 0 ? topTests.map((test, idx) => (
+                                            <tr key={idx} className="border-b border-edge last:border-0">
+                                                <td className="py-3 font-medium text-fg">{test.testName}</td>
+                                                <td className="py-3 font-bold text-primary text-right">{test.orderCount}</td>
+                                                <td className="py-3 font-bold text-status-verified-fg text-right">Rs. {test.revenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                            </tr>
+                                        )) : (
+                                            <tr>
+                                                <td colSpan={3} className="py-4 text-center text-fg-faint text-xs">No data available</td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </SectionCard>
+
+                        <SectionCard title="Least Performing Tests">
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left text-sm">
+                                    <thead>
+                                        <tr className="border-b border-edge">
+                                            <th className="pb-3 text-fg-muted font-bold">Test Name</th>
+                                            <th className="pb-3 text-fg-muted font-bold text-right">Orders</th>
+                                            <th className="pb-3 text-fg-muted font-bold text-right">Revenue</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {leastTests.length > 0 ? leastTests.map((test, idx) => (
+                                            <tr key={idx} className="border-b border-edge last:border-0">
+                                                <td className="py-3 font-medium text-fg">{test.testName}</td>
+                                                <td className="py-3 font-bold text-status-danger-fg text-right">{test.orderCount}</td>
+                                                <td className="py-3 font-bold text-status-pending-fg text-right">Rs. {test.revenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                            </tr>
+                                        )) : (
+                                            <tr>
+                                                <td colSpan={3} className="py-4 text-center text-fg-faint text-xs">No data available</td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </SectionCard>
                     </div>
                 </section>
             </div>

@@ -13,16 +13,16 @@ import java.util.UUID;
 @org.springframework.stereotype.Repository
 public interface BranchReportRepository extends Repository<OrderEntity, UUID> {
 
-    @Query("SELECT COUNT(DISTINCT o.patientId) FROM OrderEntity o WHERE UPPER(o.branchCode) = UPPER(:branch) AND o.createdAt BETWEEN :start AND :end AND o.deleted = false")
+    @Query("SELECT COUNT(DISTINCT o.patientId) FROM OrderEntity o WHERE (:branch = 'ALL' OR UPPER(o.branchCode) = UPPER(:branch)) AND o.createdAt BETWEEN :start AND :end AND o.deleted = false")
     long countDistinctPatients(@Param("branch") String branch, @Param("start") Instant start, @Param("end") Instant end);
 
-    @Query("SELECT COUNT(o) FROM OrderEntity o WHERE UPPER(o.branchCode) = UPPER(:branch) AND o.createdAt BETWEEN :start AND :end AND o.deleted = false")
+    @Query("SELECT COUNT(o) FROM OrderEntity o WHERE (:branch = 'ALL' OR UPPER(o.branchCode) = UPPER(:branch)) AND o.createdAt BETWEEN :start AND :end AND o.deleted = false")
     long countOrders(@Param("branch") String branch, @Param("start") Instant start, @Param("end") Instant end);
 
-    @Query("SELECT COUNT(o) FROM OrderEntity o WHERE UPPER(o.branchCode) = UPPER(:branch) AND o.createdAt BETWEEN :start AND :end AND o.deleted = false AND o.status IN ('PENDING', 'PARTIAL')")
+    @Query("SELECT COUNT(o) FROM OrderEntity o WHERE (:branch = 'ALL' OR UPPER(o.branchCode) = UPPER(:branch)) AND o.createdAt BETWEEN :start AND :end AND o.deleted = false AND o.status IN ('PENDING', 'PARTIAL')")
     long countPendingOrders(@Param("branch") String branch, @Param("start") Instant start, @Param("end") Instant end);
 
-    @Query("SELECT COALESCE(SUM(p.amount), 0) FROM PaymentEntity p JOIN p.bill b JOIN b.order o WHERE UPPER(o.branchCode) = UPPER(:branch) AND p.createdAt BETWEEN :start AND :end AND o.deleted = false AND p.deleted = false AND b.deleted = false")
+    @Query("SELECT COALESCE(SUM(p.amount), 0) FROM PaymentEntity p JOIN p.bill b JOIN b.order o WHERE (:branch = 'ALL' OR UPPER(o.branchCode) = UPPER(:branch)) AND p.createdAt BETWEEN :start AND :end AND o.deleted = false AND p.deleted = false AND b.deleted = false")
     BigDecimal sumRevenue(@Param("branch") String branch, @Param("start") Instant start, @Param("end") Instant end);
 
     interface RevenueTrendProjection {
@@ -34,7 +34,7 @@ public interface BranchReportRepository extends Repository<OrderEntity, UUID> {
                    "FROM payments p " +
                    "JOIN bills b ON p.bill_id = b.id " +
                    "JOIN orders o ON b.order_id = o.id " +
-                   "WHERE UPPER(o.branch_code) = UPPER(:branch) AND p.created_at BETWEEN :start AND :end " +
+                   "WHERE (:branch = 'ALL' OR UPPER(o.branch_code) = UPPER(:branch)) AND p.created_at BETWEEN :start AND :end " +
                    "AND o.is_deleted = false AND p.is_deleted = false " +
                    "GROUP BY TO_CHAR(p.created_at, 'DD MON'), DATE(p.created_at) " +
                    "ORDER BY DATE(p.created_at)", nativeQuery = true)
@@ -49,7 +49,7 @@ public interface BranchReportRepository extends Repository<OrderEntity, UUID> {
                    "FROM order_items oi " +
                    "JOIN orders o ON oi.order_id = o.id " +
                    "JOIN test_catalog tc ON oi.test_id = tc.id " +
-                   "WHERE UPPER(o.branch_code) = UPPER(:branch) AND o.created_at BETWEEN :start AND :end " +
+                   "WHERE (:branch = 'ALL' OR UPPER(o.branch_code) = UPPER(:branch)) AND o.created_at BETWEEN :start AND :end " +
                    "AND o.is_deleted = false AND oi.is_deleted = false " +
                    "GROUP BY tc.category", nativeQuery = true)
     List<RevenueCategoryProjection> getRevenueByCategory(@Param("branch") String branch, @Param("start") Instant start, @Param("end") Instant end);
@@ -64,7 +64,7 @@ public interface BranchReportRepository extends Repository<OrderEntity, UUID> {
                    "FROM order_items oi " +
                    "JOIN orders o ON oi.order_id = o.id " +
                    "JOIN test_catalog tc ON oi.test_id = tc.id " +
-                   "WHERE UPPER(o.branch_code) = UPPER(:branch) AND o.created_at BETWEEN :start AND :end " +
+                   "WHERE (:branch = 'ALL' OR UPPER(o.branch_code) = UPPER(:branch)) AND o.created_at BETWEEN :start AND :end " +
                    "AND o.is_deleted = false AND oi.is_deleted = false " +
                    "GROUP BY tc.test_name " +
                    "ORDER BY orderCount DESC", nativeQuery = true)

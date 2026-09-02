@@ -1,5 +1,8 @@
 "use client";
 
+import { useState, useEffect } from "react";
+import { getBranches, getBranchDashboardReport } from "@/lib/api";
+
 import {
     BarChart,
     Bar,
@@ -12,26 +15,79 @@ import {
     Cell
 } from "recharts";
 
-// Mock Data
-const revenueByBranchData = [
-    { name: "COL-1", value: 450 },
-    { name: "COL-2", value: 380 },
-    { name: "KAN-M", value: 290 },
-    { name: "GALLE", value: 310 },
-    { name: "JAFFNA", value: 180 },
-    { name: "N'ELIYA", value: 210 },
-];
 
-const globalRevenueTrendData = [
-    { name: "MAY", value: 300 },
-    { name: "JUN", value: 450 },
-    { name: "JUL", value: 600 },
-    { name: "AUG", value: 550 },
-    { name: "SEP", value: 750 },
-    { name: "OCT", value: 900 },
-];
+const formatRevenue = (val: number | string) => {
+    const num = Number(val);
+    if (isNaN(num)) return 'LKR 0';
+    if (num >= 1000000) return `LKR ${(num / 1000000).toFixed(1)}M`;
+    if (num >= 1000) return `LKR ${(num / 1000).toFixed(1)}K`;
+    return `LKR ${num.toLocaleString()}`;
+};
+
+const formatYAxis = (val: number | string) => {
+    const num = Number(val);
+    if (isNaN(num)) return '0';
+    if (num >= 1000000) return `${(num / 1000000).toFixed(0)}M`;
+    if (num >= 1000) return `${(num / 1000).toFixed(0)}K`;
+    return num.toString();
+};
 
 export default function SuperAdminDashboardPage() {
+    const [stats, setStats] = useState({
+        totalBranches: 0,
+        totalPatients: 0,
+        totalRevenue: 0,
+        pendingVerifications: 0,
+    });
+    
+    const [revenueByBranchData, setRevenueByBranchData] = useState<any[]>([]);
+    const [globalRevenueTrendData, setGlobalRevenueTrendData] = useState<any[]>([]);
+    
+    useEffect(() => {
+        const today = new Date();
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(today.getDate() - 30);
+        const start = thirtyDaysAgo.toISOString().split('T')[0];
+        const end = today.toISOString().split('T')[0];
+
+        async function loadData() {
+            try {
+                const branches = await getBranches();
+                const globalReport = await getBranchDashboardReport("ALL", start, end);
+                
+                setStats({
+                    totalBranches: branches.length,
+                    totalPatients: globalReport.kpis.totalPatients,
+                    totalRevenue: globalReport.kpis.totalRevenue,
+                    pendingVerifications: parseInt(globalReport.kpis.pendingReports, 10)
+                });
+                
+                if (globalReport.revenueTrend) {
+                    setGlobalRevenueTrendData(globalReport.revenueTrend.map((t: any) => ({
+                        name: t.date,
+                        value: t.revenue
+                    })));
+                }
+
+                const branchRev = await Promise.all(branches.map(async (b) => {
+                    try {
+                        const r = await getBranchDashboardReport(b.code, start, end);
+                        return { name: b.code, value: r.kpis.totalRevenue };
+                    } catch (e) {
+                        return { name: b.code, value: 0 };
+                    }
+                }));
+                
+                setRevenueByBranchData(branchRev);
+                
+            } catch (err) {
+                console.error("Failed to load global dashboard data", err);
+            }
+        }
+        
+        loadData();
+    }, []);
+
     return (
         <div className="max-w-[1600px] mx-auto w-full font-sans text-slate-900 bg-slate-50/50 min-h-screen pt-4 flex flex-col xl:flex-row gap-6">
 
@@ -46,7 +102,7 @@ export default function SuperAdminDashboardPage() {
                         <div className="w-10 h-10 bg-blue-50 text-blue-500 rounded-xl flex items-center justify-center mb-1">
                             <span className="material-icons text-xl">domain</span>
                         </div>
-                        <h3 className="text-3xl font-extrabold text-slate-900">14</h3>
+                        <h3 className="text-3xl font-extrabold text-slate-900">{stats.totalBranches}</h3>
                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-tight">Total<br />Branches</p>
                     </div>
 
@@ -55,7 +111,7 @@ export default function SuperAdminDashboardPage() {
                         <div className="w-10 h-10 bg-teal-50 text-teal-500 rounded-xl flex items-center justify-center mb-1">
                             <span className="material-icons text-xl">people</span>
                         </div>
-                        <h3 className="text-3xl font-extrabold text-slate-900">12,842</h3>
+                        <h3 className="text-3xl font-extrabold text-slate-900">{Number(stats.totalPatients).toLocaleString()}</h3>
                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-tight">Total<br />Patients</p>
                     </div>
 
@@ -64,7 +120,7 @@ export default function SuperAdminDashboardPage() {
                         <div className="w-10 h-10 bg-indigo-50 text-indigo-500 rounded-xl flex items-center justify-center mb-1">
                             <span className="material-icons text-xl">account_balance_wallet</span>
                         </div>
-                        <h3 className="text-3xl font-extrabold text-slate-900">84.2M</h3>
+                        <h3 className="text-3xl font-extrabold text-slate-900">{formatRevenue(stats.totalRevenue)}</h3>
                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-tight">Total<br />Revenue</p>
                     </div>
 
@@ -82,7 +138,7 @@ export default function SuperAdminDashboardPage() {
                         <div className="w-10 h-10 bg-amber-50 text-amber-500 rounded-xl flex items-center justify-center mb-1">
                             <span className="material-icons text-xl">fact_check</span>
                         </div>
-                        <h3 className="text-3xl font-extrabold text-slate-900">24</h3>
+                        <h3 className="text-3xl font-extrabold text-slate-900">{stats.pendingVerifications}</h3>
                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-tight">Pending<br />Verifications</p>
                     </div>
 
@@ -113,7 +169,7 @@ export default function SuperAdminDashboardPage() {
                         </div>
                         <div className="flex-1 w-full min-h-[300px]">
                             <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={revenueByBranchData} margin={{ top: 20, right: 0, left: -20, bottom: 20 }}>
+                                <BarChart data={revenueByBranchData} margin={{ top: 20, right: 20, left: 20, bottom: 20 }}>
                                     <XAxis
                                         dataKey="name"
                                         axisLine={false}
@@ -121,8 +177,15 @@ export default function SuperAdminDashboardPage() {
                                         tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 700 }}
                                         dy={10}
                                     />
-                                    <YAxis hide />
+                                    <YAxis
+                                        axisLine={false}
+                                        tickLine={false}
+                                        tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 700 }}
+                                        tickFormatter={(val) => formatYAxis(val)}
+                                        width={60}
+                                    />
                                     <Tooltip
+                                        formatter={(value) => [`LKR ${Number(value).toLocaleString()}`, 'Revenue']}
                                         cursor={{ fill: "rgba(59,130,246,0.05)" }}
                                         contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
                                     />
@@ -141,7 +204,7 @@ export default function SuperAdminDashboardPage() {
                         <div className="flex justify-between items-start mb-6">
                             <div>
                                 <h2 className="text-[16px] font-extrabold text-slate-900">Global Revenue Trend</h2>
-                                <p className="text-[12px] font-medium text-slate-500">6-month growth analysis</p>
+                                <p className="text-[12px] font-medium text-slate-500">30-day growth analysis</p>
                             </div>
                             <div className="flex items-center gap-3">
                                 <span className="flex items-center gap-1.5 text-[10px] font-bold text-blue-500 uppercase tracking-wider">
@@ -154,7 +217,7 @@ export default function SuperAdminDashboardPage() {
                         </div>
                         <div className="flex-1 w-full min-h-[300px]">
                             <ResponsiveContainer width="100%" height="100%">
-                                <LineChart data={globalRevenueTrendData} margin={{ top: 20, right: 10, left: 10, bottom: 20 }}>
+                                <LineChart data={globalRevenueTrendData} margin={{ top: 20, right: 20, left: 20, bottom: 20 }}>
                                     <XAxis
                                         dataKey="name"
                                         axisLine={false}
@@ -162,8 +225,15 @@ export default function SuperAdminDashboardPage() {
                                         tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 700 }}
                                         dy={10}
                                     />
-                                    <YAxis hide />
+                                    <YAxis
+                                        axisLine={false}
+                                        tickLine={false}
+                                        tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 700 }}
+                                        tickFormatter={(val) => formatYAxis(val)}
+                                        width={60}
+                                    />
                                     <Tooltip
+                                        formatter={(value) => [`LKR ${Number(value).toLocaleString()}`, 'Revenue']}
                                         contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
                                     />
                                     <Line
