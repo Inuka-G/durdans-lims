@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import toast from "react-hot-toast";
+import { toast } from "sonner";
 import { BranchUser, getSuperadminRoles, resetBranchUserPassword } from "@/lib/api";
 
 interface ViewEditUserModalProps {
@@ -46,7 +46,7 @@ export default function ViewEditUserModal({ isOpen, onClose, mode, userData, onS
             
             if (mode === 'reset') {
                 setIsResetPasswordMode(true);
-                setResetPasswords({ newPassword: "admin", adminPassword: "admin" });
+                setResetPasswords({ newPassword: "", adminPassword: "" });
             } else {
                 setIsResetPasswordMode(false);
                 setResetPasswords({ newPassword: "", adminPassword: "" });
@@ -93,6 +93,13 @@ export default function ViewEditUserModal({ isOpen, onClose, mode, userData, onS
     const handleResetPassword = async () => {
         if (!resetPasswords.newPassword || !resetPasswords.adminPassword) {
             toast.error("Both your admin password and the new password are required");
+            return;
+        }
+
+        // Reset is keyed by the Keycloak id; a row synced from the local table
+        // without one cannot be reset, and posting `undefined` would 404 instead.
+        if (!userData.id) {
+            toast.error("This user has no account id yet, so the password cannot be reset.");
             return;
         }
 

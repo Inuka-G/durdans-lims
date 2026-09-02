@@ -38,7 +38,7 @@ export default function PatientPortalDashboard() {
                         firstName: "Test",
                         lastName: "User",
                         fullName: "Test User",
-                        dateOfBirth: "1990-01-01",
+                        dob: "1990-01-01",
                         gender: "MALE",
                         bloodGroup: "O+",
                         phone: "0771234567",

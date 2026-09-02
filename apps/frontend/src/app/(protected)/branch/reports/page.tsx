@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { useAuth } from "@/hooks/useAuth";
-import { getBranchesPage } from "@/lib/api";
+import { getBranches } from "@/lib/api";
 
 const initialBarData = [
     { name: '01 OCT', revenue: 2000 },

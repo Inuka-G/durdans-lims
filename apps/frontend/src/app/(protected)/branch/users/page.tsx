@@ -239,7 +239,7 @@ export default function BranchUserManagementPage() {
                                     <tr key={user.id} className="hover:bg-[#f8fafc]/50 transition-colors group">
                                         <td className="py-4 px-6">
                                             <span className="text-[13px] font-bold text-[#64748b]" title={user.id}>
-                                                {user.id?.length > 8 ? user.id.slice(0, 8) + '...' : user.id}
+                                                {user.id && user.id.length > 8 ? user.id.slice(0, 8) + '...' : user.id}
                                             </span>
                                         </td>
                                         <td className="py-4 px-6">
@@ -305,7 +305,7 @@ export default function BranchUserManagementPage() {
                             ) : (
                                 <tr>
                                     <td colSpan={7} className="py-8 text-center text-[#64748b] font-medium text-[13px]">
-                                        No users found matching "{searchQuery}"
+                                        No users found matching &quot;{searchQuery}&quot;
                                     </td>
                                 </tr>
                             )}

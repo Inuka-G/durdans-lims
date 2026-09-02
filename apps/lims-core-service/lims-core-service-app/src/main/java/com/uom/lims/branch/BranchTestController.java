@@ -6,12 +6,16 @@ import com.uom.lims.api.branch.dto.request.BranchTestUpdateRequest;
 import com.uom.lims.api.branch.dto.response.BranchTestResponse;
 import com.uom.lims.api.common.PageResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
 
+/** A branch's test catalogue and its pricing — the same admin pair that owns
+ *  the branch record and its staff. Matches BranchUserController. */
 @RestController
 @RequiredArgsConstructor
+@PreAuthorize("hasAnyRole('BRANCH_ADMIN','SUPER_ADMIN')")
 public class BranchTestController implements BranchTestApi {
 
     private final BranchTestService branchTestService;

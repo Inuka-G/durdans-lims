@@ -6,7 +6,7 @@ import BranchDetailsPanel from "@/components/admin/BranchDetailsPanel";
 import BranchCreateModal from "@/components/admin/BranchCreateModal";
 import BranchEditModal from "@/components/admin/BranchEditModal";
 import AssignAdminModal from "@/components/admin/AssignAdminModal";
-import { getBranches, createBranch, updateBranch, BranchResponse, getBranchesPage } from "@/lib/api";
+import { getBranches, createBranch, updateBranch, BranchResponse } from "@/lib/api";
 
 export type Branch = BranchResponse;
 
@@ -22,9 +22,7 @@ export default function BranchManagementPage() {
     const fetchBranches = async () => {
         setLoading(true);
         try {
-            const data = await getBranches();
-            const mappedBranches = data.map(b => ({ ...b, id: b.code }));
-            setBranches(mappedBranches);
+            setBranches(await getBranches());
         } catch (error) {
             console.error("Failed to fetch branches", error);
             toast.error("Failed to load branches from the server.");
@@ -43,9 +41,9 @@ export default function BranchManagementPage() {
             await createBranch({
                 code: branchData.code,
                 name: branchData.name,
-                location: branchData.location,
-                contactEmail: branchData.contactEmail,
-                contactPhone: branchData.contactPhone,
+                location: branchData.location ?? undefined,
+                contactEmail: branchData.contactEmail ?? undefined,
+                contactPhone: branchData.contactPhone ?? undefined,
                 status: branchData.status
             });
             toast.success("Branch created successfully!");
@@ -57,14 +55,14 @@ export default function BranchManagementPage() {
         }
     };
 
-    const handleUpdateBranch = async (id: string, branchData: Partial<Branch>) => {
+    const handleUpdateBranch = async (code: string, branchData: Partial<Branch>) => {
         try {
             if (!branchData.name) throw new Error("Missing name");
-            await updateBranch(id, {
+            await updateBranch(code, {
                 name: branchData.name,
-                location: branchData.location,
-                contactEmail: branchData.contactEmail,
-                contactPhone: branchData.contactPhone,
+                location: branchData.location ?? undefined,
+                contactEmail: branchData.contactEmail ?? undefined,
+                contactPhone: branchData.contactPhone ?? undefined,
                 status: branchData.status
             });
             toast.success("Branch updated successfully!");
@@ -129,7 +127,7 @@ export default function BranchManagementPage() {
                                             <span className="text-[13px] font-medium text-slate-500">{branch.location || "N/A"}</span>
                                         </td>
                                         <td className="py-4 px-6 text-center">
-                                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-md text-[11px] font-bold ${branch.status === 'Active' ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-600'}`}>
+                                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-md text-[11px] font-bold ${branch.status === 'ACTIVE' ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-600'}`}>
                                                 {branch.status || "Active"}
                                             </span>
                                         </td>
@@ -218,7 +216,8 @@ export default function BranchManagementPage() {
                     setIsAssignAdminModalOpen(false);
                     setSelectedBranchForModal(null);
                 }}
-                branchName={activeBranchData?.name || selectedBranchForModal?.name}
+                branch={activeBranchData ?? selectedBranchForModal}
+                onAssigned={fetchBranches}
             />
 
         </div>

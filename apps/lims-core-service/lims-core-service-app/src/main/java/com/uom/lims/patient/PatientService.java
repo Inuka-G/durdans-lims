@@ -358,29 +358,11 @@ public class PatientService {
                         PatientUpdateRequest request,
                         String ipAddress) {
 
-                // 1. Fetch Patient
+                // 1. Fetch Patient. Do not invent a row here: the previous JIT mock
+                // constructed an unsaved entity and then patientRepository.save()
+                // inserted it as a real patient with a hardcoded gender and DOB.
                 PatientEntity patient = patientRepository.findByPatientCode(patientCode)
-                                .orElse(null);
-
-                if (patient == null) {
-                        if (SecurityUtils.hasRole("PATIENT")) {
-                                org.springframework.security.core.Authentication authentication = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
-                                if (authentication != null && authentication.getPrincipal() instanceof org.springframework.security.oauth2.jwt.Jwt jwt) {
-                                        String currentUserCode = jwt.getClaimAsString("preferred_username");
-                                        if (patientCode.equals(currentUserCode)) {
-                                                patient = new PatientEntity();
-                                                patient.setPatientCode(patientCode);
-                                                patient.setFullName(jwt.getClaimAsString("name") != null ? jwt.getClaimAsString("name") : "Test User");
-                                                patient.setGender(com.uom.lims.api.common.enums.Gender.MALE);
-                                                patient.setDob(java.time.LocalDate.of(1990, 1, 1));
-                                                patient.setPhone(""); // Phone is often required by validation below
-                                        }
-                                }
-                        }
-                        if (patient == null) {
-                                throw new ResourceNotFoundException("Patient not found: " + patientCode);
-                        }
-                }
+                                .orElseThrow(() -> new ResourceNotFoundException("Patient not found: " + patientCode));
 
                 // Tenant isolation on the write path. getPatientByCode() already
                 // guards the read; without the same guard here a branch user could

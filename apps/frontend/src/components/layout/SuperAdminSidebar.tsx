@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, ChartColumn, Database, LayoutDashboard, Network, Shield, UserCog } from "lucide-react";
+import { Activity, ChartColumn, Database, LayoutDashboard, Network, UserCog } from "lucide-react";
 import ModuleSidebar, { type SidebarGroup } from "@/components/ui/ModuleSidebar";
 
 /** Original rule: the root is exact-match only, every other item is a plain prefix match. */

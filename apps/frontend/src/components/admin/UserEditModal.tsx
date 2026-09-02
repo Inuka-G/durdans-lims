@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useState } from "react";
 import { AlertCircle } from "lucide-react";
-import { ASSIGNABLE_ROLES, Branch, getBranches, getBranchesPage, updateAdminUser } from "@/lib/api";
+import { ASSIGNABLE_ROLES, Branch, getBranches, updateAdminUser } from "@/lib/api";
 import Modal from "@/components/ui/Modal";
 import Button from "@/components/ui/Button";
 import { InputField, SelectField } from "@/components/ui/Field";

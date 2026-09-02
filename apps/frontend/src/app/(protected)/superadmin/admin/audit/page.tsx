@@ -14,7 +14,7 @@ import StatusChip, { humanizeStatus, toneForStatus, type ChipTone } from "@/comp
 import Pagination from "@/components/ui/Pagination";
 import Modal from "@/components/ui/Modal";
 import { formatAuditTime } from "@/components/patient-dashboard/dashboard-data";
-import { getAuditLogs, getBranches, getBranchesPage, AuditLog } from "@/lib/api";
+import { getAuditLogs, getBranches, AuditLog } from "@/lib/api";
 
 const PAGE_SIZE = 10;
 

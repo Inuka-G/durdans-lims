@@ -1456,6 +1456,9 @@ export async function setAdminUserEnabled(id: string, value: boolean): Promise<v
 // Unlike the Keycloak-backed user endpoints above, this is a real, always-on
 // table (apps/lims-core-service: com.uom.lims.branch) — no feature flag.
 export interface Branch {
+    /** Surrogate UUID. Branch-scoped sub-resources (users, tests) are keyed by
+     *  this, while the branch record itself is addressed by `code`. */
+    id: string;
     code: string;
     name: string;
     location: string | null;
@@ -1716,21 +1719,10 @@ export const patchBranchTest = async (branchId: string, testId: string, testData
 
 // --- Branch Management ---
 
-export interface BranchResponse {
-    id: string;
-    code: string;
-    name: string;
-    location?: string;
-    address?: string;
-    contactEmail?: string;
-    contactPhone?: string;
-    status?: string;
-    establishedDate?: string;
-    legalEntityName?: string;
-    adminUserId?: string | null;
-    adminName?: string | null;
-    adminEmail?: string | null;
-}
+/** Alias of {@link Branch}: both name the same `BranchService.BranchResponse`
+ *  record. Keeping two shapes for one payload let `null` and `undefined` drift
+ *  apart, so the branch screens could not pass a branch to each other. */
+export type BranchResponse = Branch;
 
 export interface SuperadminUserResponse {
     id: string;
@@ -1751,19 +1743,37 @@ export interface PageResponseBranch {
     last: boolean;
 }
 
-export const getBranchesPage = async (page = 0, size = 10) => {
-    const response = await axiosInstance.get('/api/v1/branches', { params: { page, size } });
-    return response.data as PageResponseBranch;
+/**
+ * BranchController returns the whole directory in one `ApiResponse` envelope —
+ * it has no page parameters. Paging here is therefore done on the client so
+ * callers still get a stable page shape; `getBranches` is the cheaper call if
+ * you want the full list.
+ */
+export const getBranchesPage = async (page = 0, size = 10): Promise<PageResponseBranch> => {
+    const all = await getBranches();
+    const start = page * size;
+    const content = all.slice(start, start + size);
+    const totalPages = size > 0 ? Math.ceil(all.length / size) : 0;
+    return {
+        content,
+        page,
+        size,
+        totalElements: all.length,
+        totalPages,
+        last: start + content.length >= all.length,
+    };
 };
 
-export const createBranchAdmin = async (payload: { code: string; name: string; location?: string; contactEmail?: string; contactPhone?: string; status?: string }) => {
+export const createBranchAdmin = async (payload: { code: string; name: string; location?: string; contactEmail?: string; contactPhone?: string; status?: "ACTIVE" | "INACTIVE" }) => {
     const response = await axiosInstance.post('/api/v1/branches', payload);
-    return response.data as BranchResponse;
+    return (response.data?.data ?? response.data) as BranchResponse;
 };
 
-export const updateBranchAdmin = async (id: string, payload: { name: string; location?: string; contactEmail?: string; contactPhone?: string; status?: string }) => {
-    const response = await axiosInstance.put(`/api/v1/branches/${id}`, payload);
-    return response.data as BranchResponse;
+// Keyed by branch code: BranchController maps PUT /branches/{code}, and
+// BranchService resolves it with findByCodeIgnoreCase. Passing a UUID 404s.
+export const updateBranchAdmin = async (code: string, payload: { name: string; location?: string; contactEmail?: string; contactPhone?: string; status?: "ACTIVE" | "INACTIVE" }) => {
+    const response = await axiosInstance.put(`/api/v1/branches/${code}`, payload);
+    return (response.data?.data ?? response.data) as BranchResponse;
 };
 
 export const getSuperadminUsers = async () => {
