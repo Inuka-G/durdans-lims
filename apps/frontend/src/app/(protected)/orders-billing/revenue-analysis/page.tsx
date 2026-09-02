@@ -452,7 +452,7 @@ export default function RevenueAnalysisPage() {
     const hasPermission = (perm: string) => {
         switch (perm) {
             case 'view_revenue':
-                return hasAnyRole(user, ['FRONT_DESK', 'BRANCH_ADMIN', 'SUPER_ADMIN']);
+                return hasAnyRole(user, ['BILLING_OFFICER', 'FRONT_DESK', 'BRANCH_ADMIN', 'SUPER_ADMIN']);
             case 'export_reports':
                 return hasAnyRole(user, ['BRANCH_ADMIN', 'SUPER_ADMIN']);
             case 'view_audit_log':

@@ -45,7 +45,7 @@ export default function BranchTestManagementPage() {
             const branch = data.find((b) => b.id === targetCode || b.code.toUpperCase() === targetCode.toUpperCase());
             if (branch) {
                 setBranchName(branch.name);
-                setActiveBranchId(branch.id);
+                setActiveBranchId(branch.id ?? branch.code);
             } else {
                 setBranchName(targetCode);
                 setActiveBranchId(targetCode); // It might fail later if backend expects UUID, but this is best effort

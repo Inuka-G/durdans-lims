@@ -15,7 +15,7 @@ interface AssignAdminModalProps {
     onClose: () => void;
     /** Called after a successful assignment so the caller can refresh its list. */
     onAssigned?: () => void;
-    branch: Branch | null;
+    branch: { code: string; name: string; adminUserId?: string | null; adminName?: string | null; adminEmail?: string | null } | null;
 }
 
 function initials(name: string) {

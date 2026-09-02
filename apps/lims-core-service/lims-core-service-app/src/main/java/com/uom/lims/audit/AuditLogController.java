@@ -111,7 +111,7 @@ public class AuditLogController {
     /**
      * Records revenue report screen access. {@code performedBy} is resolved from the security context.
      */
-    @PreAuthorize("hasAnyRole('FRONT_DESK','BRANCH_ADMIN','SUPER_ADMIN')")
+    @PreAuthorize("hasAnyRole('BILLING_OFFICER','FRONT_DESK','BRANCH_ADMIN','SUPER_ADMIN')")
     @PostMapping("/revenue-report-access")
     public ResponseEntity<Void> recordRevenueReportAccess(
             @RequestBody(required = false) RevenueReportAccessRequest body,

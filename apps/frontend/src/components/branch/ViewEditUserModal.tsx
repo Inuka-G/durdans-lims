@@ -95,6 +95,10 @@ export default function ViewEditUserModal({ isOpen, onClose, mode, userData, onS
             toast.error("Both your admin password and the new password are required");
             return;
         }
+        if (!userData.id) {
+            toast.error("User ID is missing");
+            return;
+        }
 
         // Reset is keyed by the Keycloak id; a row synced from the local table
         // without one cannot be reset, and posting `undefined` would 404 instead.

@@ -24,7 +24,7 @@ import Button from '@/components/ui/Button';
 import SectionCard from '@/components/ui/SectionCard';
 import EmptyState from '@/components/ui/EmptyState';
 import StatusChip from '@/components/ui/StatusChip';
-import { FormSection, InputField, TextareaField } from '@/components/ui/Field';
+import { InputField } from '@/components/ui/Field';
 import PriorityBadge from '@/components/shared/PriorityBadge';
 import { formatPhone, patientInitials } from '@/components/patient-dashboard/dashboard-data';
 
@@ -125,9 +125,6 @@ export default function CreateTestOrderPage() {
 
     // ── Priority & Extras ──────────────────────────────────────────────────────
     const priority: Priority = 'NORMAL';
-    const [referringDoctor, setReferringDoctor] = useState('');
-    const [referringDepartment, setReferringDepartment] = useState('');
-    const [remarks, setRemarks] = useState('');
 
     // ── Fetch Lab Tests on Mount ───────────────────────────────────────────────
     const loadTests = useCallback(async () => {
@@ -238,9 +235,6 @@ export default function CreateTestOrderPage() {
                 testIds: selectedTests.map(t => t.id),
                 priority,
                 testPriorities: Object.fromEntries(selectedTests.map(t => [t.id, t.priority])),
-                referringDoctor: referringDoctor || undefined,
-                referringDepartment: referringDepartment || undefined,
-                remarks: remarks || undefined,
             });
             // Redirect to the new payments page, passing the order ID if available to potentially autofill search
             const orderId = response?.id || response?.orderId || '';
@@ -598,31 +592,6 @@ export default function CreateTestOrderPage() {
                         </div>
                     </SectionCard>
 
-                    {/* ── Referral (optional) ── */}
-                    <FormSection title="Referral" description="Optional. Who requested the tests and any notes for the lab.">
-                        <InputField
-                            label="Referring doctor"
-                            placeholder="Dr. name"
-                            autoComplete="off"
-                            value={referringDoctor}
-                            onChange={(e) => setReferringDoctor(e.target.value)}
-                        />
-                        <InputField
-                            label="Referring department"
-                            placeholder="e.g. OPD, Ward 3"
-                            autoComplete="off"
-                            value={referringDepartment}
-                            onChange={(e) => setReferringDepartment(e.target.value)}
-                        />
-                        <TextareaField
-                            label="Remarks"
-                            placeholder="Clinical notes or special instructions"
-                            rows={2}
-                            className="sm:col-span-2"
-                            value={remarks}
-                            onChange={(e) => setRemarks(e.target.value)}
-                        />
-                    </FormSection>
                 </div>
 
                 {/* ── Right column: Order summary ── */}
