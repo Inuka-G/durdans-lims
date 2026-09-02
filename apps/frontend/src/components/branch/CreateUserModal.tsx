@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
-import { BranchUser, getSuperadminRoles } from "@/lib/api";
+import { BranchUser, getSuperadminRoles, ASSIGNABLE_ROLES } from "@/lib/api";
 
 interface CreateUserModalProps {
     isOpen: boolean;
@@ -11,10 +11,12 @@ interface CreateUserModalProps {
     branchName?: string;
 }
 
+const DEFAULT_ROLES = ASSIGNABLE_ROLES.map(r => r.value);
+
 export default function CreateUserModal({ isOpen, onClose, onSave, branchName }: CreateUserModalProps) {
     const [isAccountActive, setIsAccountActive] = useState(true);
-    const [selectedRole, setSelectedRole] = useState<string>("");
-    const [roleOptions, setRoleOptions] = useState<string[]>([]);
+    const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
+    const [roleOptions, setRoleOptions] = useState<string[]>(DEFAULT_ROLES);
     const [formData, setFormData] = useState({
         firstName: "",
         lastName: "",
@@ -27,20 +29,23 @@ export default function CreateUserModal({ isOpen, onClose, onSave, branchName }:
         if (isOpen) {
             getSuperadminRoles()
                 .then(roles => {
-                    const filteredRoles = roles.filter(r => r !== "SUPER_ADMIN" && r !== "BRANCH_ADMIN" && r !== "BRANCH");
-                    setRoleOptions(filteredRoles);
+                    const filteredRoles = roles.filter(r => r !== "SUPER_ADMIN" && r !== "BRANCH");
+                    if (filteredRoles.length > 0) {
+                        setRoleOptions(filteredRoles);
+                    } else {
+                        setRoleOptions(DEFAULT_ROLES);
+                    }
                 })
-                .catch(err => {
-                    console.error("Failed to fetch roles", err);
-                    toast.error("Failed to load roles");
+                .catch(() => {
+                    setRoleOptions(DEFAULT_ROLES);
                 });
         }
     }, [isOpen]);
 
     if (!isOpen) return null;
 
-    const handleRoleChange = (role: string) => {
-        setSelectedRole(role);
+    const handleRoleToggle = (role: string) => {
+        setSelectedRoles([role]);
     };
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -49,15 +54,15 @@ export default function CreateUserModal({ isOpen, onClose, onSave, branchName }:
     };
 
     const handleSave = () => {
-        if (!formData.firstName.trim() || !formData.lastName.trim() || !formData.email.trim() || !selectedRole) {
-            toast.error("Please fill in all required fields (First Name, Last Name, Email, and Role)");
+        if (!formData.firstName.trim() || !formData.lastName.trim() || !formData.email.trim() || selectedRoles.length === 0) {
+            toast.error("Please fill in all required fields (First Name, Last Name, Email, and at least one Role)");
             return;
         }
 
         if (onSave) {
             onSave({
                 ...formData,
-                role: selectedRole,
+                role: selectedRoles[0] || "",
                 isActive: isAccountActive
             });
         }
@@ -201,11 +206,11 @@ export default function CreateUserModal({ isOpen, onClose, onSave, branchName }:
 
                         <div className="space-y-3">
                             {roleOptions.map((role) => {
-                                const isSelected = selectedRole === role;
+                                const isSelected = selectedRoles.includes(role);
                                 return (
                                     <div
                                         key={role}
-                                        onClick={() => handleRoleChange(role)}
+                                        onClick={() => handleRoleToggle(role)}
                                         className={`flex items-center gap-4 p-4 rounded-xl border cursor-pointer transition-all ${isSelected
                                             ? "bg-[#f8fafc] border-[#1277E1] shadow-[0_0_0_1px_rgba(18,119,225,1)]"
                                             : "bg-white border-[#e2e8f0] hover:bg-[#f8fafc] hover:border-[#cbd5e1]"

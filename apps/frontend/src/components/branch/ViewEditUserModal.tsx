@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
-import { BranchUser, getSuperadminRoles, resetBranchUserPassword } from "@/lib/api";
+import { BranchUser, getSuperadminRoles, resetBranchUserPassword, ASSIGNABLE_ROLES } from "@/lib/api";
 
 interface ViewEditUserModalProps {
     isOpen: boolean;
@@ -12,10 +12,12 @@ interface ViewEditUserModalProps {
     onSave?: (updatedData: Partial<BranchUser>) => void;
 }
 
+const DEFAULT_ROLES = ASSIGNABLE_ROLES.map(r => r.value);
+
 export default function ViewEditUserModal({ isOpen, onClose, mode, userData, onSave }: ViewEditUserModalProps) {
     const [isAccountActive, setIsAccountActive] = useState(true);
-    const [selectedRole, setSelectedRole] = useState<string>("");
-    const [roleOptions, setRoleOptions] = useState<string[]>([]);
+    const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
+    const [roleOptions, setRoleOptions] = useState<string[]>(DEFAULT_ROLES);
     const [formData, setFormData] = useState({
         firstName: "",
         lastName: "",
@@ -35,7 +37,8 @@ export default function ViewEditUserModal({ isOpen, onClose, mode, userData, onS
     useEffect(() => {
         if (userData && isOpen) {
             setIsAccountActive(userData.isActive);
-            setSelectedRole(userData.role || "");
+            const initialRoles = userData.role ? userData.role.split(',').map(r => r.trim()).filter(Boolean) : [];
+            setSelectedRoles(initialRoles);
             setFormData({
                 firstName: userData.firstName || "",
                 lastName: userData.lastName || "",
@@ -54,12 +57,15 @@ export default function ViewEditUserModal({ isOpen, onClose, mode, userData, onS
             
             getSuperadminRoles()
                 .then(roles => {
-                    const filteredRoles = roles.filter(r => r !== "SUPER_ADMIN" && r !== "BRANCH_ADMIN" && r !== "BRANCH");
-                    setRoleOptions(filteredRoles);
+                    const filteredRoles = roles.filter(r => r !== "SUPER_ADMIN" && r !== "BRANCH");
+                    if (filteredRoles.length > 0) {
+                        setRoleOptions(filteredRoles);
+                    } else {
+                        setRoleOptions(DEFAULT_ROLES);
+                    }
                 })
-                .catch(err => {
-                    console.error("Failed to fetch roles", err);
-                    toast.error("Failed to load roles");
+                .catch(() => {
+                    setRoleOptions(DEFAULT_ROLES);
                 });
         }
     }, [userData, isOpen]);
@@ -68,14 +74,14 @@ export default function ViewEditUserModal({ isOpen, onClose, mode, userData, onS
 
     const isEdit = mode === 'edit' || mode === 'reset';
 
-    const handleRoleChange = (role: string) => {
+    const handleRoleToggle = (role: string) => {
         if (!isEdit) return;
-        setSelectedRole(role);
+        setSelectedRoles([role]);
     };
 
     const handleSave = () => {
-        if (!formData.firstName.trim() || !formData.lastName.trim() || !formData.email.trim() || !selectedRole) {
-            toast.error("Please fill in all required fields (First Name, Last Name, Email, and Role)");
+        if (!formData.firstName.trim() || !formData.lastName.trim() || !formData.email.trim() || selectedRoles.length === 0) {
+            toast.error("Please fill in all required fields (First Name, Last Name, Email, and at least one Role)");
             return;
         }
 
@@ -83,7 +89,7 @@ export default function ViewEditUserModal({ isOpen, onClose, mode, userData, onS
             onSave({
                 ...userData,
                 ...formData,
-                role: selectedRole,
+                role: selectedRoles[0] || "",
                 isActive: isAccountActive
             });
         }
@@ -305,14 +311,14 @@ export default function ViewEditUserModal({ isOpen, onClose, mode, userData, onS
 
                                 <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
                                     {roleOptions.map((role) => {
-                                        const isSelected = selectedRole === role;
+                                        const isSelected = selectedRoles.includes(role);
                                         // Hide unselected roles in View mode to clean up the UI
                                         if (!isEdit && !isSelected) return null;
 
                                         return (
                                             <div
                                                 key={role}
-                                                onClick={() => handleRoleChange(role)}
+                                                onClick={() => handleRoleToggle(role)}
                                                 className={`flex items-center gap-4 p-4 rounded-xl border transition-all ${isSelected
                                                     ? (isEdit ? "bg-[#f8fafc] border-[#1277E1] shadow-[0_0_0_1px_rgba(18,119,225,1)] cursor-pointer" : "bg-[#eff6ff] border-[#bfdbfe] cursor-default")
                                                     : "bg-white border-[#e2e8f0] hover:bg-[#f8fafc] hover:border-[#cbd5e1] cursor-pointer"

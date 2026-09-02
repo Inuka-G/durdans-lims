@@ -46,8 +46,9 @@ public class AdminUserService {
      * is the one place that decides what's grantable at all.
      */
     private static final Set<String> MANAGED_ROLES = Set.of(
-            "MLT", "LAB_SUPERVISOR", "PATHOLOGIST", "PHLEBOTOMIST",
-            "FRONT_DESK", "DISPATCH", "BRANCH_ADMIN", "SUPER_ADMIN");
+            "BILLING_OFFICER", "BRANCH_ADMIN", "DISPATCH", "DISPATCH_OFFICER",
+            "FRONT_DESK", "LAB_RECEPTIONIST", "LAB_SUPERVISOR", "MLT",
+            "PATHOLOGIST", "PHLEBOTOMIST", "SUPER_ADMIN");
 
     private final Keycloak adminKeycloak;
     private final BranchRepository branchRepository;

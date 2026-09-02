@@ -1424,13 +1424,16 @@ export interface UpdateAdminUserRequest {
  * Keycloak, not from a dropdown.
  */
 export const ASSIGNABLE_ROLES: { value: string; label: string }[] = [
-    { value: 'MLT', label: 'Medical Laboratory Technician' },
+    { value: 'BILLING_OFFICER', label: 'Billing Officer' },
+    { value: 'BRANCH_ADMIN', label: 'Branch Admin' },
+    { value: 'DISPATCH_OFFICER', label: 'Dispatch Officer' },
+    { value: 'FRONT_DESK', label: 'Front Desk' },
+    { value: 'LAB_RECEPTIONIST', label: 'Lab Receptionist' },
     { value: 'LAB_SUPERVISOR', label: 'Lab Supervisor' },
+    { value: 'MLT', label: 'Medical Laboratory Technician (MLT)' },
     { value: 'PATHOLOGIST', label: 'Pathologist' },
     { value: 'PHLEBOTOMIST', label: 'Phlebotomist' },
-    { value: 'FRONT_DESK', label: 'Billing / Receptionist' },
-    { value: 'DISPATCH', label: 'Dispatch' },
-    { value: 'BRANCH_ADMIN', label: 'Branch Admin' },
+    { value: 'SUPER_ADMIN', label: 'Super Admin' },
 ];
 
 export async function getAdminUsers(): Promise<AdminUser[]> {

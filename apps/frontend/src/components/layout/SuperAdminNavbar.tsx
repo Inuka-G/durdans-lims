@@ -119,6 +119,8 @@ export default function SuperAdminNavbar() {
                             <span className="truncate">Production Cluster-01</span>
                         </span>
                     )}
+
+                    <ModuleTabs />
                 </div>
 
                 {/* Account menu (Logout lives here, not in the nav bar) */}

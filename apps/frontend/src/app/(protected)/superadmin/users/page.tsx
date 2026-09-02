@@ -109,7 +109,7 @@ export default function GlobalUserControlPage() {
             const backendData = {
                 fullName: data.name || "",
                 email: data.email || "",
-                role: data.roles?.[0] || "",
+                role: data.roles?.join(",") || "",
                 isActive: data.status === "ACTIVE",
                 branchId: ""
             };

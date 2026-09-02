@@ -46,20 +46,30 @@ public class SuperadminUserController implements SuperadminUserApi {
 
     @Override
     public SuperadminUserResponse updateSuperadminUser(String id, SuperadminUserUpdateRequest request) {
-        if (request.getBranchId() != null && !request.getBranchId().isBlank()) {
-            BranchEntity branchEntity = branchRepository.findById(java.util.UUID.fromString(request.getBranchId()))
-                    .orElseThrow(() -> new RuntimeException("Branch not found: " + request.getBranchId()));
-            if (!"Active".equalsIgnoreCase(branchEntity.getStatus())) {
-                throw new RuntimeException("Users can only be created or assigned to active branches.");
-            }
-        }
-
         // Fetch old state before updating
         UserRepresentation oldUser = keycloakAdminService.getUser(id);
         String oldEmail = oldUser.getEmail();
         List<String> oldRoles = keycloakAdminService.getUserRoles(id);
         String oldRole = oldRoles != null && !oldRoles.isEmpty() ? oldRoles.get(0) : "USER";
         boolean oldIsActive = oldUser.isEnabled() != null ? oldUser.isEnabled() : false;
+
+        String oldBranchId = null;
+        if (oldUser.getAttributes() != null && oldUser.getAttributes().containsKey("branch_id")) {
+            List<String> bIds = oldUser.getAttributes().get("branch_id");
+            if (bIds != null && !bIds.isEmpty()) {
+                oldBranchId = bIds.get(0);
+            }
+        }
+
+        if (request.getBranchId() != null && !request.getBranchId().isBlank()) {
+            if (!request.getBranchId().equals(oldBranchId)) {
+                BranchEntity branchEntity = branchRepository.findById(java.util.UUID.fromString(request.getBranchId()))
+                        .orElseThrow(() -> new RuntimeException("Branch not found: " + request.getBranchId()));
+                if (!"Active".equalsIgnoreCase(branchEntity.getStatus())) {
+                    throw new RuntimeException("Users can only be created or assigned to active branches.");
+                }
+            }
+        }
 
         keycloakAdminService.updateUserDirectly(id, request.getFullName(), request.getEmail(), request.getPhone(), request.getBranchId(),
                 request.getRole(), request.getIsActive());

@@ -3,6 +3,7 @@
 import { ReactNode, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useMetadata } from "@/providers/MetadataProvider";
+import { useAuth } from "@/hooks/useAuth";
 
 const URL_MAP: Record<string, string> = {
     "/phlebotomy": "/phlebotomy/worklist",
@@ -19,6 +20,19 @@ const URL_MAP: Record<string, string> = {
     // check used to.
     "/admin": "/superadmin",
     "/branch-admin": "/branch",
+};
+
+const ROLE_TO_URL: Record<string, string> = {
+    "SUPER_ADMIN": "/admin",
+    "BRANCH_ADMIN": "/branch-admin",
+    "PHLEBOTOMIST": "/phlebotomy",
+    "LAB_RECEPTIONIST": "/lab-reception",
+    "MLT": "/lab-testing",
+    "LAB_SUPERVISOR": "/lab-supervision",
+    "PATHOLOGIST": "/pathology",
+    "DISPATCH_OFFICER": "/report-dispatch",
+    "BILLING_OFFICER": "/orders-billing",
+    "FRONT_DESK": "/dashboard",
 };
 
 
@@ -46,31 +60,38 @@ export default function RoleGuard({ children }: { children: ReactNode }) {
     const router = useRouter();
     // Metadata is fetched once by MetadataProvider and shared (no per-navigation refetch).
     const { metadata, loading, error } = useMetadata();
+    const { roles } = useAuth();
 
     useEffect(() => {
-        if (loading) {
+        let navItemsUrl: string[] = [];
+
+        if (roles && roles.length > 0) {
+            navItemsUrl = roles.map((role) => ROLE_TO_URL[role]).filter(Boolean);
+        }
+        
+        if (navItemsUrl.length === 0 && metadata?.navItems) {
+            navItemsUrl = metadata.navItems.map((item) => item.linkUrl);
+        }
+
+        if (loading && navItemsUrl.length === 0) {
             setAuthorized(false);
             return;
         }
-        // Fail closed: if access can't be determined, do not render the page.
-        if (error) {
-            router.replace("/login");
-            return;
-        }
 
-        const navItems = metadata?.navItems ?? [];
-        if (navItems.length === 0) {
-            router.replace("/login");
+        if (navItemsUrl.length === 0) {
+            if (error || !loading) {
+                router.replace("/login");
+            }
             return;
         }
 
         const allowedPrefixes: string[] = [];
-        navItems.forEach((item) => {
-            const prefixes = PREFIX_MAP[item.linkUrl];
+        navItemsUrl.forEach((url) => {
+            const prefixes = PREFIX_MAP[url];
             if (prefixes) {
                 allowedPrefixes.push(...prefixes);
             } else {
-                allowedPrefixes.push(item.linkUrl);
+                allowedPrefixes.push(url);
             }
         });
 
@@ -79,12 +100,12 @@ export default function RoleGuard({ children }: { children: ReactNode }) {
         );
 
         if (!hasAccess) {
-            const firstUrl = navItems[0].linkUrl;
+            const firstUrl = navItemsUrl[0];
             router.replace(URL_MAP[firstUrl] || firstUrl);
         } else {
             setAuthorized(true);
         }
-    }, [pathname, router, metadata, loading, error]);
+    }, [pathname, router, metadata, loading, error, roles]);
 
     if (!authorized) {
         return (

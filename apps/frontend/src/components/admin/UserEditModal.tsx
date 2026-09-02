@@ -33,12 +33,13 @@ export default function UserEditModal({ isOpen, onClose, onSaved, onSave, userDa
         email: "",
         branch: "",
         branchId: "",
-        role: ASSIGNABLE_ROLES[0].value,
+        roles: [] as string[],
     });
     const [error, setError] = useState<string | null>(null);
     const [submitting, setSubmitting] = useState(false);
     const [branches, setBranches] = useState<Branch[]>([]);
     const [branchesLoading, setBranchesLoading] = useState(true);
+    const [allowMultipleRoles, setAllowMultipleRoles] = useState(false);
 
     useEffect(() => {
         if (!isOpen) return;
@@ -56,8 +57,13 @@ export default function UserEditModal({ isOpen, onClose, onSaved, onSave, userDa
                 email: userData.email,
                 branch: userData.branch,
                 branchId: userData.branchId || "",
-                role: userData.roles[0] || ASSIGNABLE_ROLES[0].value,
+                roles: userData.roles || [],
             });
+            if (userData.roles && userData.roles.length > 1) {
+                setAllowMultipleRoles(true);
+            } else {
+                setAllowMultipleRoles(false);
+            }
             setError(null);
         }
     }, [userData]);
@@ -72,7 +78,7 @@ export default function UserEditModal({ isOpen, onClose, onSaved, onSave, userDa
                 await onSave(userData.id, {
                     name: formData.name,
                     email: formData.email,
-                    roles: [formData.role],
+                    roles: formData.roles,
                     branch: formData.branch,
                     branchId: formData.branchId,
                     status: userData.status,
@@ -86,7 +92,7 @@ export default function UserEditModal({ isOpen, onClose, onSaved, onSave, userDa
                     firstName,
                     lastName,
                     email: formData.email,
-                    role: formData.role,
+                    role: formData.roles.join(",") || "",
                     branchCode: formData.branch,
                 });
             }
@@ -152,6 +158,7 @@ export default function UserEditModal({ isOpen, onClose, onSaved, onSave, userDa
                     disabled={branchesLoading || branches.length === 0}
                     value={formData.branchId}
                     onChange={(e) => setFormData({ ...formData, branchId: e.target.value })}
+                    className="sm:col-span-2"
                 >
                     {branchesLoading ? (
                         <option value={formData.branchId}>Loading branches…</option>
@@ -169,13 +176,58 @@ export default function UserEditModal({ isOpen, onClose, onSaved, onSave, userDa
                     )}
                 </SelectField>
 
-                <SelectField label="Role" value={formData.role} onChange={(e) => setFormData({ ...formData, role: e.target.value })}>
-                    {ASSIGNABLE_ROLES.map((r) => (
-                        <option key={r.value} value={r.value}>
-                            {r.label}
-                        </option>
-                    ))}
-                </SelectField>
+                <div className="sm:col-span-2 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                        <label className="block text-sm font-medium text-gray-700">Roles</label>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                            <span className="text-xs font-medium text-gray-500">Allow multiple</span>
+                            <div className={`relative inline-flex h-4 w-8 items-center rounded-full transition-colors ${allowMultipleRoles ? 'bg-blue-600' : 'bg-gray-200'}`}>
+                                <input 
+                                    type="checkbox" 
+                                    className="sr-only" 
+                                    checked={allowMultipleRoles}
+                                    onChange={(e) => {
+                                        const isMulti = e.target.checked;
+                                        setAllowMultipleRoles(isMulti);
+                                        if (!isMulti && formData.roles.length > 1) {
+                                            setFormData({ ...formData, roles: [formData.roles[0]] });
+                                        }
+                                    }}
+                                />
+                                <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${allowMultipleRoles ? 'translate-x-4' : 'translate-x-1'}`} />
+                            </div>
+                        </label>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 rounded-lg border border-gray-200 bg-gray-50/50 p-3">
+                        {ASSIGNABLE_ROLES.map((r) => {
+                            const isChecked = formData.roles.includes(r.value);
+                            return (
+                                <label key={r.value} className="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer hover:text-gray-900 select-none">
+                                    <input
+                                        type={allowMultipleRoles ? "checkbox" : "radio"}
+                                        name={`roles-${formId}`}
+                                        checked={isChecked}
+                                        onChange={(e) => {
+                                            if (allowMultipleRoles) {
+                                                const newRoles = e.target.checked 
+                                                    ? [...formData.roles, r.value] 
+                                                    : formData.roles.filter(role => role !== r.value);
+                                                setFormData({ ...formData, roles: newRoles });
+                                            } else {
+                                                setFormData({ ...formData, roles: [r.value] });
+                                            }
+                                        }}
+                                        className={allowMultipleRoles 
+                                            ? "h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 transition-colors" 
+                                            : "h-4 w-4 rounded-full border-gray-300 text-blue-600 focus:ring-blue-500 transition-colors"
+                                        }
+                                    />
+                                    <span>{r.label}</span>
+                                </label>
+                            );
+                        })}
+                    </div>
+                </div>
             </form>
         </Modal>
     );

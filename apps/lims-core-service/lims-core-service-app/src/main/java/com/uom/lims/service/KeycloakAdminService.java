@@ -145,19 +145,38 @@ public class KeycloakAdminService {
         if (expectedRole == null || expectedRole.trim().isEmpty()) {
             return;
         }
+
         UserResource userResource = keycloak.realm(realm).users().get(userId);
         List<RoleRepresentation> currentRoles = userResource.roles().realmLevel().listAll();
 
-        boolean hasExpectedRole = false;
-        
+        java.util.Set<String> targetRoles = java.util.Arrays.stream(expectedRole.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .collect(java.util.stream.Collectors.toSet());
+
+        // Remove old non-default roles that are not in targetRoles
         for (RoleRepresentation role : currentRoles) {
-            if (role.getName().equalsIgnoreCase(expectedRole)) {
-                hasExpectedRole = true;
+            String roleName = role.getName();
+            if (roleName.startsWith("default-roles") || roleName.equals("offline_access") || roleName.equals("uma_authorization")) {
+                continue;
+            }
+            boolean shouldKeep = targetRoles.stream().anyMatch(t -> t.equalsIgnoreCase(roleName));
+            if (!shouldKeep) {
+                try {
+                    userResource.roles().realmLevel().remove(Collections.singletonList(role));
+                    log.info("Removed role {} from user {}", roleName, userId);
+                } catch (Exception e) {
+                    log.warn("Failed to remove role {} from user {}: {}", roleName, userId, e.getMessage());
+                }
             }
         }
 
-        if (!hasExpectedRole) {
-            assignRole(userId, expectedRole);
+        // Add new target roles that user doesn't have yet
+        for (String targetRole : targetRoles) {
+            boolean alreadyHas = currentRoles.stream().anyMatch(r -> r.getName().equalsIgnoreCase(targetRole));
+            if (!alreadyHas) {
+                assignRole(userId, targetRole);
+            }
         }
     }
 

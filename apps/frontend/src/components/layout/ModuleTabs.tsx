@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useMemo } from "react";
 import { NavItem } from "@/lib/api";
 import { useMetadata } from "@/providers/MetadataProvider";
+import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
 
 /**
@@ -28,6 +29,32 @@ const NAV_ORDER: Record<string, number> = {
     "/report-dispatch": 80,
     "/branch-admin": 90,
     "/admin": 100,
+};
+
+const ROLE_TO_NAV_ITEM: Record<string, NavItem> = {
+    "SUPER_ADMIN": { displayText: "Super Admin Management", linkUrl: "/admin" },
+    "BRANCH_ADMIN": { displayText: "Branch Management", linkUrl: "/branch-admin" },
+    "PHLEBOTOMIST": { displayText: "Phlebotomy", linkUrl: "/phlebotomy" },
+    "LAB_RECEPTIONIST": { displayText: "Lab Reception", linkUrl: "/lab-reception" },
+    "MLT": { displayText: "Lab Testing", linkUrl: "/lab-testing" },
+    "LAB_SUPERVISOR": { displayText: "Lab Supervisor", linkUrl: "/lab-supervision" },
+    "PATHOLOGIST": { displayText: "Pathologist", linkUrl: "/pathology" },
+    "DISPATCH_OFFICER": { displayText: "Report Dispatch", linkUrl: "/report-dispatch" },
+    "BILLING_OFFICER": { displayText: "Orders & Billing", linkUrl: "/orders-billing" },
+    "FRONT_DESK": { displayText: "Patient Management", linkUrl: "/dashboard" },
+};
+
+const ROLE_DISPLAY_NAMES: Record<string, string> = {
+    "SUPER_ADMIN": "Super Admin",
+    "BRANCH_ADMIN": "Branch Admin",
+    "PHLEBOTOMIST": "Phlebotomist",
+    "LAB_RECEPTIONIST": "Lab Receptionist",
+    "MLT": "Medical Laboratory Technician",
+    "LAB_SUPERVISOR": "Lab Supervisor",
+    "PATHOLOGIST": "Pathologist",
+    "DISPATCH_OFFICER": "Dispatch Officer",
+    "BILLING_OFFICER": "Billing Officer",
+    "FRONT_DESK": "Front Desk",
 };
 
 /**
@@ -119,6 +146,7 @@ const getNavLabel = (item: NavItem) => SHORT_LABELS[item.linkUrl] ?? getFullLabe
 export default function ModuleTabs({ ariaLabel = "Modules" }: { ariaLabel?: string }) {
     const pathname = usePathname();
     const { metadata, error } = useMetadata();
+    const { roles } = useAuth();
 
     const isActive = (url: string) => {
         const prefixes = MODULE_PREFIXES[url] ?? [resolveModuleUrl(url)];
@@ -126,6 +154,15 @@ export default function ModuleTabs({ ariaLabel = "Modules" }: { ariaLabel?: stri
     };
 
     const navItems = useMemo<NavItem[]>(() => {
+        if (roles && roles.length > 0) {
+            const items = roles
+                .map(role => ROLE_TO_NAV_ITEM[role])
+                .filter(Boolean);
+            if (items.length > 0) {
+                return sortNavItems(items);
+            }
+        }
+
         if (metadata?.navItems) return sortNavItems(metadata.navItems);
         if (error) {
             if (pathname.startsWith("/branch")) return [{ displayText: "Branch Management", linkUrl: "/branch-admin" }];
@@ -133,29 +170,38 @@ export default function ModuleTabs({ ariaLabel = "Modules" }: { ariaLabel?: stri
             return [{ displayText: "Patient Management", linkUrl: "/dashboard" }];
         }
         return [];
-    }, [metadata, error, pathname]);
+    }, [metadata, error, pathname, roles]);
 
     return (
         <nav aria-label={ariaLabel} className="no-scrollbar flex h-16 min-w-0 flex-1 items-center overflow-x-auto">
-            {navItems.map((item) => {
-                const href = resolveModuleUrl(item.linkUrl);
-                const active = isActive(item.linkUrl);
-                return (
-                    <Link
-                        key={item.linkUrl}
-                        href={href}
-                        title={getFullLabel(item)}
-                        aria-current={active ? "page" : undefined}
-                        className={cn(
-                            "relative flex h-16 shrink-0 items-center whitespace-nowrap px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary",
-                            active ? "text-primary-strong" : "text-fg-secondary hover:text-fg"
-                        )}
-                    >
-                        {getNavLabel(item)}
-                        {active && <span aria-hidden="true" className="absolute inset-x-3 bottom-0 h-0.5 rounded-t bg-primary" />}
-                    </Link>
-                );
-            })}
+            {roles && roles.length > 0 && (
+                <div className="flex shrink-0 items-center mr-4 pr-4 py-1">
+                    <span className="text-xs font-semibold text-fg-secondary flex items-center gap-1">
+                        {roles.filter(r => ROLE_TO_NAV_ITEM[r]).length > 1 ? "Your Assigned Roles :" : "Your Assigned Role :"}
+                        {roles.filter(r => ROLE_TO_NAV_ITEM[r]).map((r, i, arr) => {
+                            const item = ROLE_TO_NAV_ITEM[r];
+                            const href = resolveModuleUrl(item.linkUrl);
+                            const active = isActive(item.linkUrl);
+                            return (
+                                <span key={r} className="flex items-center">
+                                    <Link 
+                                        href={href} 
+                                        aria-current={active ? "page" : undefined}
+                                        className={cn(
+                                            "font-bold hover:underline transition-colors",
+                                            active ? "text-primary-strong underline decoration-2 underline-offset-4" : "text-primary"
+                                        )}
+                                    >
+                                        {ROLE_DISPLAY_NAMES[r] || r}
+                                    </Link>
+                                    {i < arr.length - 1 && <span className="text-fg-muted mx-1.5">, </span>}
+                                </span>
+                            );
+                        })}
+                        {roles.filter(r => ROLE_TO_NAV_ITEM[r]).length === 0 && <span className="text-primary font-bold">None</span>}
+                    </span>
+                </div>
+            )}
         </nav>
     );
 }
