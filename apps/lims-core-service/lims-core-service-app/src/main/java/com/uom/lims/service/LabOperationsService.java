@@ -138,6 +138,9 @@ public class LabOperationsService {
         return "Main Laboratory - Bench 1";
     }
 
+    private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("dd MMM, hh:mm a")
+            .withZone(ZoneId.systemDefault());
+
     private String resolveLastSync(String code) {
         try {
             Instant latestTest = testResultRepository.findLatestActivity(code);
@@ -156,6 +159,9 @@ public class LabOperationsService {
                 return "Ready";
             }
 
+            LocalDate today = LocalDate.now(ZoneId.systemDefault());
+            LocalDate activityDate = latest.atZone(ZoneId.systemDefault()).toLocalDate();
+
             long secondsAgo = Math.max(0, Duration.between(latest, Instant.now()).toSeconds());
             if (secondsAgo < 90) {
                 return "Just now";
@@ -164,11 +170,14 @@ public class LabOperationsService {
                 long mins = secondsAgo / 60;
                 return mins + (mins == 1 ? " min ago" : " mins ago");
             }
-            if (secondsAgo < 86400) {
+            if (today.equals(activityDate)) {
                 long hours = secondsAgo / 3600;
-                return hours + (hours == 1 ? " hour ago" : " hours ago");
+                if (hours < 12) {
+                    return hours + (hours == 1 ? " hour ago" : " hours ago");
+                }
+                return "Today, " + TIME_FORMATTER.format(latest);
             }
-            return "Today " + TIME_FORMATTER.format(latest);
+            return DATE_TIME_FORMATTER.format(latest);
         } catch (Exception e) {
             return "Ready";
         }

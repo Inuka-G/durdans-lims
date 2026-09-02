@@ -30,6 +30,8 @@ public class QcService {
 
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("hh:mm a")
             .withZone(ZoneId.systemDefault());
+    private static final DateTimeFormatter DATE_TIME = DateTimeFormatter.ofPattern("dd MMM, hh:mm a")
+            .withZone(ZoneId.systemDefault());
     private static final int SERIES_WINDOW = 30;
 
     private final QcResultRepository repository;
@@ -127,9 +129,20 @@ public class QcService {
     }
 
     private static QcRunItemResponse toRun(QcResultEntity e) {
+        String formattedTime = formatTimestamp(e.getPerformedAt());
         return new QcRunItemResponse(
                 e.getId().toString(), e.getInstrument(), e.getAnalyte(), e.getControlLevel(),
                 e.getMeasuredValue().toPlainString(), e.getMean().toPlainString(), e.getSd().toPlainString(),
-                e.getStatus(), e.getPerformedBy(), TIME.format(e.getPerformedAt()));
+                e.getStatus(), e.getPerformedBy(), formattedTime);
+    }
+
+    private static String formatTimestamp(java.time.Instant performedAt) {
+        if (performedAt == null) return "-";
+        java.time.LocalDate today = java.time.LocalDate.now(ZoneId.systemDefault());
+        java.time.LocalDate runDate = performedAt.atZone(ZoneId.systemDefault()).toLocalDate();
+        if (today.equals(runDate)) {
+            return TIME.format(performedAt);
+        }
+        return DATE_TIME.format(performedAt);
     }
 }
