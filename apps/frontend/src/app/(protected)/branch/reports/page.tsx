@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { useAuth } from "@/hooks/useAuth";
-import { getBranches } from "@/lib/api";
+import { getBranches, getBranchDashboardReport } from "@/lib/api";
 
 const initialBarData = [
     { name: '01 OCT', revenue: 2000 },
@@ -31,9 +31,9 @@ export default function BranchReportsPage() {
     const [branchName, setBranchName] = useState("Loading...");
 
     useEffect(() => {
-        const targetCode = branchCode || "b6030d28-10ef-4165-9554-8887fabfddb8";
+        const targetCode = branchCode || "Col-1";
         getBranches().then((data) => {
-            const branch = data.find((b) => b.id === targetCode || b.code.toUpperCase() === targetCode.toUpperCase());
+            const branch = data.find((b) => b.code.toUpperCase() === targetCode.toUpperCase());
             if (branch) {
                 setBranchName(branch.name);
             } else {
@@ -45,11 +45,21 @@ export default function BranchReportsPage() {
         });
     }, [branchCode]);
 
-    const [startDate, setStartDate] = useState("2023-10-01");
-    const [endDate, setEndDate] = useState("2023-10-31");
+    const getFormattedDate = (date: Date) => {
+        return date.toISOString().split('T')[0];
+    };
+
+    const today = new Date();
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(today.getDate() - 30);
+
+    const [startDate, setStartDate] = useState(getFormattedDate(thirtyDaysAgo));
+    const [endDate, setEndDate] = useState(getFormattedDate(today));
 
     const [barData, setBarData] = useState(initialBarData);
     const [pieData, setPieData] = useState(initialPieData);
+    const [topTests, setTopTests] = useState<{testName: string, orderCount: number, revenue: number}[]>([]);
+    const [leastTests, setLeastTests] = useState<{testName: string, orderCount: number, revenue: number}[]>([]);
     const [kpis, setKpis] = useState({
         patients: '1,248', pChange: 12,
         orders: '3,120', oChange: 8.4,
@@ -60,42 +70,57 @@ export default function BranchReportsPage() {
     const reportRef = useRef<HTMLDivElement>(null);
     const [isExporting, setIsExporting] = useState(false);
 
-    // Simulate fetching new dynamic data when date range changes
+    // Fetch actual data from backend
     useEffect(() => {
         if (startDate && endDate) {
-            const sTime = new Date(startDate).getTime();
-            const eTime = new Date(endDate).getTime();
+            const targetCode = branchCode || "Col-1";
+            getBranchDashboardReport(targetCode, startDate, endDate)
+                .then((report) => {
+                    setKpis({
+                        patients: report.kpis.totalPatients,
+                        pChange: report.kpis.patientsChange,
+                        orders: report.kpis.totalOrders,
+                        oChange: report.kpis.ordersChange,
+                        revenue: report.kpis.totalRevenue,
+                        rChange: report.kpis.revenueChange,
+                        pending: parseInt(report.kpis.pendingReports, 10),
+                        peChange: report.kpis.pendingReportsChange
+                    });
 
-            // Generate a simple pseudo-random noise factor based on the date difference
-            // to make the charts look realistically "dynamic"
-            const diffDays = Math.abs((eTime - sTime) / (1000 * 60 * 60 * 24));
-            const noise = (diffDays % 30) / 30; // 0 to 1 based on month day modulo
+                    if (report.revenueTrend && report.revenueTrend.length > 0) {
+                        // Map 'date' to 'name' for the Recharts XAxis
+                        const mappedBarData = report.revenueTrend.map(item => ({
+                            name: item.date,
+                            revenue: item.revenue
+                        }));
+                        setBarData(mappedBarData);
+                    } else {
+                        setBarData([]);
+                    }
 
-            if (isNaN(noise)) return;
+                    if (report.revenueByCategory && report.revenueByCategory.length > 0) {
+                        setPieData(report.revenueByCategory);
+                    } else {
+                        setPieData([]);
+                    }
 
-            setKpis({
-                patients: Math.floor(1000 + noise * 1500).toLocaleString(),
-                pChange: Number((5 + noise * 15).toFixed(1)),
-                orders: Math.floor(2500 + noise * 2500).toLocaleString(),
-                oChange: Number((-2 + noise * 15).toFixed(1)),
-                revenue: (3 + noise * 5).toFixed(1),
-                rChange: Number((10 + noise * 12).toFixed(1)),
-                pending: Math.floor(20 + noise * 60),
-                peChange: Number((-10 + noise * 20).toFixed(1))
-            });
+                    if (report.topPerformingTests) {
+                        setTopTests(report.topPerformingTests);
+                    } else {
+                        setTopTests([]);
+                    }
 
-            setBarData(initialBarData.map(d => ({
-                ...d,
-                revenue: Math.floor(d.revenue * (0.6 + noise * 0.8))
-            })));
-
-            setPieData([
-                { name: 'Pathology', value: Math.floor(40 + noise * 15), color: '#1277E1' },
-                { name: 'Radiology', value: Math.floor(20 + noise * 20), color: '#a855f7' },
-                { name: 'General', value: Math.floor(20 + noise * 10), color: '#f59e0b' },
-            ]);
+                    if (report.leastPerformingTests) {
+                        setLeastTests(report.leastPerformingTests);
+                    } else {
+                        setLeastTests([]);
+                    }
+                })
+                .catch((err) => {
+                    console.error("Failed to load dashboard report", err);
+                });
         }
-    }, [startDate, endDate]);
+    }, [branchCode, startDate, endDate]);
 
     // Export PDF function - Native Browser Print
     const handleExportPDF = async () => {
@@ -168,17 +193,11 @@ export default function BranchReportsPage() {
         csvRows.push(["Metric", "Value", "Change %"]);
         csvRows.push(["Total Patients", kpis.patients.replace(',', ''), kpis.pChange]);
         csvRows.push(["Test Orders", kpis.orders.replace(',', ''), kpis.oChange]);
-        csvRows.push(["Revenue (LKR M)", kpis.revenue, kpis.rChange]);
+        csvRows.push(["Revenue (LKR K)", kpis.revenue, kpis.rChange]);
         csvRows.push(["Pending Reports", kpis.pending, kpis.peChange]);
         csvRows.push([]);
 
-        // 3. Category Breakdown (Pie Data)
-        csvRows.push(["Revenue by Category"]);
-        csvRows.push(["Category", "Percentage (%)"]);
-        pieData.forEach(item => {
-            csvRows.push([item.name, item.value]);
-        });
-        csvRows.push([]);
+
 
         // 4. Revenue Trend (Bar Data)
         csvRows.push(["Revenue Trend"]);
@@ -188,6 +207,23 @@ export default function BranchReportsPage() {
             // For this mock, we'll just dump whatever is in the 'name' column plus the raw revenue
             csvRows.push([item.name || "N/A", item.revenue]);
         });
+        csvRows.push([]);
+
+        // 5. Top 5 Performing Tests
+        csvRows.push(["Top 5 Performing Tests"]);
+        csvRows.push(["Test Name", "Order Count", "Revenue"]);
+        topTests.forEach(item => {
+            csvRows.push([item.testName, item.orderCount, item.revenue]);
+        });
+        csvRows.push([]);
+
+        // 6. Bottom 5 Least Performing Tests
+        csvRows.push(["Bottom 5 Least Performing Tests"]);
+        csvRows.push(["Test Name", "Order Count", "Revenue"]);
+        leastTests.forEach(item => {
+            csvRows.push([item.testName, item.orderCount, item.revenue]);
+        });
+        csvRows.push([]);
 
         // Convert array of arrays to CSV string
         const csvContent = csvRows.map(row => row.join(",")).join("\n");
@@ -208,13 +244,7 @@ export default function BranchReportsPage() {
 
             {/* Breadcrumb & Header */}
             <div className="mb-8">
-                <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 mb-2">
-                    <span className="hover:text-[#0f172a] cursor-pointer transition-colors">Home</span>
-                    <span className="text-[10px] opacity-50">/</span>
-                    <span className="hover:text-[#0f172a] cursor-pointer transition-colors">Reports</span>
-                    <span className="text-[10px] opacity-50">/</span>
-                    <span className="text-[#0f172a] font-bold">{branchName}</span>
-                </div>
+
                 <h1 className="text-2xl font-extrabold text-[#0f172a] tracking-tight">Branch Reports – {branchName}</h1>
                 <p className="text-[13px] font-medium text-[#64748b] mt-1">Performance metrics and transactional data for the selected period.</p>
             </div>
@@ -270,7 +300,7 @@ export default function BranchReportsPage() {
                 </div>
 
                 {/* Export Buttons */}
-                <div className="flex items-center gap-3 self-end xl:self-center mt-4 xl:mt-0 xl:pt-5" data-html2canvas-ignore="true">
+                <div className="flex flex-col items-stretch gap-2 self-end xl:self-center mt-4 xl:mt-0 xl:pt-5" data-html2canvas-ignore="true">
                     <button
                         onClick={handleExportPDF}
                         disabled={isExporting}
@@ -344,7 +374,7 @@ export default function BranchReportsPage() {
                     </div>
                     <div>
                         <div className="flex items-end gap-2 mb-1">
-                            <span className="text-[28px] font-extrabold text-[#0f172a] leading-none tracking-tight">LKR {kpis.revenue}M</span>
+                            <span className="text-[28px] font-extrabold text-[#0f172a] leading-none tracking-tight">LKR {kpis.revenue}K</span>
                             <span className={`text-[12px] font-bold mb-1 ${kpis.rChange >= 0 ? 'text-[#16a34a]' : 'text-[#dc2626]'}`}>
                                 {kpis.rChange >= 0 ? '+' : ''}{kpis.rChange}%
                             </span>
@@ -411,7 +441,7 @@ export default function BranchReportsPage() {
                 </div>
 
                 {/* Revenue by Category (Donut Chart) - takes 33% */}
-                <div className="bg-white rounded-2xl p-6 border border-[#ecf0f6] shadow-sm h-[400px] flex flex-col">
+                <div className="bg-white rounded-2xl p-6 border border-[#ecf0f6] shadow-sm h-[400px] flex flex-col data-html2canvas-ignore">
                     <h2 className="text-[15px] font-extrabold text-[#0f172a] mb-4">Revenue by Category</h2>
 
                     <div className="flex-1 relative flex items-center justify-center min-h-[200px]">
@@ -458,6 +488,68 @@ export default function BranchReportsPage() {
                 </div>
 
             </div>
+
+            {/* Test Performance Tables Row */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+                {/* Top 5 Tests */}
+                <div className="bg-white rounded-2xl p-6 border border-[#ecf0f6] shadow-sm flex flex-col">
+                    <h2 className="text-[15px] font-extrabold text-[#0f172a] mb-4">Top 5 Performing Tests</h2>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left text-sm">
+                            <thead>
+                                <tr className="border-b border-[#ecf0f6]">
+                                    <th className="pb-3 text-[#64748b] font-bold">Test Name</th>
+                                    <th className="pb-3 text-[#64748b] font-bold text-right">Orders</th>
+                                    <th className="pb-3 text-[#64748b] font-bold text-right">Revenue</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {topTests.length > 0 ? topTests.map((test, idx) => (
+                                    <tr key={idx} className="border-b border-[#f1f5f9] last:border-0">
+                                        <td className="py-3 font-semibold text-[#0f172a]">{test.testName}</td>
+                                        <td className="py-3 font-bold text-[#38bdf8] text-right">{test.orderCount}</td>
+                                        <td className="py-3 font-bold text-[#10b981] text-right">Rs. {test.revenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                    </tr>
+                                )) : (
+                                    <tr>
+                                        <td colSpan={3} className="py-4 text-center text-[#94a3b8] text-xs">No data available</td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                {/* Least 5 Tests */}
+                <div className="bg-white rounded-2xl p-6 border border-[#ecf0f6] shadow-sm flex flex-col">
+                    <h2 className="text-[15px] font-extrabold text-[#0f172a] mb-4">Least Performing Tests</h2>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left text-sm">
+                            <thead>
+                                <tr className="border-b border-[#ecf0f6]">
+                                    <th className="pb-3 text-[#64748b] font-bold">Test Name</th>
+                                    <th className="pb-3 text-[#64748b] font-bold text-right">Orders</th>
+                                    <th className="pb-3 text-[#64748b] font-bold text-right">Revenue</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {leastTests.length > 0 ? leastTests.map((test, idx) => (
+                                    <tr key={idx} className="border-b border-[#f1f5f9] last:border-0">
+                                        <td className="py-3 font-semibold text-[#0f172a]">{test.testName}</td>
+                                        <td className="py-3 font-bold text-[#f43f5e] text-right">{test.orderCount}</td>
+                                        <td className="py-3 font-bold text-[#f59e0b] text-right">Rs. {test.revenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                    </tr>
+                                )) : (
+                                    <tr>
+                                        <td colSpan={3} className="py-4 text-center text-[#94a3b8] text-xs">No data available</td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
         </div>
     );
 }

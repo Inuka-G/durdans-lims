@@ -14,7 +14,7 @@ const GROUPS: SidebarGroup[] = [
             { name: "Global dashboard", icon: LayoutDashboard, href: "/superadmin", isActive: (p) => p === "/superadmin" },
             { name: "Branch management", icon: Network, href: "/superadmin/admin/branches", isActive: startsWith("/superadmin/admin/branches") },
             { name: "User & role control", icon: UserCog, href: "/superadmin/users", isActive: startsWith("/superadmin/users") },
-            { name: "Master data", icon: Database, href: "/superadmin/master-data", isActive: startsWith("/superadmin/master-data") },
+
             { name: "System monitoring", icon: Activity, href: "/superadmin/monitoring", isActive: startsWith("/superadmin/monitoring") },
             { name: "Cross-branch reports", icon: ChartColumn, href: "/superadmin/reports", isActive: startsWith("/superadmin/reports") },
         ],

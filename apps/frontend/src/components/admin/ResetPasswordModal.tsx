@@ -81,7 +81,7 @@ export default function ResetPasswordModal({ isOpen, onClose, userId, userName, 
                     Verify Your Identity
                 </p>
                 <InputField
-                    label="Your Superadmin Username"
+                    label="Your Branch Admin Username"
                     required
                     type="text"
                     autoComplete="off"
@@ -89,7 +89,7 @@ export default function ResetPasswordModal({ isOpen, onClose, userId, userName, 
                     onChange={(e) => setAdminUsername(e.target.value)}
                 />
                 <InputField
-                    label="Your Superadmin Password"
+                    label="Your Branch Admin Password"
                     required
                     type="password"
                     autoComplete="new-password"

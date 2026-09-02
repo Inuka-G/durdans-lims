@@ -12,7 +12,11 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Instant;
 import java.util.List;
+import org.springframework.web.bind.annotation.RequestParam;
+import com.uom.lims.service.BranchReportService;
+import com.uom.lims.api.dto.response.BranchReportResponse;
 
 /**
  * The branch directory. Any admin role can read it (a BRANCH_ADMIN needs to
@@ -26,6 +30,23 @@ import java.util.List;
 public class BranchController {
 
     private final BranchService branchService;
+    private final BranchReportService branchReportService;
+
+    @GetMapping("/{code}/reports/dashboard")
+    public ResponseEntity<ApiResponse<BranchReportResponse>> getDashboard(
+            @PathVariable String code,
+            @RequestParam(required = false) Instant startDate,
+            @RequestParam(required = false) Instant endDate) {
+        
+        if (startDate == null) {
+            startDate = Instant.now().minus(30, java.time.temporal.ChronoUnit.DAYS);
+        }
+        if (endDate == null) {
+            endDate = Instant.now();
+        }
+        
+        return ResponseEntity.ok(ApiResponse.success(branchReportService.getDashboardReport(code, startDate, endDate)));
+    }
 
     @GetMapping
     @PreAuthorize("hasAnyRole('BRANCH_ADMIN','SUPER_ADMIN')")

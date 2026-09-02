@@ -1522,6 +1522,54 @@ export async function assignBranchAdmin(code: string, userId: string, name: stri
 }
 
 // ---------------------------------------------------------------------------
+// Branch Reports
+// ---------------------------------------------------------------------------
+
+export interface BranchReportKpi {
+    totalPatients: string;
+    patientsChange: number;
+    totalOrders: string;
+    ordersChange: number;
+    totalRevenue: string;
+    revenueChange: number;
+    pendingReports: string;
+    pendingReportsChange: number;
+}
+
+export interface BranchReportTrend {
+    date: string;
+    revenue: number;
+}
+
+export interface BranchReportCategory {
+    name: string;
+    value: number;
+    color: string;
+}
+
+export interface BranchReportTestPerformance {
+    testName: string;
+    orderCount: number;
+    revenue: number;
+}
+
+export interface BranchDashboardReport {
+    kpis: BranchReportKpi;
+    revenueTrend: BranchReportTrend[];
+    revenueByCategory: BranchReportCategory[];
+    topPerformingTests: BranchReportTestPerformance[];
+    leastPerformingTests: BranchReportTestPerformance[];
+}
+
+export async function getBranchDashboardReport(branchCode: string, startDate?: string, endDate?: string): Promise<BranchDashboardReport> {
+    const params = new URLSearchParams();
+    if (startDate) params.append('startDate', startDate + "T00:00:00Z");
+    if (endDate) params.append('endDate', endDate + "T23:59:59Z");
+    const response = await axiosInstance.get(`/api/v1/branches/${branchCode}/reports/dashboard?${params.toString()}`);
+    return response.data?.data as BranchDashboardReport;
+}
+
+
 // Critical-value (panic) callbacks
 //
 // A critical result opens a callback that a clinician must acknowledge with a
