@@ -208,13 +208,7 @@ export default function BranchReportsPage() {
 
             {/* Breadcrumb & Header */}
             <div className="mb-8">
-                <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 mb-2">
-                    <span className="hover:text-[#0f172a] cursor-pointer transition-colors">Home</span>
-                    <span className="text-[10px] opacity-50">/</span>
-                    <span className="hover:text-[#0f172a] cursor-pointer transition-colors">Reports</span>
-                    <span className="text-[10px] opacity-50">/</span>
-                    <span className="text-[#0f172a] font-bold">{branchName}</span>
-                </div>
+
                 <h1 className="text-2xl font-extrabold text-[#0f172a] tracking-tight">Branch Reports – {branchName}</h1>
                 <p className="text-[13px] font-medium text-[#64748b] mt-1">Performance metrics and transactional data for the selected period.</p>
             </div>
@@ -270,7 +264,7 @@ export default function BranchReportsPage() {
                 </div>
 
                 {/* Export Buttons */}
-                <div className="flex items-center gap-3 self-end xl:self-center mt-4 xl:mt-0 xl:pt-5" data-html2canvas-ignore="true">
+                <div className="flex flex-col items-stretch gap-2 self-end xl:self-center mt-4 xl:mt-0 xl:pt-5" data-html2canvas-ignore="true">
                     <button
                         onClick={handleExportPDF}
                         disabled={isExporting}

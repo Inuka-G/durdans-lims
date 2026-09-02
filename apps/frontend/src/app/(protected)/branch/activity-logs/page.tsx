@@ -186,14 +186,6 @@ export default function ActivityLogsPage() {
     return (
         <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-6 w-full font-sans text-slate-900 bg-[#f8fafc] min-h-screen flex flex-col">
 
-            {/* Breadcrumb */}
-            <div className="text-xs text-slate-500 mb-4 flex items-center gap-2">
-                <span className="cursor-pointer hover:text-slate-800 transition-colors">Home</span>
-                <span>/</span>
-                <span className="cursor-pointer hover:text-slate-800 transition-colors">Audit</span>
-                <span>/</span>
-                <span className="font-semibold text-slate-800">Activity Logs</span>
-            </div>
 
             {/* Header */}
             <div className="mb-6">

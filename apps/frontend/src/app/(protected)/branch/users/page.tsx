@@ -5,8 +5,9 @@ import { toast } from "sonner";
 import CreateUserModal from "@/components/branch/CreateUserModal";
 import ViewEditUserModal from "@/components/branch/ViewEditUserModal";
 
-import { getBranchUsers, createBranchUser, updateBranchUser, BranchUser, getBranches } from "@/lib/api";
+import { getBranchUsers, createBranchUser, updateBranchUser, BranchUser, getBranches, resetBranchUserPassword } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
+import ResetPasswordModal from "@/components/admin/ResetPasswordModal";
 
 const DEFAULT_BRANCH_ID = "b6030d28-10ef-4165-9554-8887fabfddb8";
 
@@ -25,6 +26,14 @@ export default function BranchUserManagementPage() {
     }>({
         isOpen: false,
         mode: 'view',
+        user: null
+    });
+
+    const [resetPasswordModalConfig, setResetPasswordModalConfig] = useState<{
+        isOpen: boolean;
+        user: BranchUser | null;
+    }>({
+        isOpen: false,
         user: null
     });
 
@@ -89,7 +98,20 @@ export default function BranchUserManagementPage() {
 
     // Action Handlers
     const handleResetPassword = (user: BranchUser) => {
-        toast.success(`Password reset link sent to ${user.email}`, { position: 'top-right' });
+        setResetPasswordModalConfig({ isOpen: true, user });
+    };
+
+    const handleConfirmResetPassword = async (userId: string, newPassword: string, adminUsername: string, adminPassword: string) => {
+        try {
+            await resetBranchUserPassword(userId, newPassword, adminPassword);
+            toast.success("Password reset successfully!", { position: 'top-right' });
+            return true;
+        } catch (error: any) {
+            console.error("Failed to reset password", error);
+            const msg = error.response?.data?.message || "Failed to reset password. Please check your admin credentials.";
+            toast.error(msg, { position: 'top-right' });
+            return false;
+        }
     };
 
     const handleToggleStatus = async (user: BranchUser) => {
@@ -342,6 +364,17 @@ export default function BranchUserManagementPage() {
                 userData={viewEditModalConfig.user}
                 onSave={handleSaveUser}
             />
+
+            {/* Reset Password Modal */}
+            {resetPasswordModalConfig.user && (
+                <ResetPasswordModal
+                    isOpen={resetPasswordModalConfig.isOpen}
+                    onClose={() => setResetPasswordModalConfig({ isOpen: false, user: null })}
+                    userId={resetPasswordModalConfig.user.id || resetPasswordModalConfig.user.email}
+                    userName={(resetPasswordModalConfig.user.firstName || "") + " " + (resetPasswordModalConfig.user.lastName || "")}
+                    onConfirm={handleConfirmResetPassword}
+                />
+            )}
 
         </div>
     );
