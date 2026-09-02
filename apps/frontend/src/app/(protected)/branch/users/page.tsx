@@ -223,26 +223,26 @@ export default function BranchUserManagementPage() {
                     <table className="w-full text-left border-collapse min-w-[900px]">
                         <thead>
                             <tr className="border-b border-[#ecf0f6] bg-[#f8fafc]">
-                                <th className="py-4 px-6 text-[11px] font-extrabold text-[#94a3b8] uppercase tracking-widest w-[12%]">User ID</th>
-                                <th className="py-4 px-6 text-[11px] font-extrabold text-[#94a3b8] uppercase tracking-widest w-[12.5%]">First Name</th>
-                                <th className="py-4 px-6 text-[11px] font-extrabold text-[#94a3b8] uppercase tracking-widest w-[12.5%]">Last Name</th>
-                                <th className="py-4 px-6 text-[11px] font-extrabold text-[#94a3b8] uppercase tracking-widest w-[20%]">Email</th>
-                                <th className="py-4 px-6 text-[11px] font-extrabold text-[#94a3b8] uppercase tracking-widest flex-1">Assigned Roles</th>
-                                <th className="py-4 px-6 text-[11px] font-extrabold text-[#94a3b8] uppercase tracking-widest text-center w-[10%]">Status</th>
-                                <th className="py-4 px-6 text-[11px] font-extrabold text-[#94a3b8] uppercase tracking-widest w-[15%]">Last Login</th>
-                                <th className="py-4 px-6 text-[11px] font-extrabold text-[#94a3b8] uppercase tracking-widest text-right w-[10%]">Actions</th>
+                                <th className="py-4 px-3 text-[11px] font-extrabold text-[#94a3b8] uppercase tracking-widest w-[12%]">User ID</th>
+                                <th className="py-4 px-3 text-[11px] font-extrabold text-[#94a3b8] uppercase tracking-widest w-[12.5%]">First Name</th>
+                                <th className="py-4 px-3 text-[11px] font-extrabold text-[#94a3b8] uppercase tracking-widest w-[12.5%]">Last Name</th>
+                                <th className="py-4 px-3 text-[11px] font-extrabold text-[#94a3b8] uppercase tracking-widest w-[20%]">Email</th>
+                                <th className="py-4 px-3 text-[11px] font-extrabold text-[#94a3b8] uppercase tracking-widest flex-1">Assigned Roles</th>
+                                <th className="py-4 px-3 text-[11px] font-extrabold text-[#94a3b8] uppercase tracking-widest text-center w-[10%]">Status</th>
+                                <th className="py-4 px-3 text-[11px] font-extrabold text-[#94a3b8] uppercase tracking-widest w-[15%]">Last Login</th>
+                                <th className="py-4 px-3 text-[11px] font-extrabold text-[#94a3b8] uppercase tracking-widest text-right w-[10%]">Actions</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-[#f8fafc]">
                             {filteredUsers.length > 0 ? (
                                 filteredUsers.map((user) => (
                                     <tr key={user.id} className="hover:bg-[#f8fafc]/50 transition-colors group">
-                                        <td className="py-4 px-6">
+                                        <td className="py-4 px-3">
                                             <span className="text-[13px] font-bold text-[#64748b]" title={user.id}>
                                                 {user.id?.length > 8 ? user.id.slice(0, 8) + '...' : user.id}
                                             </span>
                                         </td>
-                                        <td className="py-4 px-6">
+                                        <td className="py-4 px-3">
                                             <div className="flex items-center gap-3">
                                                 <div className={`w-8 h-8 rounded-full ${user.bgColor || 'bg-blue-100'} ${user.textColor || 'text-blue-600'} flex items-center justify-center text-[10px] font-extrabold`}>
                                                     {user.initials || `${user.firstName?.[0] || ''}${user.lastName?.[0] || ''}`.toUpperCase() || '?'}
@@ -250,20 +250,20 @@ export default function BranchUserManagementPage() {
                                                 <span className="text-[14px] font-extrabold text-[#0f172a]">{user.firstName || ''}</span>
                                             </div>
                                         </td>
-                                        <td className="py-4 px-6">
+                                        <td className="py-4 px-3">
                                             <span className="text-[14px] font-extrabold text-[#0f172a]">{user.lastName || ''}</span>
                                         </td>
-                                        <td className="py-4 px-6">
+                                        <td className="py-4 px-3">
                                             <span className="text-[13px] font-medium text-[#64748b]">{user.email}</span>
                                         </td>
-                                        <td className="py-4 px-6">
+                                        <td className="py-4 px-3">
                                             <div className="flex flex-col gap-1.5 items-start">
                                                 <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-[#eff6ff] text-[#1277E1]">
                                                     {user.role}
                                                 </span>
                                             </div>
                                         </td>
-                                        <td className="py-4 px-6 text-center">
+                                        <td className="py-4 px-3 text-center">
                                             <div className={`inline-flex items-center justify-center gap-1.5 px-2.5 py-1 rounded-md bg-[#f8fafc] border ${user.isActive
                                                 ? 'border-[#86efac]/30'
                                                 : 'border-[#fca5a5]/30'
@@ -275,10 +275,10 @@ export default function BranchUserManagementPage() {
                                                 </span>
                                             </div>
                                         </td>
-                                        <td className="py-4 px-6">
+                                        <td className="py-4 px-3">
                                             <span className="text-[13px] font-medium text-[#64748b]">{user.lastLogin}</span>
                                         </td>
-                                        <td className="py-4 px-6 text-right">
+                                        <td className="py-4 px-3 text-right">
                                             <div className="flex items-center justify-end gap-2 text-[#94a3b8]">
                                                 <button onClick={() => handleViewUser(user)} className="hover:text-[#1277E1] transition-colors p-1" title="View User">
                                                     <span className="material-icons text-[18px]">visibility</span>

@@ -99,7 +99,7 @@ const sortNavItems = (items: NavItem[]) =>
     [...new Map(items.map((item) => [item.linkUrl, item])).values()]
         // The /critical-values route is gone, but the backend still serves its
         // header_mapping row — without this the nav renders a 404 link.
-        .filter((item) => item.linkUrl !== "/critical-values")
+        .filter((item) => !["/critical-values", "/lab-supervision", "/pathology", "/branch-admin"].includes(item.linkUrl))
         .sort((a, b) => {
             const aOrder = NAV_ORDER[a.linkUrl] ?? Number.MAX_SAFE_INTEGER;
             const bOrder = NAV_ORDER[b.linkUrl] ?? Number.MAX_SAFE_INTEGER;
