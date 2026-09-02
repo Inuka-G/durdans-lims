@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getBranchActivityLogs, BranchActivityLog, getBranchesPage } from "@/lib/api";
+import { getBranchActivityLogs, BranchActivityLog, getBranches } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 
 import Modal from "@/components/ui/Modal";

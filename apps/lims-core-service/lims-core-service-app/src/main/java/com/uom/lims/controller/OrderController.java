@@ -51,12 +51,18 @@ public class OrderController implements OrderApi {
 
         String effectivePatientId = patientId;
         if (com.uom.lims.security.SecurityUtils.hasRole("PATIENT")) {
-            // Patient can only query their own records
-            // In the LIMS realm, a patient's 'preferred_username' is their patientCode
+            // Patient can only query their own records. Fail closed: a missing
+            // preferred_username used to leave patientId as the request param,
+            // which would list every order in the system.
             org.springframework.security.core.Authentication authentication = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+            String ownCode = null;
             if (authentication != null && authentication.getPrincipal() instanceof org.springframework.security.oauth2.jwt.Jwt jwt) {
-                effectivePatientId = jwt.getClaimAsString("preferred_username");
+                ownCode = jwt.getClaimAsString("preferred_username");
             }
+            if (ownCode == null || ownCode.isBlank()) {
+                throw new org.springframework.security.access.AccessDeniedException("Access Denied");
+            }
+            effectivePatientId = ownCode;
         }
 
         Page<OrderResponse> result = orderService.getOrders(PageRequest.of(page, size, springSort), effectivePatientId);

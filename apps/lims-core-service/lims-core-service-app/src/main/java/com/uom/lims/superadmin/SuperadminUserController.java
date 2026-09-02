@@ -5,6 +5,8 @@ import com.uom.lims.api.superadmin.dto.SuperadminUserResponse;
 import com.uom.lims.service.KeycloakAdminService;
 import lombok.RequiredArgsConstructor;
 import org.keycloak.representations.idm.UserRepresentation;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -18,8 +20,17 @@ import java.util.Collections;
 import com.uom.lims.metadata.BranchRepository;
 import com.uom.lims.entity.BranchEntity;
 
+/**
+ * Global user control. Every method reaches straight into Keycloak, so each one
+ * is gated on SUPER_ADMIN: without these, /api/v1/superadmin/** only matched the
+ * catch-all `.authenticated()` rule in SecurityConfig, which would have let any
+ * logged-in user — a receptionist, a patient — enumerate the directory and reset
+ * another account's password.
+ */
 @RestController
 @RequiredArgsConstructor
+@PreAuthorize("hasRole('SUPER_ADMIN')")
+@ConditionalOnProperty(name = "app.keycloak-admin.enabled", havingValue = "true")
 public class SuperadminUserController implements SuperadminUserApi {
 
     private final KeycloakAdminService keycloakAdminService;
@@ -68,7 +79,10 @@ public class SuperadminUserController implements SuperadminUserApi {
         return mapToResponse(updatedUser);
     }
 
+    // Widened from the class-level rule: the branch staff create/edit dialogs
+    // populate their role dropdown from here, so a BRANCH_ADMIN needs to read it.
     @Override
+    @PreAuthorize("hasAnyRole('BRANCH_ADMIN','SUPER_ADMIN')")
     public List<String> getRoles() {
         return keycloakAdminService.getAllRoles();
     }

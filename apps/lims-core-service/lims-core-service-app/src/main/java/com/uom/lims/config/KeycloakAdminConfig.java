@@ -15,6 +15,7 @@ import org.springframework.context.annotation.Configuration;
  * credentials in environments that don't need it.
  */
 @Configuration
+@ConditionalOnProperty(name = "app.keycloak-admin.enabled", havingValue = "true")
 public class KeycloakAdminConfig {
 
     @Value("${app.keycloak-admin.server-url:http://localhost:8081}")

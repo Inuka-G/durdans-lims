@@ -218,15 +218,16 @@ public class GlobalExceptionHandler {
                 }
                 log.error("Unexpected error [{}]", correlationId, ex);
 
-                String stackTrace = java.util.Arrays.stream(ex.getStackTrace())
-                        .map(StackTraceElement::toString)
-                        .reduce("", (a, b) -> a + "\n" + b);
+                // The trace stays in the log above, keyed by correlationId. Putting it
+                // in the response body hands every caller our class names, file paths
+                // and library versions, and leaks whatever an exception message
+                // happens to carry (SQL fragments, patient identifiers, tokens).
                 return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
                                 Map.of(
                                                 "timestamp", LocalDateTime.now(),
                                                 "status", HttpStatus.INTERNAL_SERVER_ERROR.value(),
                                                 "error", "Internal Server Error",
-                                                "message", ex.getClass().getName() + ": " + ex.getMessage() + "\n" + stackTrace,
+                                                "message", "An unexpected error occurred. Reference: " + correlationId,
                                                 "correlationId", correlationId));
         }
 

@@ -50,11 +50,11 @@ export default function GlobalUserControlPage() {
         try {
             const [usersData, branchesData, rolesData] = await Promise.all([
                 getSuperadminUsers(),
-                getBranches().catch(() => ({ content: [] as BranchResponse[] })),
+                getBranches().catch(() => [] as BranchResponse[]),
                 getSuperadminRoles().catch(() => [])
             ]);
 
-            const fetchedBranches = Array.isArray(branchesData) ? branchesData : (branchesData as any).content || [];
+            const fetchedBranches = branchesData;
             setBranches(fetchedBranches);
             setRoles(rolesData);
 

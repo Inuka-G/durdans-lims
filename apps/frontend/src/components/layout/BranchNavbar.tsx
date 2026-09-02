@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Check, ChevronDown, Hospital, LogOut, MapPin, Monitor, Moon, Sun } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
-import { getBranchesPage } from "@/lib/api";
+import { getBranches } from "@/lib/api";
 import { useTheme, type ThemePreference } from "@/providers/ThemeProvider";
 import { cn } from "@/lib/utils";
 import ModuleTabs from "@/components/layout/ModuleTabs";

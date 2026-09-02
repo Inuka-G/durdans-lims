@@ -9,14 +9,15 @@ interface BranchEditModalProps {
     isOpen: boolean;
     onClose: () => void;
     branchData?: {
-        id: string;
+        code: string;
         name: string;
-        location?: string;
-        contactEmail?: string;
-        contactPhone?: string;
-        status?: string;
+        location?: string | null;
+        contactEmail?: string | null;
+        contactPhone?: string | null;
+        status?: string | null;
     } | null;
-    onSave: (id: string, data: any) => Promise<void>;
+    /** Keyed by branch code — PUT /api/v1/branches/{code} is what the API exposes. */
+    onSave: (code: string, data: any) => Promise<void>;
 }
 
 export default function BranchEditModal({ isOpen, onClose, branchData, onSave }: BranchEditModalProps) {
@@ -26,7 +27,7 @@ export default function BranchEditModal({ isOpen, onClose, branchData, onSave }:
         location: "",
         contactEmail: "",
         contactPhone: "",
-        status: "Active",
+        status: "ACTIVE",
     });
 
     useEffect(() => {
@@ -43,9 +44,9 @@ export default function BranchEditModal({ isOpen, onClose, branchData, onSave }:
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (branchData && branchData.id) {
+        if (branchData && branchData.code) {
             try {
-                await onSave(branchData.id, formData);
+                await onSave(branchData.code, formData);
             } catch (error) {
                 console.error(error);
                 return;
@@ -59,7 +60,7 @@ export default function BranchEditModal({ isOpen, onClose, branchData, onSave }:
             open={isOpen}
             onClose={onClose}
             title="Edit branch"
-            description={branchData ? `${branchData.name} · ${branchData.id}` : undefined}
+            description={branchData ? `${branchData.name} · ${branchData.code}` : undefined}
             size="md"
             footer={
                 <>

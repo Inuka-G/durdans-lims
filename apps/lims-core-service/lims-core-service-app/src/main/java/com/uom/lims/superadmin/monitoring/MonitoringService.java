@@ -4,6 +4,7 @@ import com.uom.lims.api.superadmin.monitoring.dto.LogEventResponse;
 import com.uom.lims.api.superadmin.monitoring.dto.MetricDataResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.services.cloudwatch.CloudWatchClient;
@@ -23,6 +24,7 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+@ConditionalOnProperty(name = "app.monitoring.cloudwatch.enabled", havingValue = "true")
 public class MonitoringService {
 
     private final CloudWatchClient cloudWatchClient;
