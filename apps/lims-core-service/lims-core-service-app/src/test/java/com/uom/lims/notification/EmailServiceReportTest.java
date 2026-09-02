@@ -43,7 +43,7 @@ class EmailServiceReportTest {
         for (int i = 0; i < multipart.getCount(); i++) {
             BodyPart part = multipart.getBodyPart(i);
             String disposition = part.getDisposition();
-            foundHtml = foundHtml || containsText(part.getContent(), "Result summary");
+            foundHtml = foundHtml || containsText(part.getContent(), "LABORATORY RESULTS");
             if (jakarta.mail.Part.ATTACHMENT.equalsIgnoreCase(disposition)) {
                 foundPdf = part.getFileName().endsWith(".pdf")
                         && part.getInputStream().readAllBytes().length > 2_000;
