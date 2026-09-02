@@ -150,9 +150,9 @@ export default function UserCreateModal({ isOpen, onClose }: UserCreateModalProp
                     ) : branches.length === 0 ? (
                         <option value="">No branches available</option>
                     ) : (
-                        branches.map((b) => (
-                            <option key={b.code} value={b.code}>
-                                {b.name} ({b.code})
+                        branches.map((b: any) => (
+                            <option key={b.id || b.code} value={b.id || b.code} disabled={b.status === "INACTIVE"}>
+                                {b.name} ({b.code}){b.status === "INACTIVE" ? " - Inactive" : ""}
                             </option>
                         ))
                     )}

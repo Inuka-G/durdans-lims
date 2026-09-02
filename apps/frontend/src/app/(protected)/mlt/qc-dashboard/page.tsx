@@ -2,13 +2,14 @@
 
 import { MOCK_QC_DASHBOARD_DATA } from '@/mock/mlt.mock';
 import { getQcDashboard, type QcDashboardData, type QcRunItem } from '@/lib/api';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, FlaskConical, RefreshCw, XCircle } from 'lucide-react';
 import RecordQcRunForm from '@/components/mlt/RecordQcRunForm';
 import Button from '@/components/ui/Button';
 import PageHeader from '@/components/ui/PageHeader';
 import SectionCard from '@/components/ui/SectionCard';
 import EmptyState from '@/components/ui/EmptyState';
+import SegmentedControl, { type SegmentOption } from '@/components/ui/SegmentedControl';
 import StatusChip, { humanizeStatus, type ChipTone } from '@/components/ui/StatusChip';
 import StatCard from '@/components/shared/StatCard';
 import DemoDataBanner from '@/components/shared/DemoDataBanner';
@@ -28,6 +29,7 @@ export default function QCDashboardPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [demoMode, setDemoMode] = useState(false);
+    const [viewMode, setViewMode] = useState<'today' | 'history'>('today');
 
     const loadDashboard = useCallback(async () => {
         try {
@@ -51,9 +53,26 @@ export default function QCDashboardPage() {
     }, [loadDashboard]);
 
     const runs = dashboard?.runs ?? [];
-    const passCount = dashboard?.passed ?? 0;
-    const failCount = dashboard?.failures ?? 0;
-    const warnCount = dashboard?.warnings ?? 0;
+
+    const isTodayRun = (timeStr: string) => {
+        if (!timeStr) return false;
+        return !timeStr.includes(',') && !/\d{2}\s+[A-Za-z]{3}/.test(timeStr);
+    };
+
+    const todayRuns = useMemo(() => runs.filter((r) => isTodayRun(r.timestamp)), [runs]);
+    const displayedRuns = viewMode === 'today' ? todayRuns : runs;
+
+    const viewOptions: SegmentOption<'today' | 'history'>[] = useMemo(
+        () => [
+            { value: 'today', label: "Today's runs", count: todayRuns.length },
+            { value: 'history', label: 'Audit history', count: runs.length },
+        ],
+        [todayRuns.length, runs.length]
+    );
+
+    const activePassCount = displayedRuns.filter((r) => r.status === 'PASS').length;
+    const activeWarnCount = displayedRuns.filter((r) => r.status === 'WARN').length;
+    const activeFailCount = displayedRuns.filter((r) => r.status === 'FAIL').length;
 
     return (
         <div className="mx-auto max-w-[1400px]">
@@ -72,7 +91,7 @@ export default function QCDashboardPage() {
             <p role="status" aria-live="polite" className="sr-only">
                 {loading
                     ? 'Loading QC dashboard'
-                    : `QC dashboard loaded. ${runs.length} runs today: ${passCount} passed, ${warnCount} warnings, ${failCount} failed.`}
+                    : `QC dashboard loaded. ${displayedRuns.length} runs: ${activePassCount} passed, ${activeWarnCount} warnings, ${activeFailCount} failed.`}
             </p>
 
             <RecordQcRunForm onRecorded={loadDashboard} />
@@ -82,13 +101,19 @@ export default function QCDashboardPage() {
             )}
 
             <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                <StatCard label="Total QC runs" value={dashboard?.totalRuns ?? 0} icon={FlaskConical} color="blue" loading={loading} />
-                <StatCard label="Passed" value={passCount} icon={CheckCircle2} color="emerald" loading={loading} />
-                <StatCard label="Warnings" value={warnCount} icon={AlertTriangle} color="orange" loading={loading} />
-                <StatCard label="Failures" value={failCount} icon={XCircle} color="red" loading={loading} />
+                <StatCard
+                    label={viewMode === 'today' ? "Today's QC runs" : 'Total QC runs'}
+                    value={displayedRuns.length}
+                    icon={FlaskConical}
+                    color="blue"
+                    loading={loading}
+                />
+                <StatCard label="Passed" value={activePassCount} icon={CheckCircle2} color="emerald" loading={loading} />
+                <StatCard label="Warnings" value={activeWarnCount} icon={AlertTriangle} color="orange" loading={loading} />
+                <StatCard label="Failures" value={activeFailCount} icon={XCircle} color="red" loading={loading} />
             </div>
 
-            {failCount > 0 && (
+            {activeFailCount > 0 && (
                 <div
                     role="alert"
                     className="mb-4 flex items-start gap-2 rounded-md border border-status-danger-edge bg-status-danger-bg px-4 py-2.5 text-sm text-status-danger-fg"
@@ -96,7 +121,7 @@ export default function QCDashboardPage() {
                     <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
                     <p>
                         <span className="font-medium">
-                            {failCount} QC {failCount === 1 ? 'run' : 'runs'} failed.
+                            {activeFailCount} QC {activeFailCount === 1 ? 'run' : 'runs'} failed.
                         </span>{' '}
                         Instruments with failed QC should not be used until corrective action is taken.
                     </p>
@@ -118,7 +143,20 @@ export default function QCDashboardPage() {
                 </div>
             )}
 
-            <SectionCard title="Today's QC runs" count={loading ? undefined : runs.length} flush>
+            <SectionCard
+                title={viewMode === 'today' ? "Today's QC runs" : 'QC runs & audit history'}
+                count={loading ? undefined : displayedRuns.length}
+                actions={
+                    <SegmentedControl
+                        value={viewMode}
+                        onChange={setViewMode}
+                        options={viewOptions}
+                        ariaLabel="QC view mode"
+                        size="sm"
+                    />
+                }
+                flush
+            >
                 {/* States live outside the table so they centre on small screens */}
                 {loading ? (
                     <ul aria-hidden="true" className="divide-y divide-edge">
@@ -136,20 +174,24 @@ export default function QCDashboardPage() {
                             </li>
                         ))}
                     </ul>
-                ) : runs.length === 0 ? (
+                ) : displayedRuns.length === 0 ? (
                     <EmptyState
                         icon={FlaskConical}
-                        title="No QC runs today"
-                        description="Record a control run above to start governing result release for today."
+                        title={viewMode === 'today' ? 'No QC runs today' : 'No QC runs recorded'}
+                        description={
+                            viewMode === 'today'
+                                ? 'No control runs have been recorded yet today. Switch to Audit history to view past runs.'
+                                : 'Record a control run above to start governing result release.'
+                        }
                     />
                 ) : (
                     <div className="overflow-x-auto">
                         {/* min-w must cover the sum of the nine fixed columns
-                            (44+40+16+24+24+16+20+36+20 = 240 spacing units = 960px);
+                            (44+40+16+24+24+16+20+36+28 = 248 spacing units = 992px);
                             below that `table-fixed` scales every column down and clips
                             the nowrap headers. */}
-                        <table className="w-full min-w-[960px] table-fixed text-left text-sm">
-                            <caption className="sr-only">Today&apos;s QC runs</caption>
+                        <table className="w-full min-w-[992px] table-fixed text-left text-sm">
+                            <caption className="sr-only">QC runs & audit history</caption>
                             <thead>
                                 <tr className="whitespace-nowrap border-b border-edge text-xs font-semibold text-fg-muted">
                                     <th scope="col" className="w-44 py-2 pl-4 pr-3 font-semibold">
@@ -176,13 +218,13 @@ export default function QCDashboardPage() {
                                     <th scope="col" className="w-36 px-3 py-2 font-semibold">
                                         By
                                     </th>
-                                    <th scope="col" className="w-20 px-3 py-2 font-semibold">
+                                    <th scope="col" className="w-28 px-3 py-2 font-semibold">
                                         Time
                                     </th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-edge whitespace-nowrap">
-                                {runs.map((run) => {
+                                {displayedRuns.map((run) => {
                                     const failed = run.status === 'FAIL';
                                     return (
                                         <tr

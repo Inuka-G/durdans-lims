@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Check, ChevronDown, Hospital, LogOut, MapPin, Monitor, Moon, Sun } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { getBranches } from "@/lib/api";
 import { useTheme, type ThemePreference } from "@/providers/ThemeProvider";
 import { cn } from "@/lib/utils";
 import ModuleTabs from "@/components/layout/ModuleTabs";
@@ -25,7 +26,7 @@ const THEME_OPTIONS: { value: ThemePreference; label: string; icon: typeof Sun }
     { value: "system", label: "System", icon: Monitor },
 ];
 
-/** APG menu-button behaviour shared by the branch switcher and the account menu. */
+/** APG menu-button behaviour shared by the account menu. */
 function useMenuButton() {
     const [open, setOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement | null>(null);
@@ -84,14 +85,28 @@ function useMenuButton() {
 }
 
 export default function BranchNavbar() {
-    const { logout, user } = useAuth();
+    const { logout, user, branchCode } = useAuth();
     const { theme, setTheme } = useTheme();
-    const [selectedBranch, setSelectedBranch] = useState("Colombo Branch");
+    const [branchName, setBranchName] = useState("Loading...");
 
     const userName = user?.name || user?.preferred_username || "User";
 
-    const { open: branchOpen, setOpen: setBranchOpen, close: closeBranchMenu, menuRef: branchMenuRef, triggerRef: branchTriggerRef, firstItemRef: branchFirstItemRef, onMenuKeyDown: onBranchMenuKeyDown, onTriggerKeyDown: onBranchTriggerKeyDown } = useMenuButton();
     const { open: accountOpen, setOpen: setAccountOpen, close: closeAccountMenu, menuRef: accountMenuRef, triggerRef: accountTriggerRef, firstItemRef: accountFirstItemRef, onMenuKeyDown: onAccountMenuKeyDown, onTriggerKeyDown: onAccountTriggerKeyDown } = useMenuButton();
+
+    useEffect(() => {
+        const targetCode = branchCode || "b6030d28-10ef-4165-9554-8887fabfddb8";
+        getBranches().then((data) => {
+            const branch = data.find((b) => b.id === targetCode || b.code.toUpperCase() === targetCode.toUpperCase());
+            if (branch) {
+                setBranchName(branch.name);
+            } else {
+                setBranchName(targetCode);
+            }
+        }).catch((err) => {
+            console.error("Failed to fetch branch details", err);
+            setBranchName(targetCode);
+        });
+    }, [branchCode]);
 
     return (
         <header className="fixed top-0 left-0 right-0 z-50 h-16 border-b border-edge bg-surface">
@@ -106,58 +121,10 @@ export default function BranchNavbar() {
                         </span>
                     </div>
 
-                    {/* Branch switcher (context chip) */}
-                    <div ref={branchMenuRef} className="relative shrink-0" onKeyDown={onBranchMenuKeyDown}>
-                        <button
-                            ref={branchTriggerRef}
-                            type="button"
-                            onClick={() => setBranchOpen((v) => !v)}
-                            onKeyDown={onBranchTriggerKeyDown}
-                            aria-haspopup="menu"
-                            aria-expanded={branchOpen}
-                            aria-label={`Branch: ${selectedBranch}. Switch branch`}
-                            title="Switch branch"
-                            className="inline-flex max-w-[220px] items-center gap-1.5 rounded-md border border-edge bg-surface-muted px-2 py-1 text-xs font-medium text-fg-secondary transition-colors hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                        >
-                            <MapPin className="h-3.5 w-3.5 shrink-0 text-fg-faint" aria-hidden="true" />
-                            <span className="truncate">{selectedBranch}</span>
-                            <ChevronDown
-                                className={cn("h-3.5 w-3.5 shrink-0 text-fg-faint transition-transform", branchOpen && "rotate-180")}
-                                aria-hidden="true"
-                            />
-                        </button>
-
-                        {branchOpen && (
-                            <div
-                                role="menu"
-                                aria-label="Branch"
-                                className="absolute left-0 mt-1.5 w-56 overflow-hidden rounded-md border border-edge bg-surface p-1 shadow-lg shadow-black/10"
-                            >
-                                {BRANCHES.map((branch, i) => {
-                                    const selected = selectedBranch === branch;
-                                    return (
-                                        <button
-                                            key={branch}
-                                            ref={i === 0 ? branchFirstItemRef : undefined}
-                                            type="button"
-                                            role="menuitemradio"
-                                            aria-checked={selected}
-                                            onClick={() => {
-                                                setSelectedBranch(branch);
-                                                closeBranchMenu();
-                                            }}
-                                            className={cn(
-                                                "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors hover:bg-surface-hover focus-visible:bg-surface-hover focus-visible:outline-none",
-                                                selected ? "text-primary-strong" : "text-fg-secondary"
-                                            )}
-                                        >
-                                            <span className="truncate">{branch}</span>
-                                            {selected && <Check className="ml-auto h-4 w-4 shrink-0 text-primary-strong" aria-hidden="true" />}
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                        )}
+                    {/* Branch badge */}
+                    <div className="relative shrink-0 flex items-center gap-1.5 rounded-md border border-edge bg-surface-muted px-2 py-1 text-xs font-medium text-fg-secondary">
+                        <MapPin className="h-3.5 w-3.5 shrink-0 text-fg-faint" aria-hidden="true" />
+                        <span className="truncate max-w-[220px]">{branchName}</span>
                     </div>
 
                     <ModuleTabs ariaLabel="Branch administration" />

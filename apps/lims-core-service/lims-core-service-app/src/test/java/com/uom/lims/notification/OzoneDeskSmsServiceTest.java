@@ -69,9 +69,11 @@ class OzoneDeskSmsServiceTest {
     }
 
     @Test
-    void carriesMultiLineMessagesThroughIntact() {
-        // The reason for the move off GET: a report SMS is several lines, and over a
-        // query string the gateway cut it at the first one and delivered the heading alone.
+    void flattensLineBreaksTheGatewayWouldTruncateAt() {
+        // OzoneDesk delivers only the first line of a multi-line message, even when it
+        // arrives %0A-encoded in a form body — a dispatched report SMS reached the
+        // patient as "Durdans Hospital Laboratory" alone. Every break becomes a " | "
+        // separator so the whole message survives the gateway.
         String multiLine = "Durdans LIMS\nAuthorized Lab Report\n\nPatient: A B\n- Hb 9.1 g/dL [LOW]";
 
         server.expect(once(), method(HttpMethod.POST))
@@ -80,7 +82,7 @@ class OzoneDeskSmsServiceTest {
                         "api_key", "test-secret",
                         "sender_id", "DURDANS",
                         "to", "94702011540",
-                        "message", multiLine)))
+                        "message", "Durdans LIMS | Authorized Lab Report | Patient: A B | - Hb 9.1 g/dL [LOW]")))
                 .andRespond(withSuccess("SMS sent successfully", MediaType.TEXT_PLAIN));
 
         service.sendSms("0702011540", multiLine);

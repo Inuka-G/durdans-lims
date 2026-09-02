@@ -108,10 +108,8 @@ export default function SuperAdminNavbar() {
                         <span className="text-lg font-bold tracking-tight text-fg">
                             DURDANS <span className="text-primary">ERP</span>
                         </span>
-                    </div>
-
-                    {/* Context chip: environment on the monitoring page, branch switcher elsewhere */}
-                    {isMonitoring ? (
+                    </div>                    {/* Context chip: environment on the monitoring page, branch switcher elsewhere */}
+                    {isMonitoring && (
                         <span
                             className="hidden max-w-[240px] shrink-0 items-center gap-1.5 truncate rounded-md border border-edge bg-surface-muted px-2 py-1 text-xs font-medium text-fg-secondary sm:inline-flex"
                             title="Environment · Live infrastructure status"
@@ -120,62 +118,7 @@ export default function SuperAdminNavbar() {
                             <span className="sr-only">Environment:</span>
                             <span className="truncate">Production Cluster-01</span>
                         </span>
-                    ) : (
-                        <div ref={branchMenuRef} className="relative shrink-0" onKeyDown={onBranchMenuKeyDown}>
-                            <button
-                                ref={branchTriggerRef}
-                                type="button"
-                                onClick={() => setBranchOpen((v) => !v)}
-                                onKeyDown={onBranchTriggerKeyDown}
-                                aria-haspopup="menu"
-                                aria-expanded={branchOpen}
-                                aria-label={`Branch: ${selectedBranch}. Switch branch`}
-                                title="Switch branch"
-                                className="inline-flex max-w-[220px] items-center gap-1.5 rounded-md border border-edge bg-surface-muted px-2 py-1 text-xs font-medium text-fg-secondary transition-colors hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                            >
-                                <MapPin className="h-3.5 w-3.5 shrink-0 text-fg-faint" aria-hidden="true" />
-                                <span className="truncate">{selectedBranch}</span>
-                                <ChevronDown
-                                    className={cn("h-3.5 w-3.5 shrink-0 text-fg-faint transition-transform", branchOpen && "rotate-180")}
-                                    aria-hidden="true"
-                                />
-                            </button>
-
-                            {branchOpen && (
-                                <div
-                                    role="menu"
-                                    aria-label="Branch"
-                                    className="absolute left-0 mt-1.5 w-56 overflow-hidden rounded-md border border-edge bg-surface p-1 shadow-lg shadow-black/10"
-                                >
-                                    {BRANCHES.map((branch, i) => {
-                                        const selected = selectedBranch === branch;
-                                        return (
-                                            <button
-                                                key={branch}
-                                                ref={i === 0 ? branchFirstItemRef : undefined}
-                                                type="button"
-                                                role="menuitemradio"
-                                                aria-checked={selected}
-                                                onClick={() => {
-                                                    setSelectedBranch(branch);
-                                                    closeBranchMenu();
-                                                }}
-                                                className={cn(
-                                                    "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors hover:bg-surface-hover focus-visible:bg-surface-hover focus-visible:outline-none",
-                                                    selected ? "text-primary-strong" : "text-fg-secondary"
-                                                )}
-                                            >
-                                                <span className="truncate">{branch}</span>
-                                                {selected && <Check className="ml-auto h-4 w-4 shrink-0 text-primary-strong" aria-hidden="true" />}
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                            )}
-                        </div>
                     )}
-
-                    <ModuleTabs ariaLabel="Super admin" />
                 </div>
 
                 {/* Account menu (Logout lives here, not in the nav bar) */}

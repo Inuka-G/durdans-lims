@@ -13,6 +13,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
@@ -48,11 +49,16 @@ public class AuditLogController {
             @RequestParam(required = false) String entityType,
             @RequestParam(required = false) String performedBy,
             @RequestParam(required = false) String search,
+            @RequestParam(required = false) String branchCode,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) java.time.LocalDateTime startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) java.time.LocalDateTime endDate,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = "desc") String sortDir) {
 
         try {
-            Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "timestamp"));
+            Sort.Direction direction = "asc".equalsIgnoreCase(sortDir) ? Sort.Direction.ASC : Sort.Direction.DESC;
+            Pageable pageable = PageRequest.of(page, size, Sort.by(direction, "timestamp"));
 
             // Normalize empty strings to null
             action = normalizeParam(action);
@@ -63,19 +69,24 @@ public class AuditLogController {
             Page<AuditLog> result;
 
             if (isSuperAdmin()) {
-                log.info("Super admin requesting all audit logs");
-                result = auditLogRepository.findAllFiltered(action, entityType, performedBy, search, pageable);
-            } else {
-                String branchCode = SecurityUtils.getCurrentBranchId();
-                log.info("User requesting audit logs for branch: {}", branchCode);
-                if (branchCode == null || branchCode.isBlank()) {
-                    branchCode = "SYSTEM";
-                    log.warn("Branch code missing from JWT. Falling back to audit branch scope: {}", branchCode);
-                    result = auditLogRepository.findByBranchCodeFiltered(branchCode, action, entityType, performedBy,
-                            search, pageable);
+                log.info("Super admin requesting audit logs");
+                String normalizedBranchCode = normalizeParam(branchCode);
+                if (normalizedBranchCode != null && !"ALL".equalsIgnoreCase(normalizedBranchCode)) {
+                    result = auditLogRepository.findByBranchCodeFiltered(normalizedBranchCode, action, entityType, performedBy, search, startDate, endDate, pageable);
                 } else {
-                    result = auditLogRepository.findByBranchCodeFiltered(branchCode, action, entityType, performedBy,
-                            search, pageable);
+                    result = auditLogRepository.findAllFiltered(action, entityType, performedBy, search, startDate, endDate, pageable);
+                }
+            } else {
+                String currentBranchCode = SecurityUtils.getCurrentBranchId();
+                log.info("User requesting audit logs for branch: {}", currentBranchCode);
+                if (currentBranchCode == null || currentBranchCode.isBlank()) {
+                    currentBranchCode = "SYSTEM";
+                    log.warn("Branch code missing from JWT. Falling back to audit branch scope: {}", currentBranchCode);
+                    result = auditLogRepository.findByBranchCodeFiltered(currentBranchCode, action, entityType, performedBy,
+                            search, startDate, endDate, pageable);
+                } else {
+                    result = auditLogRepository.findByBranchCodeFiltered(currentBranchCode, action, entityType, performedBy,
+                            search, startDate, endDate, pageable);
                 }
             }
 
@@ -100,7 +111,7 @@ public class AuditLogController {
     /**
      * Records revenue report screen access. {@code performedBy} is resolved from the security context.
      */
-    @PreAuthorize("hasAnyRole('FRONT_DESK','BRANCH_ADMIN','SUPER_ADMIN')")
+    @PreAuthorize("hasAnyRole('BILLING_OFFICER','FRONT_DESK','BRANCH_ADMIN','SUPER_ADMIN')")
     @PostMapping("/revenue-report-access")
     public ResponseEntity<Void> recordRevenueReportAccess(
             @RequestBody(required = false) RevenueReportAccessRequest body,

@@ -34,12 +34,35 @@ public class PatientController implements PatientApi {
                 return patientService.registerPatient(request, ipAddress);
         }
 
-        @PreAuthorize("hasAnyRole('FRONT_DESK','MLT','PHLEBOTOMIST','BRANCH_ADMIN','SUPER_ADMIN','PATHOLOGIST')")
+        @PreAuthorize("hasAnyRole('FRONT_DESK','MLT','PHLEBOTOMIST','BRANCH_ADMIN','SUPER_ADMIN','PATHOLOGIST','PATIENT')")
         @Override
         public PatientResponse getPatientByCode(
                         @PathVariable String patientCode) {
 
+                // PATIENT is on the list above so the portal can load its own profile.
+                // The role alone grants nothing else: without this check any patient
+                // could read every other patient's record by guessing a code. Same
+                // guard as updatePatient below.
+                assertOwnRecordIfPatient(patientCode);
                 return patientService.getPatientByCode(patientCode);
+        }
+
+        /** Staff roles pass straight through; a PATIENT may only touch their own code. */
+        private void assertOwnRecordIfPatient(String patientCode) {
+                if (!SecurityUtils.hasRole("PATIENT")) {
+                        return;
+                }
+                org.springframework.security.core.Authentication authentication = org.springframework.security.core.context.SecurityContextHolder
+                                .getContext().getAuthentication();
+                if (authentication != null
+                                && authentication.getPrincipal() instanceof org.springframework.security.oauth2.jwt.Jwt jwt) {
+                        String currentCode = jwt.getClaimAsString("preferred_username");
+                        if (currentCode != null && currentCode.equals(patientCode)) {
+                                return;
+                        }
+                }
+                throw new org.springframework.security.access.AccessDeniedException(
+                                "Access denied — insufficient permissions");
         }
 
         // BILLING_OFFICER is on this list because creating an order starts by finding
@@ -130,11 +153,15 @@ public class PatientController implements PatientApi {
                 return ResponseEntity.ok(Map.of("url", url));
         }
 
-        @PreAuthorize("hasAnyRole('FRONT_DESK','BRANCH_ADMIN','SUPER_ADMIN')")
+        @PreAuthorize("hasAnyRole('FRONT_DESK','BRANCH_ADMIN','SUPER_ADMIN','PATIENT')")
         @Override
         public PatientResponse updatePatient(
                         @PathVariable String patientCode,
                         @Valid @RequestBody PatientUpdateRequest request) {
+
+                // Was fail-open: a PATIENT whose principal was not a Jwt, or whose
+                // preferred_username claim was absent, skipped the check entirely.
+                assertOwnRecordIfPatient(patientCode);
 
                 String ipAddress = "0.0.0.0";
                 return patientService.updatePatientProfile(patientCode, request, ipAddress);

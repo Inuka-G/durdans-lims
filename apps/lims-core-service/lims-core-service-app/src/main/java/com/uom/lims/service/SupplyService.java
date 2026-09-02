@@ -31,6 +31,7 @@ public class SupplyService {
 
     private final SupplyRepository supplyRepository;
     private final TestCatalogRepository testCatalogRepository;
+    private final com.uom.lims.audit.AuditService auditService;
 
     @Transactional(readOnly = true)
     public List<SupplyResponse> listSupplies() {
@@ -79,7 +80,21 @@ public class SupplyService {
         entity.setCreatedBy(SecurityUtils.getCurrentUsername());
 
         SupplyEntity saved = supplyRepository.save(entity);
+        
+        String details = String.format("{\"itemNo\":\"%s\", \"quantity\":\"%s\"}", saved.getItemNo(), saved.getCurrentStock());
+        auditService.log("ADD_SUPPLY", "SUPPLY", saved.getId(), null, details, getCurrentIp());
+        
         return toResponse(saved);
+    }
+
+    private String getCurrentIp() {
+        try {
+            return com.uom.lims.security.ClientIpResolver.resolve(
+                ((org.springframework.web.context.request.ServletRequestAttributes) 
+                    org.springframework.web.context.request.RequestContextHolder.currentRequestAttributes()).getRequest());
+        } catch (Exception e) {
+            return "SYSTEM";
+        }
     }
 
     public SupplyResponse patchSupply(UUID id, SupplyPatchRequest request) {

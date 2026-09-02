@@ -44,4 +44,25 @@
     <include file="liquibase/changelog/20260821100000_result_numbers_and_admin_review_nav.xml"/>
     <include file="liquibase/changelog/20260830100000_translation_author_vs_reviewer.xml"/>
     <include file="liquibase/changelog/20260830130000_add_branch_admin_module_columns.xml"/>
+
+    <!--
+        Branch Admin module. These four were written but never listed here, so
+        branch_user and branch_test were never created — and because
+        spring.jpa.hibernate.ddl-auto is `validate`, the service failed to start
+        against any database that had not been hand-patched.
+
+        Both branch_user changesets are listed: 000001 opens with a dropTable, so
+        it cannot stand on its own on a clean database.
+
+        Deliberately NOT included, do not add them:
+          - 20260821000002_insert_mock_branch_user.xml — seeds two fictional staff
+            accounts (one of them a BRANCH_ADMIN) into every environment.
+          - 20260827_add_branch_details.xml — superseded by
+            20260830130000_add_branch_admin_module_columns.xml above, which adds
+            the same four branch columns; running both fails on "column exists".
+    -->
+    <include file="liquibase/changelog/20260821000000_create_branch_user.xml"/>
+    <include file="liquibase/changelog/20260821000001_recreate_branch_user.xml"/>
+    <include file="liquibase/changelog/20260829100000_create_branch_test.xml"/>
+    <include file="liquibase/changelog/20260830120000_add_patient_role_mapping.xml"/>
 </databaseChangeLog>

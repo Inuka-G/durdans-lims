@@ -133,7 +133,7 @@ public class BranchService {
     }
 
     private BranchEntity findByCode(String code) {
-        return branchRepository.findByCode(normalizeCode(code))
+        return branchRepository.findByCodeIgnoreCase(normalizeCode(code))
                 .filter(b -> !b.isDeleted())
                 .orElseThrow(() -> new ResourceNotFoundException("Branch not found: " + code));
     }
@@ -159,6 +159,7 @@ public class BranchService {
 
     private static BranchResponse toResponse(BranchEntity b) {
         return new BranchResponse(
+                b.getId(),
                 b.getCode(), b.getName(), b.getLocation(), b.getAddress(),
                 b.getContactEmail(), b.getContactPhone(), b.getStatus(),
                 b.getEstablishedDate(), b.getLegalEntityName(),
@@ -182,7 +183,7 @@ public class BranchService {
     }
 
     /** Branch view. */
-    public record BranchResponse(String code, String name, String location, String address,
+    public record BranchResponse(java.util.UUID id, String code, String name, String location, String address,
                                  String contactEmail, String contactPhone, String status,
                                  LocalDate establishedDate, String legalEntityName,
                                  String adminUserId, String adminName, String adminEmail) {

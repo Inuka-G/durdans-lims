@@ -307,7 +307,15 @@ export interface AuditLogPage {
 }
 
 export const getAuditLogs = async (params?: Record<string, unknown>) => {
-    const response = await axiosInstance.get('/api/v1/audit-logs', { params });
+    // If startDate/endDate exist, ensure they're valid ISO strings before passing
+    const finalParams = { ...params };
+    if (finalParams.startDate instanceof Date) {
+        finalParams.startDate = finalParams.startDate.toISOString();
+    }
+    if (finalParams.endDate instanceof Date) {
+        finalParams.endDate = finalParams.endDate.toISOString();
+    }
+    const response = await axiosInstance.get('/api/v1/audit-logs', { params: finalParams });
     return response.data as AuditLogPage;
 };
 
@@ -1448,6 +1456,9 @@ export async function setAdminUserEnabled(id: string, value: boolean): Promise<v
 // Unlike the Keycloak-backed user endpoints above, this is a real, always-on
 // table (apps/lims-core-service: com.uom.lims.branch) — no feature flag.
 export interface Branch {
+    /** Surrogate UUID. Branch-scoped sub-resources (users, tests) are keyed by
+     *  this, while the branch record itself is addressed by `code`. */
+    id: string;
     code: string;
     name: string;
     location: string | null;
@@ -1618,4 +1629,174 @@ export interface QcAnalyteOption {
 export const getQcAnalytes = async (): Promise<QcAnalyteOption[]> => {
     const response = await axiosInstance.get('/api/v1/mlt/qc-analytes');
     return (response.data ?? []) as QcAnalyteOption[];
+};
+
+// --- Branch Mocks ---
+
+export interface BranchActivityLog {
+    id: string;
+    timestamp: string;
+    performedBy: string;
+    entityType: string;
+    action: string;
+    entityId: string;
+    patientCode?: string;
+    ipAddress: string;
+    details?: string;
+}
+
+export const getBranchActivityLogs = async (): Promise<BranchActivityLog[]> => {
+    const response = await axiosInstance.get('/api/v1/audit-logs', { params: { size: 100 } });
+    return response.data?.content || [];
+};
+
+export interface BranchUser {
+    id?: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    role: string;
+    isActive: boolean;
+    lastLogin?: string;
+    initials?: string;
+    bgColor?: string;
+    textColor?: string;
+    phone?: string;
+    username?: string;
+}
+
+export const getBranchUsers = async (branchId: string): Promise<BranchUser[]> => {
+    const response = await axiosInstance.get(`/api/v1/branches/${branchId}/users`, {
+        params: { size: 100 } // Get all for UI
+    });
+    return (response.data.content ?? []) as BranchUser[];
+};
+
+export const createBranchUser = async (branchId: string, userData: Partial<BranchUser>): Promise<BranchUser> => {
+    // Inject branchId into payload
+    const payload = { ...userData, branchId };
+    const response = await axiosInstance.post(`/api/v1/branches/${branchId}/users`, payload);
+    return response.data as BranchUser;
+};
+
+export const updateBranchUser = async (userId: string, userData: Partial<BranchUser>): Promise<BranchUser> => {
+    const response = await axiosInstance.put(`/api/v1/branch-users/${userId}`, userData);
+    return response.data as BranchUser;
+};
+
+export const deleteBranchUser = async (userId: string): Promise<void> => {
+    await axiosInstance.delete(`/api/v1/branch-users/${userId}`);
+};
+
+export interface BranchTest {
+    id?: string;
+    testName: string;
+    testCode: string;
+    category: string;
+    price: number;
+    turnaroundTime: string;
+    unit: string;
+    referenceRange: string;
+    isActive: boolean;
+}
+
+export const getBranchTests = async (branchId: string): Promise<BranchTest[]> => {
+    const response = await axiosInstance.get(`/api/v1/branches/${branchId}/tests`, {
+        params: { size: 100 }
+    });
+    return (response.data.content ?? []) as BranchTest[];
+};
+
+export const createBranchTest = async (branchId: string, testData: Partial<BranchTest>): Promise<BranchTest> => {
+    const response = await axiosInstance.post(`/api/v1/branches/${branchId}/tests`, testData);
+    return response.data as BranchTest;
+};
+
+export const patchBranchTest = async (branchId: string, testId: string, testData: Partial<BranchTest>): Promise<BranchTest> => {
+    const response = await axiosInstance.patch(`/api/v1/branches/${branchId}/tests/${testId}`, testData);
+    return response.data as BranchTest;
+}
+
+// --- Branch Management ---
+
+/** Alias of {@link Branch}: both name the same `BranchService.BranchResponse`
+ *  record. Keeping two shapes for one payload let `null` and `undefined` drift
+ *  apart, so the branch screens could not pass a branch to each other. */
+export type BranchResponse = Branch;
+
+export interface SuperadminUserResponse {
+    id: string;
+    username: string;
+    email: string;
+    fullName: string;
+    isActive: boolean;
+    branchId?: string;
+    roles: string[];
+}
+
+export interface PageResponseBranch {
+    content: BranchResponse[];
+    page: number;
+    size: number;
+    totalElements: number;
+    totalPages: number;
+    last: boolean;
+}
+
+/**
+ * BranchController returns the whole directory in one `ApiResponse` envelope —
+ * it has no page parameters. Paging here is therefore done on the client so
+ * callers still get a stable page shape; `getBranches` is the cheaper call if
+ * you want the full list.
+ */
+export const getBranchesPage = async (page = 0, size = 10): Promise<PageResponseBranch> => {
+    const all = await getBranches();
+    const start = page * size;
+    const content = all.slice(start, start + size);
+    const totalPages = size > 0 ? Math.ceil(all.length / size) : 0;
+    return {
+        content,
+        page,
+        size,
+        totalElements: all.length,
+        totalPages,
+        last: start + content.length >= all.length,
+    };
+};
+
+export const createBranchAdmin = async (payload: { code: string; name: string; location?: string; contactEmail?: string; contactPhone?: string; status?: "ACTIVE" | "INACTIVE" }) => {
+    const response = await axiosInstance.post('/api/v1/branches', payload);
+    return (response.data?.data ?? response.data) as BranchResponse;
+};
+
+// Keyed by branch code: BranchController maps PUT /branches/{code}, and
+// BranchService resolves it with findByCodeIgnoreCase. Passing a UUID 404s.
+export const updateBranchAdmin = async (code: string, payload: { name: string; location?: string; contactEmail?: string; contactPhone?: string; status?: "ACTIVE" | "INACTIVE" }) => {
+    const response = await axiosInstance.put(`/api/v1/branches/${code}`, payload);
+    return (response.data?.data ?? response.data) as BranchResponse;
+};
+
+export const getSuperadminUsers = async () => {
+    const response = await axiosInstance.get('/api/v1/superadmin/users');
+    return response.data as SuperadminUserResponse[];
+};
+
+export const updateSuperadminUser = async (id: string, payload: { email: string; fullName: string; branchId?: string; role?: string; isActive: boolean }) => {
+    const response = await axiosInstance.put(`/api/v1/superadmin/users/${id}`, payload);
+    return response.data as SuperadminUserResponse;
+};
+
+export const resetSuperadminUserPassword = async (id: string, password: string, adminPassword?: string) => {
+    const response = await axiosInstance.post(`/api/v1/superadmin/users/${id}/reset-password`, { password, adminPassword });
+    return response.data;
+};
+
+export const getSuperadminRoles = async () => {
+    const response = await axiosInstance.get('/api/v1/superadmin/roles');
+    return response.data as string[];
+};
+
+export const resetBranchUserPassword = async (id: string, password: string, adminPassword?: string) => {
+    const response = await axiosInstance.post(`/api/v1/branch-users/${id}/reset-password`, { password, adminPassword });
+    return response.data;
 };

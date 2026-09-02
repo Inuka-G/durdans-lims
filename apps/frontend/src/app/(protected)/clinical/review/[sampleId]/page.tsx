@@ -137,8 +137,11 @@ const getStatusTone = (status?: string | null): ChipTone => {
     return resultStatusTone(status);
 };
 
-const getFlagTone = (flag: string): ChipTone =>
-    flag === 'CRITICAL_HIGH' || flag === 'CRITICAL_LOW' ? 'danger' : 'pending';
+const getFlagTone = (flag: string): ChipTone => {
+    if (flag === 'CRITICAL_HIGH' || flag === 'CRITICAL_LOW') return 'danger';
+    if (flag === 'NORMAL') return 'neutral';
+    return 'pending';
+};
 
 const getFlagLabel = (flag: string) => {
     if (flag === 'CRITICAL_HIGH') {
@@ -152,6 +155,9 @@ const getFlagLabel = (flag: string) => {
     }
     if (flag === 'LOW') {
         return 'Low';
+    }
+    if (flag === 'NORMAL') {
+        return 'Normal';
     }
     return flag.replace(/_/g, ' ').toLowerCase().replace(/^\w/, (char) => char.toUpperCase());
 };
@@ -807,12 +813,12 @@ export default function ClinicalReviewPage() {
                                                         {row.unit}
                                                     </td>
                                                     <td className="px-3 py-2">
-                                                        {row.flag === 'NORMAL' ? (
-                                                            <span className="text-fg-faint">-</span>
-                                                        ) : (
+                                                        {row.flag ? (
                                                             <StatusChip tone={getFlagTone(row.flag)} dot size="sm" title={getFlagLabel(row.flag)}>
                                                                 {getFlagLabel(row.flag)}
                                                             </StatusChip>
+                                                        ) : (
+                                                            <span className="text-fg-faint">—</span>
                                                         )}
                                                     </td>
                                                     <td

@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, ChartColumn, Database, LayoutDashboard, Network, Shield, UserCog } from "lucide-react";
+import { Activity, ChartColumn, Database, LayoutDashboard, Network, UserCog } from "lucide-react";
 import ModuleSidebar, { type SidebarGroup } from "@/components/ui/ModuleSidebar";
 
 /** Original rule: the root is exact-match only, every other item is a plain prefix match. */
@@ -18,10 +18,6 @@ const GROUPS: SidebarGroup[] = [
             { name: "System monitoring", icon: Activity, href: "/superadmin/monitoring", isActive: startsWith("/superadmin/monitoring") },
             { name: "Cross-branch reports", icon: ChartColumn, href: "/superadmin/reports", isActive: startsWith("/superadmin/reports") },
         ],
-    },
-    {
-        label: "Security policies",
-        items: [{ name: "Security", icon: Shield, href: "/superadmin/security", isActive: startsWith("/superadmin/security") }],
     },
 ];
 

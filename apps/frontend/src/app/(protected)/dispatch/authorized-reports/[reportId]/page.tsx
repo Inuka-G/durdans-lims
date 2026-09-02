@@ -39,7 +39,7 @@ import Button from "@/components/ui/Button";
 import PageHeader, { type Crumb } from "@/components/ui/PageHeader";
 import SectionCard from "@/components/ui/SectionCard";
 import EmptyState from "@/components/ui/EmptyState";
-import StatusChip, { humanizeStatus, toneForStatus } from "@/components/ui/StatusChip";
+import StatusChip, { humanizeStatus, toneForStatus, type ChipTone } from "@/components/ui/StatusChip";
 import { InputField, TextareaField } from "@/components/ui/Field";
 import { formatAuditTime, formatPhone, formatRegistered } from "@/components/patient-dashboard/dashboard-data";
 
@@ -217,6 +217,26 @@ const showDispatchNotice = (notice: DispatchNotice) => {
     toast.error(notice.message);
 };
 
+const getDispatchFlagTone = (flag?: string | null): ChipTone => {
+    if (!flag) return "neutral";
+    const norm = flag.toUpperCase();
+    if (norm === "CRITICAL_HIGH" || norm === "CRITICAL_LOW" || norm.includes("CRITICAL")) return "danger";
+    if (norm === "HIGH" || norm === "LOW") return "pending";
+    if (norm === "NORMAL") return "neutral";
+    return "neutral";
+};
+
+const getDispatchFlagLabel = (flag?: string | null): string => {
+    if (!flag || flag === "N/A") return "—";
+    const norm = flag.toUpperCase();
+    if (norm === "CRITICAL_HIGH") return "Critical high";
+    if (norm === "CRITICAL_LOW") return "Critical low";
+    if (norm === "HIGH") return "High";
+    if (norm === "LOW") return "Low";
+    if (norm === "NORMAL") return "Normal";
+    return humanizeStatus(flag);
+};
+
 function mapDetailToReportData(detail: DispatchItemDetail): ReportViewData {
     const authorizedTime = formatDateTime(detail.authorizedAt);
     const supportedMethods: ApiDeliveryMethod[] = ["SMS", "EMAIL"];
@@ -229,7 +249,7 @@ function mapDetailToReportData(detail: DispatchItemDetail): ReportViewData {
             parameter: fallbackText(row.parameter),
             result: fallbackText(row.result),
             unit: fallbackText(row.unit),
-            flag: row.flag && row.flag !== "NORMAL" ? row.flag : "N/A",
+            flag: row.flag ? row.flag : "NORMAL",
             referenceRange: fallbackText(row.referenceRange),
             isAbnormal: Boolean(row.abnormal),
         }))
@@ -912,11 +932,11 @@ export default function AuthorizedReportPage() {
                                             </td>
                                             <td className="truncate px-3 py-2 text-fg-muted" title={row.unit || undefined}>{row.unit}</td>
                                             <td className="px-3 py-2">
-                                                {row.flag === "N/A" ? (
+                                                {row.flag === "N/A" || !row.flag ? (
                                                     <span className="text-fg-faint">—</span>
                                                 ) : (
-                                                    <StatusChip size="sm" tone={row.flag.includes("HIGH") ? "danger" : "pending"} title={row.flag}>
-                                                        {row.flag}
+                                                    <StatusChip size="sm" dot tone={getDispatchFlagTone(row.flag)} title={getDispatchFlagLabel(row.flag)}>
+                                                        {getDispatchFlagLabel(row.flag)}
                                                     </StatusChip>
                                                 )}
                                             </td>

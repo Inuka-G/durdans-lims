@@ -37,7 +37,7 @@ public class OrderController implements OrderApi {
     }
 
     @Override
-    @PreAuthorize("hasAnyRole('BILLING_OFFICER','FRONT_DESK','BRANCH_ADMIN','SUPER_ADMIN')")
+    @PreAuthorize("hasAnyRole('BILLING_OFFICER','FRONT_DESK','BRANCH_ADMIN','SUPER_ADMIN','PATIENT')")
     public ResponseEntity<ApiResponse<PageResponse<OrderResponse>>> getOrders(int page, int size, String patientId, String sort) {
         Sort springSort;
         try {
@@ -49,7 +49,23 @@ public class OrderController implements OrderApi {
             springSort = Sort.by(Sort.Direction.DESC, "createdAt");
         }
 
-        Page<OrderResponse> result = orderService.getOrders(PageRequest.of(page, size, springSort), patientId);
+        String effectivePatientId = patientId;
+        if (com.uom.lims.security.SecurityUtils.hasRole("PATIENT")) {
+            // Patient can only query their own records. Fail closed: a missing
+            // preferred_username used to leave patientId as the request param,
+            // which would list every order in the system.
+            org.springframework.security.core.Authentication authentication = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+            String ownCode = null;
+            if (authentication != null && authentication.getPrincipal() instanceof org.springframework.security.oauth2.jwt.Jwt jwt) {
+                ownCode = jwt.getClaimAsString("preferred_username");
+            }
+            if (ownCode == null || ownCode.isBlank()) {
+                throw new org.springframework.security.access.AccessDeniedException("Access Denied");
+            }
+            effectivePatientId = ownCode;
+        }
+
+        Page<OrderResponse> result = orderService.getOrders(PageRequest.of(page, size, springSort), effectivePatientId);
 
         PageResponse<OrderResponse> pageResponse = new PageResponse<>(
                 result.getContent(),

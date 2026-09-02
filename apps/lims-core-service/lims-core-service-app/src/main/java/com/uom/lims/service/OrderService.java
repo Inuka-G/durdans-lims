@@ -91,6 +91,7 @@ public class OrderService {
         private final ReportDispatchItemRepository dispatchItemRepository;
         private final ReportDeliveryAttemptRepository deliveryAttemptRepository;
         private final AuditLogRepository auditLogRepository;
+        private final com.uom.lims.audit.AuditService auditService;
         private final PatientLifecycleNotificationService patientLifecycleNotificationService;
 
         /**
@@ -253,6 +254,9 @@ public class OrderService {
                 // can never leave the patient with a tracking message for a missing order.
                 patientLifecycleNotificationService.orderCreated(savedOrder, bill);
 
+                String details = String.format("{\"patientId\":\"%s\", \"priority\":\"%s\", \"billNo\":\"%s\"}", savedOrder.getPatientId(), savedOrder.getPriority(), bill.getBillNo());
+                auditService.log("CREATE_ORDER", "ORDER", savedOrder.getId(), savedOrder.getPatientId(), details, getCurrentIp());
+
                 // Step 9: Map the saved entity to a response DTO, enriching items with test
                 // catalog data.
                 return toResponse(savedOrder, testMap);
@@ -264,6 +268,16 @@ public class OrderService {
                         case URGENT -> 1;
                         case NORMAL -> 2;
                 };
+        }
+
+        private String getCurrentIp() {
+                try {
+                        return com.uom.lims.security.ClientIpResolver.resolve(
+                                ((org.springframework.web.context.request.ServletRequestAttributes) 
+                                        org.springframework.web.context.request.RequestContextHolder.currentRequestAttributes()).getRequest());
+                } catch (Exception e) {
+                        return "SYSTEM";
+                }
         }
 
         /**

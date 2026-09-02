@@ -30,11 +30,14 @@ public class QcService {
 
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("hh:mm a")
             .withZone(ZoneId.systemDefault());
+    private static final DateTimeFormatter DATE_TIME = DateTimeFormatter.ofPattern("dd MMM, hh:mm a")
+            .withZone(ZoneId.systemDefault());
     private static final int SERIES_WINDOW = 30;
 
     private final QcResultRepository repository;
     private final InstrumentRepository instrumentRepository;
     private final TestParameterRepository testParameterRepository;
+    private final com.uom.lims.audit.AuditService auditService;
 
     /**
      * @param instrument must be a code from the instrument registry — the release
@@ -108,7 +111,20 @@ public class QcService {
         entity.setBranchCode(SecurityUtils.getCurrentBranchId());
         repository.save(entity);
 
+        String details = String.format("{\"analyte\":\"%s\", \"controlLevel\":\"%s\", \"status\":\"%s\"}", req.analyte(), req.controlLevel(), status);
+        auditService.log("RECORD_QC_RESULT", "QC_RESULT", entity.getId(), null, details, getCurrentIp());
+
         return new QcRunOutcome(entity.getId().toString(), status, eval.violations());
+    }
+
+    private String getCurrentIp() {
+        try {
+            return com.uom.lims.security.ClientIpResolver.resolve(
+                ((org.springframework.web.context.request.ServletRequestAttributes) 
+                    org.springframework.web.context.request.RequestContextHolder.currentRequestAttributes()).getRequest());
+        } catch (Exception e) {
+            return "SYSTEM";
+        }
     }
 
     @Transactional(readOnly = true)
@@ -127,9 +143,20 @@ public class QcService {
     }
 
     private static QcRunItemResponse toRun(QcResultEntity e) {
+        String formattedTime = formatTimestamp(e.getPerformedAt());
         return new QcRunItemResponse(
                 e.getId().toString(), e.getInstrument(), e.getAnalyte(), e.getControlLevel(),
                 e.getMeasuredValue().toPlainString(), e.getMean().toPlainString(), e.getSd().toPlainString(),
-                e.getStatus(), e.getPerformedBy(), TIME.format(e.getPerformedAt()));
+                e.getStatus(), e.getPerformedBy(), formattedTime);
+    }
+
+    private static String formatTimestamp(java.time.Instant performedAt) {
+        if (performedAt == null) return "-";
+        java.time.LocalDate today = java.time.LocalDate.now(ZoneId.systemDefault());
+        java.time.LocalDate runDate = performedAt.atZone(ZoneId.systemDefault()).toLocalDate();
+        if (today.equals(runDate)) {
+            return TIME.format(performedAt);
+        }
+        return DATE_TIME.format(performedAt);
     }
 }

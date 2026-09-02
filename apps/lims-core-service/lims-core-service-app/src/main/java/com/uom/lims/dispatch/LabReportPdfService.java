@@ -24,6 +24,7 @@ import java.util.Locale;
 public class LabReportPdfService {
 
     private static final Color NAVY = new Color(11, 31, 58);
+    private static final Color TEXT = new Color(45, 55, 66);
     private static final Color BLUE = new Color(19, 127, 236);
     private static final Color LIGHT_BLUE = new Color(235, 245, 255);
     private static final Color LIGHT_GREY = new Color(245, 247, 250);
@@ -61,16 +62,16 @@ public class LabReportPdfService {
         header.setSpacingAfter(16);
 
         PdfPCell brand = cell(null, Color.WHITE, 0, 12);
-        Paragraph hospital = new Paragraph("DURDANS HOSPITAL", bold(18, NAVY));
+        Paragraph hospital = new Paragraph("DURDANS HOSPITAL", bold(15, NAVY));
         hospital.setSpacingAfter(3);
         brand.addElement(hospital);
-        brand.addElement(new Paragraph("Laboratory Services", bold(10, BLUE)));
+        brand.addElement(new Paragraph("Laboratory Services", font(10, BLUE)));
         brand.addElement(new Paragraph("Authorized Laboratory Report", font(9, Color.DARK_GRAY)));
         header.addCell(brand);
 
         PdfPCell status = cell(null, LIGHT_BLUE, 0, 10);
         status.setHorizontalAlignment(Element.ALIGN_CENTER);
-        Paragraph authorized = new Paragraph("CLINICALLY\nAUTHORIZED", bold(10, NAVY));
+        Paragraph authorized = new Paragraph("CLINICALLY\nAUTHORIZED", bold(9, NAVY));
         authorized.setAlignment(Element.ALIGN_CENTER);
         status.addElement(authorized);
         header.addCell(status);
@@ -109,8 +110,8 @@ public class LabReportPdfService {
         table.setHeaderRows(1);
         table.setSpacingAfter(14);
         for (String heading : new String[]{"Parameter", "Result", "Unit", "Reference range", "Flag"}) {
-            PdfPCell header = cell(heading, NAVY, 1, 8);
-            header.setPhrase(new Phrase(heading, bold(8, Color.WHITE)));
+            PdfPCell header = cell(heading, LIGHT_GREY, 1, 8);
+            header.setPhrase(new Phrase(heading, bold(8, NAVY)));
             table.addCell(header);
         }
 
@@ -123,7 +124,7 @@ public class LabReportPdfService {
             for (LabReportData.ResultRow row : report.results()) {
                 Color background = row.abnormal() ? ABNORMAL : Color.WHITE;
                 table.addCell(resultCell(value(row.parameter()), background, false));
-                table.addCell(resultCell(value(row.value()), background, true));
+                table.addCell(resultCell(value(row.value()), background, row.abnormal()));
                 table.addCell(resultCell(value(row.unit()), background, false));
                 table.addCell(resultCell(value(row.referenceRange()), background, false));
                 table.addCell(resultCell(label(row.flag()), background, row.abnormal()));
@@ -155,7 +156,7 @@ public class LabReportPdfService {
         signature.addCell(notice);
         PdfPCell sign = cell(null, Color.WHITE, 0, 8);
         sign.addElement(new Paragraph("Electronically authorized by", font(8, Color.DARK_GRAY)));
-        sign.addElement(new Paragraph(value(report.authorizedBy()), bold(10, NAVY)));
+        sign.addElement(new Paragraph(value(report.authorizedBy()), bold(9, NAVY)));
         sign.addElement(new Paragraph(format(report.authorizedAt()), font(8, Color.DARK_GRAY)));
         signature.addCell(sign);
         document.add(signature);
@@ -170,14 +171,14 @@ public class LabReportPdfService {
 
     private static void addPair(PdfPTable table, String label, String value) {
         table.addCell(cell(label, LIGHT_GREY, 1, 8));
-        PdfPCell data = cell(value, Color.WHITE, 1, 8);
-        data.setPhrase(new Phrase(value, bold(8, NAVY)));
+        PdfPCell data = cell(value, Color.WHITE, 1, 9);
+        data.setPhrase(new Phrase(value, font(9, TEXT)));
         table.addCell(data);
     }
 
-    private static PdfPCell resultCell(String text, Color background, boolean bold) {
-        PdfPCell cell = cell(text, background, 1, 8);
-        cell.setPhrase(new Phrase(text, bold ? bold(8, NAVY) : font(8, Color.DARK_GRAY)));
+    private static PdfPCell resultCell(String text, Color background, boolean emphasized) {
+        PdfPCell cell = cell(text, background, 1, 9);
+        cell.setPhrase(new Phrase(text, emphasized ? bold(9, NAVY) : font(9, TEXT)));
         return cell;
     }
 
