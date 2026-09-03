@@ -57,8 +57,8 @@ export default function SuperAdminDashboardPage() {
                 
                 setStats({
                     totalBranches: branches.length,
-                    totalPatients: globalReport.kpis.totalPatients,
-                    totalRevenue: globalReport.kpis.totalRevenue,
+                    totalPatients: parseInt(globalReport.kpis.totalPatients, 10) || 0,
+                    totalRevenue: Number(globalReport.kpis.totalRevenue) || 0,
                     pendingVerifications: parseInt(globalReport.kpis.pendingReports, 10)
                 });
                 
@@ -266,61 +266,6 @@ export default function SuperAdminDashboardPage() {
 
             </div>
 
-            {/* Right Sidebar Widgets */}
-            <div className="w-full xl:w-[320px] flex flex-col gap-6 flex-shrink-0">
-
-                {/* System Health */}
-                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 overflow-hidden relative">
-                    {/* Status dot in corner */}
-                    <div className="absolute top-6 right-6 w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]"></div>
-
-                    <h2 className="text-lg font-extrabold text-slate-800 mb-8 mt-1">System Health</h2>
-
-                    <div className="space-y-6">
-                        {/* Global Server Load */}
-                        <div>
-                            <div className="flex justify-between text-xs font-bold text-slate-500 mb-2 uppercase tracking-wider">
-                                <span>Global Server Load</span>
-                                <span className="text-blue-600">34%</span>
-                            </div>
-                            <div className="w-full bg-slate-100 rounded-full h-1.5">
-                                <div className="bg-blue-500 h-1.5 rounded-full" style={{ width: '34%' }}></div>
-                            </div>
-                        </div>
-
-                        {/* API Response Time */}
-                        <div>
-                            <div className="flex justify-between text-xs font-bold text-slate-500 mb-2 uppercase tracking-wider">
-                                <span>API Response Time</span>
-                                <span className="text-emerald-500">124MS</span>
-                            </div>
-                            <div className="w-full bg-slate-100 rounded-full h-1.5">
-                                <div className="bg-emerald-500 h-1.5 rounded-full" style={{ width: '40%' }}></div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="mt-8 pt-6 border-t border-slate-100">
-                        <p className="text-[10px] font-bold text-slate-400 mb-4 uppercase tracking-wider">Live Status</p>
-                        <ul className="space-y-3">
-                            <li className="flex items-center gap-3 text-sm font-semibold text-slate-700">
-                                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
-                                Reporting Engine Online
-                            </li>
-                            <li className="flex items-center gap-3 text-sm font-semibold text-slate-700">
-                                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
-                                SMS/Email Gateway Active
-                            </li>
-                            <li className="flex items-center gap-3 text-sm font-semibold text-slate-700">
-                                <div className="w-1.5 h-1.5 rounded-full bg-amber-500"></div>
-                                Backup Process Pending
-                            </li>
-                        </ul>
-                    </div>
-                </div>
-
-
-            </div>
 
         </div>
     );

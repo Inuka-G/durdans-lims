@@ -277,11 +277,6 @@ export default function GlobalAuditTrailsPage() {
                         <span>Log retention 180 days</span>
                     </>
                 }
-                actions={
-                    <Button variant="primary" icon={FileSpreadsheet} onClick={handleExportExcel}>
-                        Export to Excel
-                    </Button>
-                }
             />
 
             {/* Screen-reader status for filter changes */}
@@ -289,13 +284,6 @@ export default function GlobalAuditTrailsPage() {
                 {`${totalElements} audit ${totalElements === 1 ? "entry" : "entries"} found.`}
             </p>
 
-            {/* KPI row */}
-            <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                <KpiTile label="Global actions" value={totalElements.toLocaleString()} icon={Globe} note="Total logs recorded" />
-                <KpiTile label="Failed logins" value="412" icon={ShieldX} tone="danger" delta={{ value: 12, label: "vs previous 30 days" }} />
-                <KpiTile label="Critical incidents" value="42" icon={AlertTriangle} tone="warning" note="Requires audit" />
-                <KpiTile label="Active sessions" value="1,248" icon={Radio} tone="success" note="Across 12 nodes" />
-            </div>
 
             <SectionCard title="System audit trail" count={totalElements} flush>
                 {/* Filter toolbar */}

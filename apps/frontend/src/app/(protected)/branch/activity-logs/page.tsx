@@ -329,66 +329,6 @@ export default function ActivityLogsPage() {
                 </div>
             </div>
 
-            {/* KPI Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                {/* Total Actions */}
-                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
-                    <div className="flex justify-between items-start mb-2">
-                        <h3 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Total Actions</h3>
-                        <div className="bg-blue-50 text-blue-500 w-7 h-7 rounded-md flex items-center justify-center">
-                            <span className="material-icons text-[16px]">bolt</span>
-                        </div>
-                    </div>
-                    <div className="flex flex-col gap-0.5 mt-2">
-                        <div className="flex items-baseline gap-2">
-                            <span className="text-3xl font-extrabold text-slate-900">14,802</span>
-                        </div>
-                        <span className="text-[11px] font-semibold text-slate-400">Last 7 days</span>
-                    </div>
-                </div>
-
-                {/* Failed Logins */}
-                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
-                    <div className="flex justify-between items-start mb-2">
-                        <h3 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Failed Logins</h3>
-                        <div className="bg-red-50 text-red-500 w-7 h-7 rounded-md flex items-center justify-center border border-red-100">
-                            <span className="material-icons text-[16px]">login</span>
-                        </div>
-                    </div>
-                    <div className="flex items-baseline gap-2 mt-2">
-                        <span className="text-3xl font-extrabold text-slate-900">124</span>
-                        <span className="text-[11px] font-bold text-red-500">+5%</span>
-                    </div>
-                </div>
-
-                {/* Critical Actions */}
-                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
-                    <div className="flex justify-between items-start mb-2">
-                        <h3 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Critical Actions</h3>
-                        <div className="bg-orange-50 text-orange-500 w-7 h-7 rounded-md flex items-center justify-center">
-                            <span className="material-icons text-[16px]">priority_high</span>
-                        </div>
-                    </div>
-                    <div className="flex items-baseline gap-2 mt-2">
-                        <span className="text-3xl font-extrabold text-slate-900">18</span>
-                        <span className="text-[11px] font-bold text-orange-500">Requires Audit</span>
-                    </div>
-                </div>
-
-                {/* Active Users */}
-                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
-                    <div className="flex justify-between items-start mb-2">
-                        <h3 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Active Users</h3>
-                        <div className="bg-emerald-50 text-emerald-500 w-7 h-7 rounded-md flex items-center justify-center">
-                            <span className="material-icons text-[16px]">people</span>
-                        </div>
-                    </div>
-                    <div className="flex items-baseline gap-2 mt-2">
-                        <span className="text-3xl font-extrabold text-slate-900">86</span>
-                        <span className="text-[11px] font-bold text-emerald-500">Currently Online</span>
-                    </div>
-                </div>
-            </div>
 
             {/* Audit Trail Table Section */}
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col flex-1 pb-4">
