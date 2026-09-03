@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { getBranchActivityLogs, BranchActivityLog, getBranchesPage, getBranches } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
+import { toast } from "sonner";
 
 import Modal from "@/components/ui/Modal";
 import Button from "@/components/ui/Button";
@@ -115,32 +116,61 @@ export default function ActivityLogsPage() {
     const [selectedAction, setSelectedAction] = useState("All Actions");
     const [startDate, setStartDate] = useState("");
     const [endDate, setEndDate] = useState("");
+    const [sortOrder, setSortOrder] = useState("newest");
+
+    // Applied filter states
+    const [appliedFilters, setAppliedFilters] = useState({
+        searchQuery: "",
+        selectedRole: "All Roles",
+        selectedModule: "All Modules",
+        selectedAction: "All Actions",
+        startDate: "",
+        endDate: ""
+    });
+
+    const handleApplyFilters = () => {
+        setAppliedFilters({
+            searchQuery,
+            selectedRole,
+            selectedModule,
+            selectedAction,
+            startDate,
+            endDate
+        });
+        toast.success("Filters applied successfully!", { position: 'top-right' });
+    };
 
     // Filter logic
     const filteredLogs = logs.filter(log => {
         // Search Filter (User, Entity ID, IP)
-        const query = searchQuery.toLowerCase();
-        const matchesSearch = log.user.toLowerCase().includes(query) ||
+        const query = appliedFilters.searchQuery.toLowerCase();
+        const matchesSearch = !query || 
+            log.user.toLowerCase().includes(query) ||
             log.entityId.toLowerCase().includes(query) ||
-            log.ipAddress.toLowerCase().includes(query);
+            log.ipAddress.toLowerCase().includes(query) ||
+            log.module.toLowerCase().includes(query) ||
+            log.action.toLowerCase().includes(query) ||
+            log.role.toLowerCase().includes(query) ||
+            log.status.toLowerCase().includes(query) ||
+            (log.details && log.details.toLowerCase().includes(query));
 
         // Dropdown Filters
-        const matchesRole = selectedRole === "All Roles" || log.role === selectedRole;
-        const matchesModule = selectedModule === "All Modules" || log.module === selectedModule;
-        const matchesAction = selectedAction === "All Actions" || log.action === selectedAction;
+        const matchesRole = appliedFilters.selectedRole === "All Roles" || log.role === appliedFilters.selectedRole;
+        const matchesModule = appliedFilters.selectedModule === "All Modules" || log.module === appliedFilters.selectedModule;
+        const matchesAction = appliedFilters.selectedAction === "All Actions" || log.action === appliedFilters.selectedAction;
 
         // Date Filter
         let matchesDate = true;
-        if (startDate || endDate) {
+        if (appliedFilters.startDate || appliedFilters.endDate) {
             const logDate = new Date(log.timestamp);
             if (!isNaN(logDate.getTime())) {
-                if (startDate) {
-                    const start = new Date(startDate);
+                if (appliedFilters.startDate) {
+                    const start = new Date(appliedFilters.startDate);
                     start.setHours(0, 0, 0, 0);
                     matchesDate = matchesDate && logDate >= start;
                 }
-                if (endDate) {
-                    const end = new Date(endDate);
+                if (appliedFilters.endDate) {
+                    const end = new Date(appliedFilters.endDate);
                     end.setHours(23, 59, 59, 999);
                     matchesDate = matchesDate && logDate <= end;
                 }
@@ -148,6 +178,10 @@ export default function ActivityLogsPage() {
         }
 
         return matchesSearch && matchesRole && matchesModule && matchesAction && matchesDate;
+    }).sort((a, b) => {
+        const timeA = new Date(a.timestamp).getTime();
+        const timeB = new Date(b.timestamp).getTime();
+        return sortOrder === "newest" ? timeB - timeA : timeA - timeB;
     });
 
     const uniqueRoles = ["All Roles", ...Array.from(new Set(logs.map(log => log.role)))];
@@ -262,7 +296,10 @@ export default function ActivityLogsPage() {
                     </div>
 
                     <div className="flex gap-2">
-                        <button className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg font-semibold text-sm transition-all shadow-sm shadow-blue-600/20 whitespace-nowrap">
+                        <button 
+                            onClick={handleApplyFilters}
+                            className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg font-semibold text-sm transition-all shadow-sm shadow-blue-600/20 whitespace-nowrap"
+                        >
                             Apply Filters
                         </button>
                         <button className="flex items-center justify-center border border-slate-200 rounded-lg w-10 h-10 hover:bg-slate-50 transition-colors text-slate-500">
@@ -276,7 +313,7 @@ export default function ActivityLogsPage() {
                         <span className="material-icons absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">search</span>
                         <input
                             type="text"
-                            placeholder="Search by User Name, Entity ID or IP Address..."
+                            placeholder="Search logs by User, Action, Entity ID, IP, Details..."
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                             className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all placeholder:text-slate-400"
@@ -360,9 +397,19 @@ export default function ActivityLogsPage() {
                         <span className="material-icons text-slate-400 text-[18px]">list_alt</span>
                         <h2 className="text-[15px] font-extrabold text-slate-800">Audit Trail</h2>
                     </div>
-                    <div className="flex items-center gap-1.5 text-slate-400 text-xs font-semibold cursor-pointer hover:text-slate-600 transition-colors">
-                        <span>Auto-refresh in 45s</span>
-                        <span className="material-icons text-[14px]">refresh</span>
+                    <div className="flex items-center gap-4">
+                        <select
+                            value={sortOrder}
+                            onChange={(e) => setSortOrder(e.target.value)}
+                            className="text-[12px] font-bold border border-slate-200 rounded-md px-2 py-1 bg-white text-slate-700 outline-none focus:border-blue-500 cursor-pointer"
+                        >
+                            <option value="newest">Newest to Oldest</option>
+                            <option value="oldest">Oldest to Newest</option>
+                        </select>
+                        <div className="flex items-center gap-1.5 text-slate-400 text-xs font-semibold cursor-pointer hover:text-slate-600 transition-colors">
+                            <span>Auto-refresh in 45s</span>
+                            <span className="material-icons text-[14px]">refresh</span>
+                        </div>
                     </div>
                 </div>
 

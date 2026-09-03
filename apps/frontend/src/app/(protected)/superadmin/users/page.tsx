@@ -58,7 +58,9 @@ export default function GlobalUserControlPage() {
             setBranches(fetchedBranches);
             setRoles(rolesData);
 
-            const mappedUsers: UserRecord[] = usersData.map(u => {
+            const mappedUsers: UserRecord[] = usersData
+                .filter(u => u.id !== authUser?.sub)
+                .map(u => {
                 let branchName = "Not Assigned";
                 if (u.branchId) {
                     const foundBranch = fetchedBranches.find((b: any) => b.id?.toString() === u.branchId || b.code === u.branchId);

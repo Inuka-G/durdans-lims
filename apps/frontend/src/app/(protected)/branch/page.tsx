@@ -93,6 +93,35 @@ export default function BranchDashboard() {
 
     return (
         <div className="w-full bg-[#f8fafc] min-h-[calc(100vh-76px)] p-6 font-sans">
+            {/* Dashboard Header & Filters */}
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
+                <h1 className="text-xl font-extrabold text-[#0f172a]">Dashboard Overview</h1>
+                <div className="flex items-center gap-3">
+                    {dateRange === 'custom' && (
+                        <div className="flex items-center gap-2">
+                            <input 
+                                type="number" 
+                                min="1"
+                                value={customDays} 
+                                onChange={e => setCustomDays(e.target.value)} 
+                                placeholder="Days"
+                                className="text-[12px] border border-[#ecf0f6] rounded-md px-3 py-1.5 w-20 text-fg outline-none focus:border-primary bg-white" 
+                            />
+                            <span className="text-xs font-semibold text-[#64748b]">days</span>
+                        </div>
+                    )}
+                    <select 
+                        value={dateRange} 
+                        onChange={(e) => setDateRange(e.target.value)}
+                        className="text-[12px] font-bold border border-[#ecf0f6] rounded-md px-3 py-1.5 bg-white text-[#0f172a] outline-none focus:border-primary cursor-pointer"
+                    >
+                        <option value="7">Last 7 Days</option>
+                        <option value="30">Last 30 Days</option>
+                        <option value="custom">Custom</option>
+                    </select>
+                </div>
+            </div>
+
             {/* Top KPI Row */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
                 {/* Total Patients */}
@@ -177,31 +206,6 @@ export default function BranchDashboard() {
                             <h2 className="text-[14px] font-extrabold text-[#0f172a]">
                                 Revenue Trend {dateRange === '7' ? '(Last 7 Days)' : dateRange === '30' ? '(Last 30 Days)' : `(Last ${customDays || 0} Days)`}
                             </h2>
-                            <div className="flex items-center gap-3">
-                                {dateRange === 'custom' && (
-                                    <div className="flex items-center gap-2">
-                                        <input 
-                                            type="number" 
-                                            min="1"
-                                            value={customDays} 
-                                            onChange={e => setCustomDays(e.target.value)} 
-                                            placeholder="Days"
-                                            className="text-[11px] border border-[#ecf0f6] rounded px-2 py-1 w-16 text-fg outline-none focus:border-primary" 
-                                        />
-                                        <span className="text-xs text-fg-muted">days</span>
-                                    </div>
-                                )}
-                                <select 
-                                    value={dateRange} 
-                                    onChange={(e) => setDateRange(e.target.value)}
-                                    className="text-[11px] font-bold border border-[#ecf0f6] rounded-md px-2 py-1 bg-[#f8fafc] text-fg outline-none focus:border-primary cursor-pointer"
-                                >
-                                    <option value="7">Last 7 Days</option>
-                                    <option value="30">Last 30 Days</option>
-                                    <option value="custom">Custom</option>
-                                </select>
-                                <button className="text-[12px] font-bold text-[#1277E1] hover:underline">Download CSV</button>
-                            </div>
                         </div>
                         <div className="flex-1 p-4">
                             {revenueTrend && revenueTrend.length > 0 ? (
